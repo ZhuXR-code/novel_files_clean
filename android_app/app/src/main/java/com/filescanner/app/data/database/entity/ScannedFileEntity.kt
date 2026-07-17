@@ -1,0 +1,40 @@
+package com.filescanner.app.data.database.entity
+
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.Index
+import androidx.room.PrimaryKey
+
+@Entity(
+    tableName = "scanned_file",
+    indices = [
+        Index(value = ["path", "scan_run_id"], unique = true),
+        Index("marked"),
+        Index("title"),
+        Index("scan_run_id")
+    ]
+)
+data class ScannedFileEntity(
+    @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    val path: String,
+    @ColumnInfo(name = "file_name")
+    val fileName: String,
+    @ColumnInfo(name = "file_size")
+    val fileSize: Long = 0,
+    val title: String = "",
+    val author: String = "",
+    @ColumnInfo(name = "progress", defaultValue = "''")
+    val progress: String = "",
+    @ColumnInfo(name = "source", defaultValue = "''")
+    val source: String = "",
+    @ColumnInfo(name = "content_hash")
+    val contentHash: String = "",
+    val ext: String = "",
+    @ColumnInfo(name = "marked")
+    val marked: Int = 0,
+    @ColumnInfo(name = "scan_run_id")
+    val scanRunId: Long = 0,
+    @ColumnInfo(name = "created_at")
+    val createdAt: Long = System.currentTimeMillis()
+)

@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">文件清理助手</string>
+
+    <!-- 通用 -->
+    <string name="back">返回</string>
+    <string name="cancel">取消</string>
+    <string name="confirm">确定</string>
+    <string name="close">关闭</string>
+    <string name="yes">是</string>
+    <string name="no">否</string>
+    <string name="ok">完成</string>
+    <string name="search">搜索</string>
+    <string name="empty">暂无数据</string>
+    <string name="loading">加载中…</string>
+    <string name="error">错误</string>
+    <string name="retry">重试</string>
+
+    <!-- 主页 -->
+    <string name="home_title">文件清理助手</string>
+    <string name="home_subtitle">扫描本地文本文件，识别重复与垃圾，安全清理</string>
+    <string name="start_scan">开始扫描</string>
+    <string name="select_folder">选择文件夹</string>
+    <string name="go_library">查看文库</string>
+    <string name="settings">设置</string>
+    <string name="help">帮助</string>
+    <string name="scan_permission_required">需要授予文件夹访问权限才能扫描</string>
+    <string name="grant_permission">授予权限</string>
+    <string name="open_settings">前往设置</string>
+    <string name="total_files">文件总数</string>
+    <string name="marked_count">已标记</string>
+
+    <string name="no_data_hint">还未扫描任何文件，点击“开始扫描”选择文件夹</string>
+    <string name="rescan">重新扫描</string>
+
+    <!-- 扫描 -->
+    <string name="scanning">正在扫描…</string>
+    <string name="scan_preparing">准备扫描…</string>
+    <string name="scanning_file">%1$s（%2$d/%3$d）</string>
+    <string name="scan_completed">扫描完成：共 %1$d 个文件</string>
+    <string name="scan_no_files">未找到匹配的文件</string>
+    <string name="scan_error">扫描出错</string>
+    <string name="scan_stopped">扫描已停止：%1$d 个文件</string>
+    <string name="stop_scan">停止</string>
+    <string name="scan_finished_view">查看结果</string>
+    <string name="scanning_progress">%1$d / %2$d</string>
+
+    <!-- 文库 -->
+    <string name="library">文库</string>
+    <string name="filter_all">全部</string>
+    <string name="filter_marked">已标记</string>
+
+    <string name="sort_time">时间</string>
+    <string name="sort_name">名称</string>
+    <string name="sort_size">大小</string>
+    <string name="mark">标记</string>
+    <string name="unmark">取消标记</string>
+    <string name="mark_duplicates">标记重复</string>
+
+    <string name="mark_duplicates_name">按书名/作者相同标记</string>
+    <string name="clear_marked">清除标记</string>
+    <string name="select_all">全选</string>
+    <string name="deselect_all">全不选</string>
+    <string name="delete_selected">删除选中</string>
+    <string name="marked_num">已选 %1$d</string>
+    <string name="no_files">没有可显示的文件</string>
+
+
+    <!-- 合集模式 -->
+    <string name="group_mode">合集模式</string>
+    <string name="list_mode">列表模式</string>
+    <string name="group_settings">合集设置</string>
+    <string name="group_unparsed">未解析</string>
+    <string name="group_summary">%1$d 个文件 · %2$s</string>
+    <string name="no_groups">没有符合条件的合集</string>
+    <string name="group_count_range_hint">按合集内文件数量区间筛选，仅显示符合条件的合集。留空表示不限。</string>
+    <string name="group_min">最少</string>
+    <string name="group_max">最多</string>
+    <string name="group_exclude">排除的合集（书名）</string>
+    <string name="group_exclude_hint">书名，一行一个或逗号分隔</string>
+
+    <!-- 解析字段 -->
+    <string name="source_label">来源</string>
+    <string name="progress_label">进度</string>
+
+    <!-- 文库列表（按扫描） -->
+    <string name="run_list_empty">还没有文库，去首页开始一次扫描吧</string>
+    <string name="run_summary">%1$d 个文件 · %2$s</string>
+    <string name="delete_run">删除文库</string>
+    <string name="delete_run_confirm">将删除该文库及其全部文件，且不可恢复，确定？</string>
+
+    <!-- 删除 -->
+    <string name="delete_confirm_title">确认删除</string>
+    <string name="delete_warning">删除后文件将无法恢复</string>
+    <string name="delete_confirm_msg">以下 %1$d 个文件将被删除（共选 %2$d 个）</string>
+    <string name="confirm_delete">确认删除 (%1$d)</string>
+
+
+    <string name="deleting">正在删除…</string>
+    <string name="delete_done">删除完成</string>
+    <string name="delete_success_num">成功 %1$d</string>
+    <string name="delete_failed_num">失败 %1$d</string>
+    <string name="delete_failed_files">以下文件删除失败（可能已被移动或权限不足）：</string>
+
+
+
+
+    <!-- 设置 -->
+    <string name="scan_settings">扫描设置</string>
+    <string name="theme">主题</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_light">浅色</string>
+    <string name="theme_dark">深色</string>
+    <string name="font_size">全局字号</string>
+    <string name="font_size_desc">调整全部界面的文字大小，自动适配不同手机屏幕</string>
+    <string name="font_small">小</string>
+    <string name="font_standard">标准</string>
+    <string name="font_large">大</string>
+    <string name="back_to_top">回到顶层</string>
+    <string name="back_to_bottom">回到底层</string>
+    <string name="scan_file_types">扫描文件类型</string>
+    <string name="scan_file_types_hint">逗号分隔，如 txt,md</string>
+    <string name="min_size">最小文件大小（KB，0=不限）</string>
+    <string name="recursive">递归子文件夹</string>
+
+    <string name="export_marked">导出已标记文件清单</string>
+    <string name="export_success">已导出：%1$s</string>
+    <string name="export_failed">导出失败：%1$s</string>
+    <string name="clear_data">清空本地数据</string>
+    <string name="clear_data_confirm">确定要清空全部扫描记录吗？此操作不可恢复。</string>
+    <string name="cleared">已清空</string>
+    <string name="about">关于</string>
+    <string name="about_text">文件清理助手 v1.0.0\n基于 Jetpack Compose 构建，本地扫描与清理文本文件。</string>
+
+    <!-- 日志 -->
+    <string name="log">日志</string>
+
+    <!-- 通知渠道 -->
+    <string name="scan_channel_name">扫描与清理</string>
+    <string name="scan_channel_desc">文件扫描与删除进度通知</string>
+    <string name="scan_notification_title">文件清理助手</string>
+
+    <!-- 扫描配置（对应 PC 版左侧“扫描配置”列表 + 新增弹窗） -->
+    <string name="config_title">扫描配置</string>
+    <string name="config_list_empty">还没有扫描配置，点击下方“+”新增一个，选择文件夹后即可扫描</string>
+    <string name="add_config">新增配置</string>
+    <string name="edit_config">编辑配置</string>
+    <string name="unnamed_config">未命名配置</string>
+    <string name="config_name">配置名称</string>
+    <string name="config_name_hint">可选，便于区分；留空则显示文件夹路径</string>
+    <string name="scan_folder_path">扫描文件夹路径</string>
+    <string name="select_folder_btn">选择文件夹</string>
+    <string name="change_folder_btn">重新选择</string>
+    <string name="folder_not_selected">尚未选择文件夹</string>
+    <string name="file_types">文件类型</string>
+    <string name="custom_file_type">自定义类型</string>
+    <string name="excluded_folders">排除的文件夹</string>
+    <string name="excluded_folders_hint">逗号分隔，如 node_modules, .git, __pycache__</string>
+    <string name="save_config">保存配置</string>
+    <string name="delete_config">删除配置</string>
+    <string name="delete_config_confirm">确定删除该扫描配置吗？已扫描的文件记录不受影响。</string>
+    <string name="not_recursive">不递归</string>
+    <string name="has_excluded">已排除</string>
+
+    <!-- 扫描进度补充 -->
+    <string name="collecting">正在收集文件…</string>
+    <string name="collected_count">已收集 %1$d 个文件</string>
+    <string name="stop_scan_hint">停止后已扫描的结果会保留</string>
+
+    <!-- 关键词替换（文件名数据清洗，对齐 PC 端 keyword_replace_rules） -->
+    <string name="keyword_replace">关键词替换</string>
+    <string name="keyword_replace_desc">在扫描/解析阶段清洗文件名与解析结果</string>
+    <string name="keyword_replace_hint">规则按顺序执行：把“查找内容”精确替换为“替换为”（留空=删除）。</string>
+    <string name="scope_scan">扫描阶段（文件名）</string>
+    <string name="scope_parse">解析阶段（书名/作者/进度/来源）</string>
+    <string name="no_rules">暂无规则，点击右下角“+”新增</string>
+    <string name="add_rule">新增规则</string>
+    <string name="edit_rule">编辑规则</string>
+    <string name="delete_rule">删除规则</string>
+    <string name="delete_rule_confirm">确定删除该替换规则吗？</string>
+    <string name="rule_pattern">查找内容</string>
+    <string name="rule_pattern_hint">如 【草2莓】</string>
+    <string name="rule_replacement">替换为（留空=删除）</string>
+    <string name="rule_replacement_hint">留空表示删除该内容</string>
+    <string name="rule_order">顺序（小靠前）</string>
+    <string name="rule_enabled">启用</string>
+    <string name="replace_to">→ %1$s</string>
+    <string name="delete_text">删除</string>
+
+    <!-- 文件明细 -->
+    <string name="file_detail_title">文件明细</string>
+    <string name="detail_title">书名</string>
+    <string name="detail_author">作者</string>
+    <string name="detail_progress">进度</string>
+    <string name="detail_source">来源</string>
+    <string name="detail_original_name">原文件名</string>
+    <string name="detail_ext">扩展名</string>
+    <string name="detail_size">大小</string>
+    <string name="detail_marked">标记</string>
+    <string name="detail_content_hash">内容哈希</string>
+    <string name="detail_path">路径</string>
+    <string name="open_file">打开文件</string>
+    <string name="open_file_failed">无法打开文件：%1$s</string>
+    <string name="file_not_found">未找到该文件记录（可能已被删除）</string>
+    <string name="original_name_prefix">原名：</string>
+
+    <!-- 分页导航 -->
+    <string name="page_info">第 %1$d / %2$d 页（共 %3$d 条）</string>
+    <string name="page_first">首页</string>
+    <string name="page_prev">上一页</string>
+    <string name="page_next">下一页</string>
+    <string name="page_last">末页</string>
+    <string name="page_goto">跳至页</string>
+    <string name="page_go">跳转</string>
+</resources>

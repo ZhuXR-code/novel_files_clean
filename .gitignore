@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+.venv/
+
+# Environment variables
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+logs/
+
+# Exports
+exports/
+
+# Test files (root-level test files should be moved to tests/)
+_test_*.py
+_stress_out.txt
+_test_out.txt
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Project-specific
+project-review-report/

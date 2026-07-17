@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件扫描管理系统</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=20260715e">
+</head>
+<body>
+    <div id="app">
+        <!-- 顶部导航 -->
+        <header class="header">
+            <h1>文件扫描管理系统</h1>
+            <div class="header-stats">
+                <span>文件总数: <strong id="statTotalFiles">0</strong></span>
+                <span>已解析: <strong id="statParsed">0</strong></span>
+            </div>
+        </header>
+
+        <!-- 主内容 -->
+        <main class="main">
+            <!-- 左侧配置面板 -->
+            <aside class="sidebar" id="sidebar">
+                <button class="sidebar-toggle" onclick="toggleSidebar()" title="折叠侧栏">◀</button>
+                <div class="sidebar-content">
+                    <!-- 扫描配置 -->
+                    <section class="panel">
+                        <h2 class="panel-title">
+                            <span>扫描配置</span>
+                            <button class="btn-sm" onclick="showAddConfigModal()">+ 新增</button>
+                        </h2>
+                        <div id="configList" class="config-list"></div>
+                        <!-- 扫描进度条模板 -->
+                        <template id="scanProgressTpl">
+                            <div class="scan-progress" data-config-id="">
+                                <div class="scan-progress-wrap">
+                                    <div class="scan-progress-bar" style="width:0%"></div>
+                                </div>
+                            </div>
+                        </template>
+                    </section>
+
+                    <!-- 列显示配置 -->
+                    <section class="panel">
+                        <h2 class="panel-title">列显示配置</h2>
+                        <div id="columnConfigs" class="column-configs"></div>
+                    </section>
+
+                </div>
+            </aside>
+
+            <!-- 右侧内容区 -->
+            <section class="content">
+                <!-- 页面切换标签 -->
+                <div class="page-tabs">
+                    <span class="page-tab active" onclick="switchPageTab('list')" id="tabList">数据列表</span>
+                    <span class="page-tab" onclick="switchPageTab('pipeline')" id="tabPipeline">一键清理</span>
+                    <span class="page-tab" onclick="switchPageTab('settings')" id="tabSettings">设置</span>
+                    <span class="page-tab" onclick="switchPageTab('help')" id="tabHelp">帮助手册</span>
+                </div>
+
+                <!-- 数据列表页 -->
+                <div id="pageList" class="page-content">
+                <!-- 操作工具栏 -->
+                <div class="toolbar">
+                    <div class="toolbar-left">
+                        <div class="search-filter-group">
+                            <input type="text" id="searchInput" placeholder="模糊搜索文件名/路径/小说名/作者..." style="width:260px" oninput="debouncedSearch()">
+                            <div class="filter-wrapper">
+                                <button class="btn" id="filterBtn" onclick="toggleFilterDropdown()" title="小说名筛选">
+                                    小说筛选 <span class="filter-badge" id="filterBadge" style="display:none">0</span>
+                                </button>
+                                <div class="filter-dropdown" id="filterDropdown" style="display:none">
+                                    <div class="filter-header">
+                                        <span class="filter-title">按小说名筛选</span>
+                                        <div class="filter-actions">
+                                            <button class="btn-sm" onclick="selectAllFilteredNames()">全选</button>
+                                            <button class="btn-sm" onclick="clearAllFilteredNames()">清空</button>
+                                        </div>
+                                    </div>
+                                    <div class="filter-search">
+                                        <input type="text" id="filterSearchInput" placeholder="模糊搜索小说名..." oninput="debouncedFilterSearch()">
+                                    </div>
+                                    <div class="filter-list" id="filterList">
+                                        <div class="filter-loading">加载中...</div>
+                                    </div>
+                                    <div class="filter-footer">
+                                        <span id="filterCountInfo">已选 0 个</span>
+                                        <button class="btn-sm btn-primary" onclick="applyNovelNameFilter()">应用筛选</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <label>
+                            <input type="checkbox" id="selectAll" onchange="toggleSelectAll(event)">
+                            全选
+                        </label>
+                        <button class="btn" onclick="refreshList()" title="刷新当前列表">刷新</button>
+                        <span class="toolbar-sep"></span>
+                        <span class="toolbar-group-label">工程解析</span>
+                        <div class="dropdown-wrapper">
+                            <button class="btn">工程解析 ▾</button>
+                            <div class="dropdown-menu dropdown-menu-wide">
+                                <div class="dropdown-group-title">文件名解析（正则提取 书名 / 作者 / 来源 / 进度）</div>
+                                <button class="dropdown-item" onclick="startRegexParseName()">文件名 ▸ 已选</button>
+                                <button class="dropdown-item" onclick="startRegexParseName(true)">文件名 ▸ 全部</button>
+                                <button class="dropdown-item danger-text" onclick="startRegexParseName(true,true)">文件名 ▸ 强制重跑全部</button>
+                                <div class="dropdown-sep"></div>
+                                <div class="dropdown-group-title">摘要提取（读取正文首章前简介）</div>
+                                <button class="dropdown-item" onclick="startRegexParseSummary()">摘要 ▸ 已选</button>
+                                <button class="dropdown-item" onclick="startRegexParseSummary(true)">摘要 ▸ 全部</button>
+                                <button class="dropdown-item danger-text" onclick="startRegexParseSummary(true,true)">摘要 ▸ 强制重跑全部</button>
+                            </div>
+                        </div>
+                        <span class="toolbar-sep"></span>
+                        <span class="toolbar-group-label">导出</span>
+                        <button class="btn" onclick="exportMarkdown()">导出MD</button>
+                        <div class="dropdown-wrapper">
+                            <button class="btn" id="exportExcelBtn">导出Excel ▾</button>
+                            <div class="dropdown-menu">
+                                <button class="dropdown-item" onclick="exportExcel()">导出选中</button>
+                                <button class="dropdown-item" onclick="exportExcel(true)">导出全部</button>
+                            </div>
+                        </div>
+                        <span class="toolbar-sep"></span>
+                        <span class="toolbar-sep"></span>
+                        <button class="btn" id="groupModeBtn" onclick="toggleGroupMode()" title="切换到合集模式，按文件名分组显示">合集模式</button>
+                        <button class="btn btn-warning" id="markDupBtn" onclick="markDuplicates()" title="将每个合集里相同作者中进度数字较低的行自动勾选" style="display:none">标记重复</button>
+                        <span class="toolbar-sep"></span>
+                        <button class="btn btn-danger" onclick="confirmDelete()">删除选中</button>
+                        <button class="btn btn-danger-outline" onclick="confirmClearAll()">清空全部</button>
+                    </div>
+                </div>
+
+                <!-- 解析进度条 -->
+                <div id="parseProgress" class="parse-progress" style="display:none">
+                    <div class="parse-progress-info">
+                        <span id="parseProgressDesc">解析中...</span>
+                        <span id="parseProgressCount">0/0</span>
+                        <span id="parseElapsed" class="parse-elapsed"></span>
+                        <button id="parseCancelBtn" class="btn-sm danger" onclick="cancelParseTask()" style="margin-left:auto">取消</button>
+                    </div>
+                    <div class="parse-progress-bar-wrap">
+                        <div id="parseProgressBar" class="parse-progress-bar" style="width:0%"></div>
+                    </div>
+                    <div id="parseLogPanel" class="parse-log-panel"></div>
+                </div>
+
+                <!-- 数据表格 -->
+                <div class="table-wrapper">
+                    <table id="resultTable">
+                        <thead>
+                            <tr id="tableHeader"></tr>
+                        </thead>
+                        <!-- 列宽拖拽手柄模板 -->
+                        <template id="colResizerTpl">
+                            <span class="col-resizer"></span>
+                        </template>
+                        <tbody id="tableBody">
+                            <tr><td colspan="7" class="empty-state">请先选择扫描配置并执行扫描</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 分页/统计 -->
+                <div class="table-footer">
+                    <span id="resultCount">共 0 条记录</span>
+                    <div class="pagination">
+                        <button class="btn-sm" onclick="goToPage(1)" title="首页">&laquo;</button>
+                        <button class="btn-sm" onclick="goToPage(state.page - 1)" id="prevPageBtn">&lsaquo;</button>
+                        <span id="pageInfo" style="margin:0 8px;font-size:12px"></span>
+                        <button class="btn-sm" onclick="goToPage(state.page + 1)" id="nextPageBtn">&rsaquo;</button>
+                        <button class="btn-sm" onclick="goToPage(state.totalPages)" title="末页">&raquo;</button>
+                        <span style="margin-left:10px;display:flex;align-items:center;gap:4px">
+                            <span style="font-size:11px">跳转</span>
+                            <input type="number" id="pageJumpInput" value="" min="1" max="99999"
+                                   style="width:50px;padding:3px 6px;border:1px solid var(--border);font-size:12px;outline:none;background:var(--bg)">
+                            <button class="btn-sm" onclick="jumpToPage()" title="跳转">GO</button>
+                        </span>
+                        <span style="margin-left:10px;display:flex;align-items:center;gap:4px">
+                            <input type="number" id="pageSizeInput" value="100" min="10" max="2000" step="10"
+                                   style="width:60px;padding:3px 6px;border:1px solid var(--border);font-size:12px;outline:none;background:var(--bg)">
+                            <span style="font-size:11px">条/页</span>
+                        </span>
+                    </div>
+                </div>
+                <!-- /分页/统计 -->
+
+                </div>
+                <!-- /数据列表页 -->
+
+                <!-- 帮助手册页 -->
+                <div id="pageHelp" class="page-content" style="display:none">
+                    <h2 style="font-size:15px;font-weight:500;margin:8px 0 12px">帮助手册与功能说明</h2>
+                    <div class="help-layout">
+                        <aside class="help-nav" id="helpNav">
+                            <div class="help-nav-loading">加载中...</div>
+                        </aside>
+                        <section class="help-content">
+                            <h3 id="helpDocTitle" class="help-doc-title"></h3>
+                            <div id="helpDocBody" class="help-doc-body markdown-body"></div>
+                        </section>
+                    </div>
+                </div>
+                <!-- /帮助手册页 -->
+
+                <!-- 设置页 -->
+                <div id="pageSettings" class="page-content" style="display:none">
+                    <h2 style="font-size:15px;font-weight:500;margin:8px 0 16px">设置</h2>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px">
+                        配置关键词替换规则。规则按「作用域」分别生效：
+                        <strong>扫描阶段</strong>作用于扫描得到的文件名（含后缀）；
+                        <strong>解析阶段</strong>作用于工程解析提取出的书名 / 作者 / 进度 / 来源。多个规则按「顺序」依次执行。
+                    </p>
+
+                    <!-- 扫描阶段 -->
+                    <section class="panel">
+                        <h2 class="panel-title">扫描阶段 · 文件名替换</h2>
+                        <div id="scanRuleList" class="config-list"></div>
+                        <div class="kw-form" style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
+                            <label style="display:flex;flex-direction:column;font-size:11px;gap:4px">查找
+                                <input type="text" id="scanPattern" placeholder="如 【草2莓】" style="width:180px;padding:5px 8px;border:1px solid var(--border);font-size:12px;outline:none">
+                            </label>
+                            <label style="display:flex;flex-direction:column;font-size:11px;gap:4px">替换为
+                                <input type="text" id="scanReplacement" placeholder="留空=删除" style="width:140px;padding:5px 8px;border:1px solid var(--border);font-size:12px;outline:none">
+                            </label>
+                            <label style="display:flex;flex-direction:column;font-size:11px;gap:4px">顺序
+                                <input type="number" id="scanOrder" value="0" min="0" style="width:60px;padding:5px 8px;border:1px solid var(--border);font-size:12px;outline:none">
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;font-size:12px;padding-bottom:6px">
+                                <input type="checkbox" id="scanEnabled" checked> 启用
+                            </label>
+                            <button class="btn btn-primary btn-sm" onclick="addKeywordRule('scan')">添加规则</button>
+                        </div>
+                    </section>
+
+                    <!-- 解析阶段 -->
+                    <section class="panel" style="margin-top:20px">
+                        <h2 class="panel-title">解析阶段 · 书名/作者/进度/来源替换</h2>
+                        <div id="parseRuleList" class="config-list"></div>
+                        <div class="kw-form" style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
+                            <label style="display:flex;flex-direction:column;font-size:11px;gap:4px">查找
+                                <input type="text" id="parsePattern" placeholder="如 [草2莓]" style="width:180px;padding:5px 8px;border:1px solid var(--border);font-size:12px;outline:none">
+                            </label>
+                            <label style="display:flex;flex-direction:column;font-size:11px;gap:4px">替换为
+                                <input type="text" id="parseReplacement" placeholder="留空=删除" style="width:140px;padding:5px 8px;border:1px solid var(--border);font-size:12px;outline:none">
+                            </label>
+                            <label style="display:flex;flex-direction:column;font-size:11px;gap:4px">顺序
+                                <input type="number" id="parseOrder" value="0" min="0" style="width:60px;padding:5px 8px;border:1px solid var(--border);font-size:12px;outline:none">
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;font-size:12px;padding-bottom:6px">
+                                <input type="checkbox" id="parseEnabled" checked> 启用
+                            </label>
+                            <button class="btn btn-primary btn-sm" onclick="addKeywordRule('parse')">添加规则</button>
+                        </div>
+                    </section>
+                </div>
+                <!-- /设置页 -->
+
+                <!-- 一键清理页 -->
+                <div id="pagePipeline" class="page-content" style="display:none">
+                    <h2 style="font-size:15px;font-weight:500;margin:8px 0 16px">一键清理（工程全流程）</h2>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px">
+                        选定一个扫描配置，点击「开始一键清理」后，后台将串行、自动完成
+                        <strong>扫描 → 工程文件名解析（全部）→ 生成合集 → 标记重复 → 清理删除</strong> 全流程。
+                        全程单实例运行，可随时取消（已完成步骤保留、不回滚）；删除前会二次确认清单。
+                    </p>
+
+                    <section class="panel">
+                        <h2 class="panel-title">启动配置</h2>
+                        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+                            <label style="display:flex;flex-direction:column;font-size:11px;gap:4px">扫描配置
+                                <select id="pipelineConfig" style="padding:5px 8px;border:1px solid var(--border);font-size:12px;outline:none;min-width:280px"></select>
+                            </label>
+                            <div style="display:flex;flex-direction:column;font-size:11px;gap:4px">删除类型
+                                <div style="font-size:12px">
+                                    <label style="margin-right:14px"><input type="radio" name="pipelineDeleteMode" value="db" checked> 仅删除数据库记录</label>
+                                    <label><input type="radio" name="pipelineDeleteMode" value="file"> 数据库 + 源文件</label>
+                                </div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" id="pipelineStartBtn" onclick="startPipeline()">开始一键清理</button>
+                        </div>
+                    </section>
+
+                    <div id="pipelineOverall" class="pipeline-overall" style="display:none">
+                        <span>状态：<b id="pipelineStatusBadge">-</b></span>
+                        <span>开始时间：<b id="pipelineStartTime">-</b></span>
+                        <span>已历经：<b id="pipelineElapsed">-</b></span>
+                    </div>
+
+                    <section class="panel" style="margin-top:16px">
+                        <h2 class="panel-title">流程节点</h2>
+                        <div id="pipelineNodes"></div>
+                        <div id="pipelineActions" style="display:none;margin-top:12px">
+                            <button class="btn btn-danger btn-sm" onclick="cancelPipeline()">取消流程</button>
+                        </div>
+                    </section>
+
+                    <section class="panel" style="margin-top:16px">
+                        <button id="pipelineLogBtn" class="btn btn-sm" onclick="togglePipelineLogs()">查看日志</button>
+                        <div id="pipelineLogPanel" style="display:none;margin-top:10px">
+                            <div id="pipelineLogBox" class="pipeline-logbox"></div>
+                        </div>
+                    </section>
+                </div>
+                <!-- /一键清理页 -->
+
+            </section>
+        </main>
+    </div>
+
+    <!-- 配置弹窗 -->
+    <div id="configModal" class="modal-overlay" style="display:none">
+        <div class="modal">
+            <h2 id="configModalTitle">扫描配置</h2>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>配置名称 <small>(可选，便于区分；留空则显示文件夹路径)</small></label>
+                    <input type="text" id="cfgName" placeholder="如: 我的小说库">
+                </div>
+                <div class="form-group">
+                    <label>扫描文件夹路径</label>
+                    <input type="text" id="cfgFolderPath" placeholder="如: D:\books">
+                </div>
+                <div class="form-group">
+                    <label>文件类型 <small>(可多选)</small></label>
+                    <div class="checkbox-group" id="fileTypesGroup">
+                        <label><input type="checkbox" value="txt" checked> txt</label>
+                        <label><input type="checkbox" value="md"> md</label>
+                        <label><input type="checkbox" value="pdf"> pdf</label>
+                        <label><input type="checkbox" value="epub"> epub</label>
+                        <label><input type="checkbox" value="doc"> doc</label>
+                        <label><input type="checkbox" value="docx"> docx</label>
+                        <label><input type="text" id="customFileType" placeholder="自定义类型" class="inline-input"></label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>排除的文件夹 <small>(逗号分隔)</small></label>
+                    <input type="text" id="cfgExcludedFolders" placeholder="如: node_modules, .git, __pycache__">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <input type="hidden" id="cfgEditId" value="">
+                <button class="btn" onclick="closeModal('configModal')">取消</button>
+                <button class="btn btn-primary" onclick="saveConfig()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 合集模式设置弹框 -->
+    <div id="groupModeModal" class="modal-overlay" style="display:none">
+        <div class="modal" style="width:420px">
+            <h2>合集模式设置</h2>
+            <div class="modal-body">
+                <p style="margin-bottom:12px;font-size:13px;color:var(--text-secondary)">设置合集文件数量区间，仅显示符合条件的合集。</p>
+                <div class="form-group">
+                    <label>合集文件数量区间（左边填小数，右边填大数）</label>
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+                        <span style="color:var(--text-secondary);font-size:12px">最小</span>
+                        <input type="number" id="minGroupCount" value="0" min="0" max="9999" class="auto-size-input" placeholder="0" oninput="autoSizeInput(this)"> <span>至</span>
+                        <span style="color:var(--text-secondary);font-size:12px">最大</span>
+                        <input type="number" id="maxGroupCount" min="0" max="9999" class="auto-size-input" placeholder="不限制" oninput="autoSizeInput(this)">
+                    </div>
+                    <small style="display:block;margin-top:4px;color:var(--text-secondary)">左边最小=小数（不填默认0），右边最大=大数（不填=不限制/全部）。两者都不填则显示所有合集（默认）。</small>
+                </div>
+                <div class="form-group" style="margin-top:12px">
+                    <label>排除的合集（小说名，一行一个或逗号分隔）</label>
+                    <textarea id="excludeGroupNames" rows="3" style="width:100%;margin-top:4px;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:13px;resize:vertical" placeholder="例如：&#10;斗破苍穹&#10;凡人修仙传"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeModal('groupModeModal')">取消</button>
+                <button class="btn btn-primary" onclick="confirmGroupMode()">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 加载中遮罩 -->
+    <div id="loadingOverlay" class="modal-overlay" style="display:none">
+        <div class="modal" style="width:280px;text-align:center">
+            <div class="modal-body">
+                <p style="font-size:15px;padding:20px 0">加载中，请稍候...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 删除确认弹框 -->
+    <div id="deleteModal" class="modal-overlay" style="display:none">
+        <div class="modal" style="width:400px">
+            <h2>确认删除</h2>
+            <div class="modal-body">
+                <p id="deleteMessage" style="margin-bottom:16px;font-size:13px;color:var(--text-secondary)"></p>
+                <div class="delete-options" style="display:flex;flex-direction:column;gap:10px">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 12px;border:1px solid var(--border);font-size:13px">
+                        <input type="radio" name="deleteMode" value="record" checked>
+                        <span>仅删除数据库记录</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:8px 12px;border:1px solid var(--border);font-size:13px;color:var(--danger)">
+                        <input type="radio" name="deleteMode" value="file">
+                        <span>同时删除源文件（不可恢复）</span>
+                    </label>
+                </div>
+
+                <!-- 删除进度条 -->
+                <div id="deleteProgress" style="display:none;margin-top:12px">
+                    <div style="height:8px;background:var(--border,#ddd);border-radius:4px;overflow:hidden">
+                        <div id="deleteProgressBar" style="height:100%;width:0%;background:var(--primary,#4caf50);transition:width .2s"></div>
+                    </div>
+                    <p id="deleteProgressText" style="margin-top:8px;font-size:12px;color:var(--text-secondary,#888)"></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <input type="hidden" id="deleteTargetIds" value="">
+                <button class="btn" onclick="closeModal('deleteModal')">取消</button>
+                <button class="btn btn-primary" onclick="confirmDeleteAction()">确认删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 一键清理：二次确认弹框 -->
+    <div id="pipelineConfirmModal" class="modal-overlay" style="display:none">
+        <div class="modal" style="max-width:640px">
+            <h3 id="pipelineConfirmTitle" style="margin:0 0 8px;font-size:15px;padding:24px 28px 0">确认删除</h3>
+            <div class="modal-body">
+                <p id="pipelineConfirmNote" style="font-size:12px;color:var(--text-secondary);margin:0 0 10px"></p>
+                <div id="pipelineConfirmList" class="pconfirm-list"></div>
+            </div>
+            <div class="modal-footer" style="margin-top:14px;display:flex;justify-content:flex-end;gap:10px">
+                <button class="btn" onclick="cancelPipelineDelete()">取消（放弃删除）</button>
+                <button class="btn btn-danger" onclick="confirmPipelineDelete()">确认删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 回到顶部/底部 -->
+    <div id="backNav" class="back-nav">
+        <button class="back-nav-btn" id="backToTopBtn" title="回到顶部" onclick="scrollToTop()">↑</button>
+        <button class="back-nav-btn" id="backToBottomBtn" title="回到底部" onclick="scrollToBottom()">↓</button>
+    </div>
+
+    <script src="/static/js/app.js?v=20260715d"></script>
+</body>
+</html>

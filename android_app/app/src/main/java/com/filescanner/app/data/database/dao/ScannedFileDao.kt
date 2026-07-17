@@ -1,0 +1,111 @@
+package com.filescanner.app.data.database.dao
+
+import androidx.paging.PagingSource
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.RawQuery
+import androidx.room.Update
+import androidx.sqlite.db.SupportSQLiteQuery
+import com.filescanner.app.data.database.entity.ScannedFileEntity
+import com.filescanner.app.data.database.entity.DuplicateRow
+import com.filescanner.app.data.model.NovelGroup
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface ScannedFileDao {
+    @Query("SELECT * FROM scanned_file WHERE id = :id")
+    suspend fun getById(id: Long): ScannedFileEntity?
+
+    @Query("SELECT * FROM scanned_file WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<Long>): List<ScannedFileEntity>
+
+    @Query("SELECT * FROM scanned_file WHERE path = :path")
+    suspend fun getByPath(path: String): ScannedFileEntity?
+
+    @Query("SELECT * FROM scanned_file WHERE marked = 1")
+    suspend fun getMarked(): List<ScannedFileEntity>
+
+    @Query("SELECT COUNT(*) FROM scanned_file")
+    fun countFlow(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM scanned_file WHERE marked = 1")
+    fun countMarkedFlow(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id = :runId")
+    fun countByRunFlow(runId: Long): Flow<Int>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAll(files: List<ScannedFileEntity>)
+
+    @Update
+    suspend fun update(file: ScannedFileEntity)
+
+    @Query("UPDATE scanned_file SET marked = :m WHERE id = :id")
+    suspend fun setMarked(id: Long, m: Int)
+
+    @Query("UPDATE scanned_file SET marked = 0 WHERE scan_run_id = :runId")
+    suspend fun clearMarked(runId: Long)
+
+    @Query("UPDATE scanned_file SET marked = 1 WHERE id IN (:ids)")
+    suspend fun markIds(ids: List<Long>)
+
+    @Query("DELETE FROM scanned_file WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
+
+    @Query("DELETE FROM scanned_file WHERE scan_run_id = :runId")
+    suspend fun deleteByRunId(runId: Long)
+
+    @Query("DELETE FROM scanned_file")
+    suspend fun deleteAll()
+
+    /**
+     * 按“书名 + 作者”相同标记重复（文件名解析结果）。每组保留 id 最小的一条，其余标记。
+     */
+    @Query("""
+        UPDATE scanned_file SET marked = 1
+        WHERE scan_run_id = :runId
+          AND title != ''
+          AND (lower(trim(title)) || '|' || lower(trim(COALESCE(author, '')))) IN (
+              SELECT lower(trim(title)) || '|' || lower(trim(COALESCE(author, '')))
+              FROM scanned_file WHERE scan_run_id = :runId AND title != ''
+              GROUP BY lower(trim(title)) || '|' || lower(trim(COALESCE(author, '')))
+              HAVING COUNT(*) > 1
+          )
+          AND id NOT IN (
+              SELECT MIN(id) FROM scanned_file WHERE scan_run_id = :runId AND title != ''
+              GROUP BY lower(trim(title)) || '|' || lower(trim(COALESCE(author, '')))
+          )
+    """)
+    suspend fun markDuplicatesByNameSql(runId: Long): Int
+
+    /**
+     * 分页查询：WHERE/ORDER BY 由 Repository 依据筛选/搜索/排序动态拼装。
+     * 返回 PagingSource 让 Paging3 以 LIMIT/OFFSET 分批加载，避免一次性把 10w 行读进内存。
+     */
+    @RawQuery(observedEntities = [ScannedFileEntity::class])
+    fun pagedRaw(query: SupportSQLiteQuery): PagingSource<Int, ScannedFileEntity>
+
+    /**
+     * 合集模式：按书名（title）分组的分页查询。SQL 由 Repository 依据数量区间/排除/搜索动态拼装
+     * （GROUP BY title + HAVING + ORDER BY），返回分组头（书名、文件数、总大小）。
+     */
+    @RawQuery(observedEntities = [ScannedFileEntity::class])
+    fun pagedGroupsRaw(query: SupportSQLiteQuery): PagingSource<Int, NovelGroup>
+
+    /** 取某个合集（书名）内的全部文件，供展开时懒加载。空书名传 "" 匹配未解析组。 */
+    @Query("SELECT * FROM scanned_file WHERE scan_run_id = :runId AND title = :title ORDER BY file_name ASC")
+    suspend fun getFilesByTitle(runId: Long, title: String): List<ScannedFileEntity>
+
+    /**
+     * 复刻 PC 端“标记重复”：取某文库全部文件的(id, 书名, 作者, 进度, 大小) 投影，
+     * 由 Repository 在 Kotlin 端按 (书名+作者) 分组、纯数字进度比较后计算待删 id。
+     * 别名 file_size AS fileSize 以匹配字段名。
+     */
+    @Query("""
+        SELECT id, title, author, progress, file_size AS fileSize
+        FROM scanned_file WHERE scan_run_id = :runId
+    """)
+    suspend fun getDuplicateRows(runId: Long): List<DuplicateRow>
+}
