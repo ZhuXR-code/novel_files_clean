@@ -35,3 +35,26 @@ Thumbs.db
 
 # Project-specific
 project-review-report/
+
+# ===== 避免把本机路径/隐私数据/构建产物推到公开仓库 =====
+# 日志（含真实扫描的书名、作者、本机绝对路径）
+*.log
+
+# Android 本机配置与构建缓存
+local.properties
+.gradle/
+.kotlin/
+*.apk
+*.aab
+
+# 打包产物与分发文件
+output/
+*.exe
+
+# 测试 / UI 转储产物
+u.xml
+ui.xml
+parse_b.log
+
+# 截图（如需展示可单独放 docs/ 并确认无隐私）
+screen1.png
