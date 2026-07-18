@@ -469,6 +469,8 @@ async function runScan(configId) {
         const cfg3 = state.configs.find(c => c.id === configId);
         if (cfg3) cfg3._progress = 100;
         renderConfigs();
+        // 扫描完成后显式触发“重建合集”并在前端展示进度条（大库下可能耗时）
+        await rebuildGroups(configId);
     } catch (e) {
         state.scanningIds.delete(configId);
         clearInterval(pollTimer);
@@ -476,6 +478,47 @@ async function runScan(configId) {
         if (cfg4) cfg4._progress = -1;
         renderConfigs();
         toast('扫描失败: ' + e.message, 'error');
+    }
+}
+
+// ===================== 重建合集（带进度条） =====================
+async function rebuildGroups(configId) {
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const wrap = document.getElementById('rebuildProgress');
+    const bar = document.getElementById('rebuildProgressBar');
+    const desc = document.getElementById('rebuildProgressDesc');
+    const cnt = document.getElementById('rebuildProgressCount');
+    if (!wrap) return;
+    try {
+        const r = await apiPost(`/groups/rebuild/${configId}`);
+        if (r.running) {
+            // 已有重建任务进行中，直接轮询进度
+        }
+        // 轮询进度条直到完成
+        wrap.style.display = '';
+        bar.style.width = '0%';
+        desc.textContent = '正在重建合集...';
+        cnt.textContent = '0/0';
+        for (let i = 0; i < 600; i++) {
+            await sleep(300);
+            const p = await apiGet(`/rebuild-progress/${configId}`);
+            const pct = Math.max(0, Math.min(100, p.percent || 0));
+            bar.style.width = pct + '%';
+            cnt.textContent = `${p.done_count}/${p.total}`;
+            if (p.phase) desc.textContent = '正在重建合集（' + p.phase + '）';
+            if (p.done) {
+                bar.style.width = '100%';
+                desc.textContent = '合集重建完成';
+                break;
+            }
+        }
+        // 刷新列表（合集模式需要最新分组）
+        await loadResults();
+    } catch (e) {
+        toast('重建合集失败: ' + (e.message || e), 'error');
+    } finally {
+        // 稍延迟隐藏，让用户看到 100%
+        setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 600);
     }
 }
 
@@ -1846,6 +1889,10 @@ async function executeClearAll(withFiles) {
     } catch (e) {
         toast('列表刷新失败，请手动刷新', 'warning');
     }
+    // 清空后重建合集（展示进度条）
+    try {
+        await rebuildGroups(state.currentConfigId);
+    } catch (_) { /* 合集重建失败不阻断主流程 */ }
 }
 
 async function executeDelete(ids, withFiles) {
@@ -1895,6 +1942,10 @@ async function executeDelete(ids, withFiles) {
         // loadResults 内部已有 catch，这里的 catch 做兜底
         toast('列表刷新失败，请手动刷新', 'warning');
     }
+    // 删除后重建合集（展示进度条）
+    try {
+        await rebuildGroups(state.currentConfigId);
+    } catch (_) { /* 合集重建失败不阻断主流程 */ }
 }
 
 function confirmDelete() {

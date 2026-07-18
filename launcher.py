@@ -17,8 +17,11 @@ import time
 import socket
 import threading
 
+from backend.logger import logger
+
 # ---- 关键：必须在导入 backend.app 之前设置 SQLite 模式 ----
 os.environ['DB_BACKEND'] = 'sqlite'
+logger.info('启动本地软件版 launcher（DB_BACKEND=sqlite）')
 
 # 便携模式：用 `launcher.exe --portable` 启动，或设置环境变量 SQLITE_DB_PATH，
 # 则数据库文件放在程序旁边（FileScannerData/file_scanner.db），便于整体拷贝。
@@ -62,6 +65,7 @@ def main():
 
     port = find_free_port(8000)
     url = f'http://127.0.0.1:{port}'
+    logger.info(f'选定本地端口: {port}')
 
     # 启动 uvicorn（后台线程）
     # 固定使用纯 Python 实现（h11 / asyncio），避免 PyInstaller 打包时
@@ -75,6 +79,7 @@ def main():
     # 等待服务就绪
     ready = wait_for_server(url + '/', timeout=30)
     if not ready:
+        logger.error('本地服务未能在 30 秒内就绪，启动失败')
         # 服务没起来，弹个系统错误框提示（不依赖浏览器）
         try:
             import tkinter as tk
@@ -85,6 +90,7 @@ def main():
         except Exception:
             pass
         os._exit(1)
+    logger.info(f'本地服务已就绪: {url}')
 
     db_path = sqlite_db_path()
 
@@ -101,12 +107,14 @@ def main():
 
     def on_window_closed():
         """窗口关闭时停掉后端服务并退出整个进程"""
+        logger.info('窗口已关闭，正在退出本地服务...')
         try:
             server.should_exit = True
         except Exception:
             pass
         # 给服务一点时间退出
         time.sleep(0.3)
+        logger.info('本地软件版 launcher 已退出')
         os._exit(0)
 
     window.events.closed += on_window_closed

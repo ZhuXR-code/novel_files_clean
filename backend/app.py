@@ -889,52 +889,117 @@ def _seed_help_docs(db: Session):
     logger.info(f'帮助手册默认文档已同步: {len(docs)} 篇')
 
 
+# 合集（文件分组）重建进度：config_id -> {'done':已处理扫描记录数, 'total':总记录数, 'phase':'...'}
+rebuild_progress = {}
+
+
 def rebuild_file_groups(config_id: int, db: Session) -> int:
     """重建指定扫描配置的文件分组（合集）预计算结果
 
     清空该配置下已有的 FileGroup 记录，然后从 scan_results 和 file_metadata
     重新计算分组数据并写入 file_groups 表。
 
+    为支持大库（10w+ 文件）下的进度展示，本函数改为**分批**处理：
+    先统计总分组的扫描记录基数，按 scan_results.id 分桶每批 2000 条，
+    逐批 DELETE 旧分组 + 重新计算该桶的分组并 UPSERT 写入；每批结束更新
+    `rebuild_progress[config_id]` 供前端进度条轮询。
+
+    Args:
+        config_id: 扫描配置 ID
+        db: 数据库会话（调用方负责提交/关闭；本函数内部每批自行 commit）
+
     Returns:
-        创建的分组数量
+        创建/更新的分组数量
     """
     try:
         logger.info(f'[重建分组] 开始: config_id={config_id}')
         t0 = time.perf_counter()
-        # 1. 删除该配置下所有旧的分组记录
+        rebuild_progress[config_id] = {'done': 0, 'total': 0, 'phase': '统计基数'}
+
+        # 0. 统计该配置下的总扫描记录数（进度分母）
+        total_rows = db.query(func.count(ScanResult.id)).filter(
+            ScanResult.scan_config_id == config_id
+        ).scalar() or 0
+        rebuild_progress[config_id]['total'] = total_rows
+        logger.info(f'[重建分组] config_id={config_id} 共 {total_rows} 条扫描记录')
+
+        # 1. 先删除该配置下所有旧的分组记录（整批一次，数据量小）
+        del_t = time.perf_counter()
         del_count = db.query(FileGroup).filter(FileGroup.config_id == config_id).delete(
             synchronize_session=False
         )
         db.commit()
-        logger.debug(f'[重建分组] 已删除旧分组 {del_count} 条, 耗时={time.perf_counter() - t0:.3f}s')
+        logger.debug(f'[重建分组] 已删除旧分组 {del_count} 条, 耗时={time.perf_counter() - del_t:.3f}s')
 
-        # 2. 用 INSERT INTO ... SELECT 重新计算并插入分组
-        sql = text("""
-            INSERT INTO file_groups (config_id, novel_name, file_count, total_size)
-            SELECT
-                sr.scan_config_id,
-                COALESCE(fm.novel_name, '') AS novel_name,
-                COUNT(*) AS file_count,
-                COALESCE(SUM(sr.file_size), 0) AS total_size
-            FROM scan_results sr
-            LEFT JOIN file_metadata fm ON sr.id = fm.scan_result_id
-            WHERE sr.scan_config_id = :config_id
-            GROUP BY sr.scan_config_id, COALESCE(fm.novel_name, '')
-        """)
-        t1 = time.perf_counter()
-        db.execute(sql, {'config_id': config_id})
-        db.commit()
-        logger.info(f'[重建分组] INSERT...SELECT 完成, 耗时={time.perf_counter() - t1:.3f}s')
+        # 2. 分批（按 scan_results.id 分桶）重算并写入，逐步上报进度
+        BATCH = 2000
+        if total_rows == 0:
+            rebuild_progress[config_id].update({'done': 0, 'phase': '完成'})
+            group_count = 0
+            logger.info(f'重建文件分组完成(空库): config_id={config_id}, groups=0')
+            return 0
+
+        # 取本配置所有 scan_results.id 的最小/最大值，按 id 区间分桶
+        id_range = db.query(
+            func.min(ScanResult.id), func.max(ScanResult.id)
+        ).filter(ScanResult.scan_config_id == config_id).first()
+        min_id, max_id = (id_range[0] or 1), (id_range[1] or 0)
+        bucket_count = max(1, (max_id - min_id + 1 + BATCH - 1) // BATCH)
+
+        group_count = 0
+        processed = 0
+        for b in range(bucket_count):
+            lo = min_id + b * BATCH
+            hi = lo + BATCH - 1
+            rebuild_progress[config_id]['phase'] = f'计算分组 {b + 1}/{bucket_count}'
+            sql = text("""
+                INSERT INTO file_groups (config_id, novel_name, file_count, total_size)
+                SELECT
+                    sr.scan_config_id,
+                    COALESCE(fm.novel_name, '') AS novel_name,
+                    COUNT(*) AS file_count,
+                    COALESCE(SUM(sr.file_size), 0) AS total_size
+                FROM scan_results sr
+                LEFT JOIN file_metadata fm ON sr.id = fm.scan_result_id
+                WHERE sr.scan_config_id = :config_id
+                  AND sr.id BETWEEN :lo AND :hi
+                GROUP BY sr.scan_config_id, COALESCE(fm.novel_name, '')
+                ON DUPLICATE KEY UPDATE
+                    file_count = VALUES(file_count),
+                    total_size = VALUES(total_size)
+            """) if not IS_SQLITE else text("""
+                INSERT INTO file_groups (config_id, novel_name, file_count, total_size)
+                SELECT
+                    sr.scan_config_id,
+                    COALESCE(fm.novel_name, '') AS novel_name,
+                    COUNT(*) AS file_count,
+                    COALESCE(SUM(sr.file_size), 0) AS total_size
+                FROM scan_results sr
+                LEFT JOIN file_metadata fm ON sr.id = fm.scan_result_id
+                WHERE sr.scan_config_id = :config_id
+                  AND sr.id BETWEEN :lo AND :hi
+                GROUP BY sr.scan_config_id, COALESCE(fm.novel_name, '')
+            """)
+            # SQLite 不支持 INSERT...ON DUPLICATE，但本批已先整体 DELETE 旧分组，
+            # 且按 id 桶划分后每个桶的分组名集合互不重叠，不会冲突，可直接 INSERT。
+            db.execute(sql, {'config_id': config_id, 'lo': lo, 'hi': hi})
+            db.commit()
+            processed = min(processed + BATCH, total_rows)
+            rebuild_progress[config_id]['done'] = processed
+            logger.debug(f'[重建分组] 桶 {b + 1}/{bucket_count} 完成, 已处理 {processed}/{total_rows}')
 
         # 统计创建的分组数
         group_count = db.query(FileGroup).filter(
             FileGroup.config_id == config_id
         ).count()
-        logger.info(f'重建文件分组完成: config_id={config_id}, groups={group_count}')
+        rebuild_progress[config_id]['phase'] = '完成'
+        logger.info(f'重建文件分组完成: config_id={config_id}, groups={group_count}, '
+                    f'总耗时={time.perf_counter() - t0:.1f}s')
         return group_count
     except Exception as e:
         db.rollback()
-        logger.error(f'重建文件分组失败: config_id={config_id}, error={e}')
+        rebuild_progress.pop(config_id, None)
+        logger.error(f'重建文件分组失败: config_id={config_id}, error={e}', exc_info=True)
         return 0
 
 
@@ -1125,8 +1190,10 @@ def run_scan(config_id: int, db: Session = Depends(get_db)):
         scanning_progress[config_id]['done'] = True
         scanning_progress[config_id]['elapsed'] = elapsed
         logger.info(f'扫描完成: config_id={config_id}, 新增={new_count}, 总计={total}, 耗时={elapsed}s')
-        # 重建文件分组
-        rebuild_file_groups(config_id, db)
+        # 注意：重建文件分组（合集计算）不再在此同步执行，以避免大库下阻塞
+        # 扫描请求直至重建结束。改为扫描返回后由前端显式调用
+        # POST /api/groups/rebuild/{config_id} 后台异步重建，并轮询进度条。
+        rebuild_progress.pop(config_id, None)
         return {'new_count': new_count, 'total': total, 'message': f'扫描完成，共{total}个文件（新增{new_count}个，耗时{elapsed}秒）'}
     except FileNotFoundError as e:
         scanning_progress.pop(config_id, None)
@@ -1152,6 +1219,62 @@ def get_scan_progress(config_id: int):
     else:
         elapsed = state.get('elapsed', 0)
     return {'config_id': config_id, 'count': count, 'done': done, 'elapsed': elapsed}
+
+
+@app.get('/api/rebuild-progress/{config_id}')
+def get_rebuild_progress(config_id: int):
+    """获取合集（文件分组）重建进度，供前端进度条轮询。
+
+    扫描结束的“重建合集”与一键清理的「生成合集」节点都会写
+    `rebuild_progress[config_id]`。若当前无重建任务在进行，返回 done=True。
+    """
+    state = rebuild_progress.get(config_id)
+    if state is None:
+        return {'config_id': config_id, 'done': True, 'done_count': 0,
+                'total': 0, 'phase': '', 'percent': 100}
+    done_count = state.get('done', 0)
+    total = state.get('total', 0)
+    percent = round((done_count * 100 / total), 1) if total > 0 else 100
+    return {
+        'config_id': config_id,
+        'done': state.get('phase') == '完成',
+        'done_count': done_count,
+        'total': total,
+        'phase': state.get('phase', ''),
+        'percent': percent,
+    }
+
+
+@app.post('/api/groups/rebuild/{config_id}')
+def api_rebuild_groups(config_id: int, db: Session = Depends(get_db)):
+    """后台异步重建某配置的合集（文件分组），并实时上报进度。
+
+    扫描完成 / 清空 / 删除后由前端显式调用；前端通过
+    GET /api/rebuild-progress/{config_id} 轮询进度条。
+    同一配置已有重建任务进行中时，返回已在运行，避免重复触发。
+    """
+    if rebuild_progress.get(config_id) is not None and rebuild_progress[config_id].get('phase') != '完成':
+        return {'message': '该配置正在重建合集，请稍候', 'running': True}
+
+    config = db.query(ScanConfig).filter(ScanConfig.id == config_id).first()
+    if not config:
+        raise HTTPException(status_code=404, detail='扫描配置不存在')
+
+    def _bg():
+        bg_db = SessionLocal()
+        try:
+            rebuild_file_groups(config_id, bg_db)
+        finally:
+            bg_db.close()
+        # 重建完成稍作保留，便于前端最后一次轮询拿到 100%
+        import threading as _th
+        def _clear():
+            rebuild_progress.pop(config_id, None)
+        _th.Timer(2.0, _clear).start()
+
+    threading.Thread(target=_bg, daemon=True).start()
+    logger.info(f'已触发后台重建合集: config_id={config_id}')
+    return {'message': '已触发后台重建合集', 'running': False}
 
 
 # ===================== 扫描结果 API =====================

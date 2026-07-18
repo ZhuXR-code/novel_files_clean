@@ -1,9 +1,12 @@
 package com.filescanner.app.ui.screens.library
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,17 +14,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -39,13 +46,14 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.filescanner.app.ui.components.AppOutlinedButton
 import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,6 +66,8 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,9 +75,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.paging.LoadState
-import androidx.paging.compose.LazyPagingItems
-import androidx.paging.compose.collectAsLazyPagingItems
 import com.filescanner.app.R
 import com.filescanner.app.data.database.entity.ScannedFileEntity
 import com.filescanner.app.data.database.entity.ScanRunEntity
@@ -209,7 +216,7 @@ private fun RunListScreen(
                 ) { Text(stringResource(R.string.confirm)) }
             },
             dismissButton = {
-                TextButton(onClick = { toDelete = null }) { Text(stringResource(R.string.cancel)) }
+                AppOutlinedButton(onClick = { toDelete = null }) { Text(stringResource(R.string.cancel)) }
             }
         )
     }
@@ -225,10 +232,10 @@ private fun RunFilesScreen(
     onNavigateToDeleteConfirm: () -> Unit,
     onOpenFile: (Long) -> Unit
 ) {
-    val pagingItems: LazyPagingItems<ScannedFileEntity> =
-        viewModel.pagedFiles.collectAsLazyPagingItems()
-    val groupItems: LazyPagingItems<NovelGroup> =
-        viewModel.pagedGroups.collectAsLazyPagingItems()
+    // 真·页码分页：当前页数据 + 满足条件总数，均由 ViewModel 按 currentPage 查询
+    val listPageState by viewModel.listPageState.collectAsStateWithLifecycle()
+    val groupPageState by viewModel.groupPageState.collectAsStateWithLifecycle()
+    val currentPage by viewModel.currentPage.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val selection by viewModel.selection.collectAsStateWithLifecycle()
     val toast by viewModel.toast.collectAsStateWithLifecycle()
@@ -240,14 +247,23 @@ private fun RunFilesScreen(
     val maxCount by viewModel.groupMaxCount.collectAsStateWithLifecycle()
     val excludeNames by viewModel.groupExcludeNames.collectAsStateWithLifecycle()
     val pageSize by viewModel.pageSize.collectAsStateWithLifecycle()
-    val totalCount by viewModel.totalCount.collectAsStateWithLifecycle(initialValue = 0)
+    val duplicateProgress by viewModel.duplicateProgress.collectAsStateWithLifecycle()
+    // 分页导航条用的总数：合集模式=分组数，列表模式=文件数
+    val totalCount = if (groupMode) groupPageState.total else listPageState.total
 
     var sortMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
     var showGroupSettings by remember { mutableStateOf(false) }
+    // 搜索框默认隐藏，顶部搜索图标点击后显示；再点切换回隐藏
+    var searchVisible by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+
+    // 翻页 / 切筛选 / 换模式 / 改每页条数 / 搜索 后，把列表滚回顶部（每页是独立数据集）
+    LaunchedEffect(currentPage, filter, groupMode, pageSize, query) {
+        listState.scrollToItem(0)
+    }
 
 
     LaunchedEffect(toast) {
@@ -277,6 +293,14 @@ private fun RunFilesScreen(
                 title = runName,
                 onBack = onBackToList,
                 actions = {
+                    IconButton(onClick = { searchVisible = !searchVisible }) {
+                        Icon(
+                            if (searchVisible) Icons.Filled.Close else Icons.Filled.Search,
+                            contentDescription = stringResource(R.string.search),
+                            tint = if (searchVisible) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     IconButton(onClick = { sortMenu = true }) {
                         Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.sort_time))
                     }
@@ -315,7 +339,7 @@ private fun RunFilesScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    TextButton(onClick = { viewModel.clearSelection() }) {
+                    AppOutlinedButton(onClick = { viewModel.clearSelection() }) {
                         Text(stringResource(R.string.deselect_all))
                     }
                     Spacer(Modifier.weight(1f))
@@ -348,52 +372,83 @@ private fun RunFilesScreen(
                     SegmentedButton(
                         selected = !groupMode,
                         onClick = { viewModel.setGroupMode(false) },
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                        // 缩小整体高度，文字与边框的上下距离随之收窄（仍能完整显示）
+                        modifier = Modifier.height(32.dp)
                     ) {
-                        Text(stringResource(R.string.list_mode))
+                        Text(stringResource(R.string.list_mode), fontSize = 13.sp)
                     }
                     SegmentedButton(
                         selected = groupMode,
                         onClick = { viewModel.setGroupMode(true) },
-                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                        modifier = Modifier.height(32.dp)
                     ) {
-                        Text(stringResource(R.string.group_mode))
+                        Text(stringResource(R.string.group_mode), fontSize = 13.sp)
                     }
                 }
-                // 列表模式才显示筛选 chips（合集模式用“合集设置”过滤）
+                // 列表模式才显示筛选 chips（合集模式用"合集设置"过滤）
             if (!groupMode) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    FilterChip(selected = filter == FilterMode.ALL,
+                    CompactChip(
+                        selected = filter == FilterMode.ALL,
                         onClick = { viewModel.setFilter(FilterMode.ALL) },
-                        label = { Text(stringResource(R.string.filter_all)) })
-                    FilterChip(selected = filter == FilterMode.MARKED,
+                        label = stringResource(R.string.filter_all)
+                    )
+                    CompactChip(
+                        selected = filter == FilterMode.MARKED,
                         onClick = { viewModel.setFilter(FilterMode.MARKED) },
-                        label = { Text(stringResource(R.string.filter_marked)) })
+                        label = stringResource(R.string.filter_marked)
+                    )
                 }
             } else {
+                Spacer(Modifier.height(4.dp))
+            }
+            // 搜索框：仅在用户点击顶部搜索图标后才显示
+            if (searchVisible) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { viewModel.setQuery(it) },
+                    placeholder = { Text(stringResource(R.string.search)) },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp)
+                )
                 Spacer(Modifier.height(8.dp))
             }
-            OutlinedTextField(
-                value = query,
-                onValueChange = { viewModel.setQuery(it) },
-                placeholder = { Text(stringResource(R.string.search)) },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-            )
-            Spacer(Modifier.height(8.dp))
+
+            // 合集计算（标记重复）进度：进行中显示进度条，便于大库下观察进度
+            if (duplicateProgress >= 0) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        stringResource(R.string.computing_duplicates),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    LinearProgressIndicator(
+                        progress = { duplicateProgress / 100f },
+                        modifier = Modifier.fillMaxWidth().height(6.dp)
+                    )
+                }
+            }
 
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 if (groupMode) {
                     GroupList(
                         listState = listState,
-                        groupItems = groupItems,
+                        groups = groupPageState.groups,
+                        loading = groupPageState.loading,
                         expandedGroups = expandedGroups,
                         groupFiles = groupFiles,
                         selection = selection,
@@ -406,7 +461,8 @@ private fun RunFilesScreen(
                 } else {
                     FlatList(
                         listState = listState,
-                        pagingItems = pagingItems,
+                        items = listPageState.items,
+                        loading = listPageState.loading,
                         selection = selection,
                         onToggleSelect = { viewModel.toggleSelect(it) },
                         onToggleMark = { id, m -> viewModel.toggleMark(id, m) },
@@ -414,17 +470,13 @@ private fun RunFilesScreen(
                     )
                 }
             }
-            // 分页导航条：大库（10w+）按每页 100/500/2000 跳页浏览
+            // 分页导航条：大库（10w+）按每页 100/500/2000 跳页浏览；页码由状态驱动
             PageNavBar(
                 totalCount = totalCount,
                 pageSize = pageSize,
-                listState = listState,
+                currentPage = currentPage,
                 onPageSizeChange = { viewModel.setPageSize(it) },
-                onJumpToPage = { page ->
-                    scope.launch {
-                        listState.scrollToItem((page * pageSize).coerceAtLeast(0))
-                    }
-                }
+                onJumpToPage = { page -> viewModel.goToPage(page) }
             )
                 // 关闭内部 Column，使下方悬浮按钮成为外层 Box 的直接子项（可使用 BoxScope.align）
                 }
@@ -476,19 +528,20 @@ private fun RunFilesScreen(
 @Composable
 private fun FlatList(
     listState: LazyListState,
-    pagingItems: LazyPagingItems<ScannedFileEntity>,
+    items: List<ScannedFileEntity>,
+    loading: Boolean,
     selection: Set<Long>,
     onToggleSelect: (Long) -> Unit,
     onToggleMark: (Long, Int) -> Unit,
     onOpenFile: (Long) -> Unit
 ) {
     when {
-        pagingItems.loadState.refresh is LoadState.Loading && pagingItems.itemCount == 0 -> {
+        loading && items.isEmpty() -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.loading), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        pagingItems.itemCount == 0 -> {
+        items.isEmpty() -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.no_files), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -505,10 +558,9 @@ private fun FlatList(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(
-                    count = pagingItems.itemCount,
-                    key = { index -> pagingItems.peek(index)?.id ?: index },
-                ) { index ->
-                    val f = pagingItems[index] ?: return@items
+                    items = items,
+                    key = { it.id },
+                ) { f ->
                     FileRow(
                         f = f,
                         selected = selection.contains(f.id),
@@ -525,7 +577,8 @@ private fun FlatList(
 @Composable
 private fun GroupList(
     listState: LazyListState,
-    groupItems: LazyPagingItems<NovelGroup>,
+    groups: List<NovelGroup>,
+    loading: Boolean,
     expandedGroups: Set<String>,
     groupFiles: Map<String, List<ScannedFileEntity>>,
     selection: Set<Long>,
@@ -536,12 +589,12 @@ private fun GroupList(
     onOpenFile: (Long) -> Unit
 ) {
     when {
-        groupItems.loadState.refresh is LoadState.Loading && groupItems.itemCount == 0 -> {
+        loading && groups.isEmpty() -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.loading), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        groupItems.itemCount == 0 -> {
+        groups.isEmpty() -> {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(stringResource(R.string.no_groups), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -558,10 +611,9 @@ private fun GroupList(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(
-                    count = groupItems.itemCount,
-                    key = { index -> groupItems.peek(index)?.title ?: "idx_$index" },
-                ) { index ->
-                    val g = groupItems[index] ?: return@items
+                    items = groups,
+                    key = { it.title.ifBlank { "__unparsed__" } },
+                ) { g ->
                     val expanded = expandedGroups.contains(g.title)
                     val files = groupFiles[g.title]
                     val groupState = when {
@@ -675,9 +727,9 @@ private fun FileRow(
                 }
                 val sub = buildList {
                     if (f.author.isNotBlank()) add(f.author)
-                    if (f.source.isNotBlank()) add(stringResource(R.string.source_label) + "：" + f.source)
-                    if (f.progress.isNotBlank()) add(stringResource(R.string.progress_label) + "：" + f.progress)
                     add(FormatUtil.formatSize(f.fileSize))
+                    if (f.progress.isNotBlank()) add(f.progress)
+                    if (f.source.isNotBlank()) add(stringResource(R.string.source_label) + "：" + f.source)
                 }.joinToString(" · ")
                 Text(
                     sub,
@@ -745,9 +797,9 @@ private fun GroupFileRow(
             }
             val sub = buildList {
                 if (f.author.isNotBlank()) add(f.author)
-                if (f.source.isNotBlank()) add(stringResource(R.string.source_label) + "：" + f.source)
-                if (f.progress.isNotBlank()) add(stringResource(R.string.progress_label) + "：" + f.progress)
                 add(FormatUtil.formatSize(f.fileSize))
+                if (f.progress.isNotBlank()) add(f.progress)
+                if (f.source.isNotBlank()) add(stringResource(R.string.source_label) + "：" + f.source)
             }.joinToString(" · ")
             if (sub.isNotBlank()) {
                 Text(
@@ -840,108 +892,132 @@ private fun GroupSettingsDialog(
             }) { Text(stringResource(R.string.confirm)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+            AppOutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
 }
 
 /**
- * 分页导航条：用于 10w 级大库的分页浏览。
- * - 每页条数可在 100/500/2000 间切换（默认 100）。
- * - 显示“第 X / Y 页（共 N 条）”，支持首页/上一页/下一页/末页，以及输入页码跳转。
- * 当前页由 LazyListState 的首项索引 / 每页条数推导，跳转用 scrollToItem 平滑滚动。
+ * 分页导航条：用于 10w 级大库的分页浏览，交互对齐 PC 端。
+ * - 每页条数：输入框（默认 100，范围 10~2000）填完点“应用”生效，不再提供预设按钮。
+ * - 跳转：输入框填页码 + “跳转”按钮跳到指定页（对齐 PC 端“跳至页”）。
+ * - 首页 / 上一页 / 下一页 / 末页 供快速翻页；越界自动禁用。
+ * 当前页由 ViewModel 的 currentPage 状态驱动（真·页码分页）。
  */
 @Composable
 private fun PageNavBar(
     totalCount: Int,
     pageSize: Int,
-    listState: LazyListState,
+    currentPage: Int,
     onPageSizeChange: (Int) -> Unit,
     onJumpToPage: (Int) -> Unit
 ) {
-    val pageCount = (totalCount + pageSize - 1) / pageSize.coerceAtLeast(1)
-    var inputPage by remember { mutableStateOf("") }
-    val currentPage by remember {
-        derivedStateOf {
-            if (pageCount <= 1) 0 else (listState.firstVisibleItemIndex / pageSize).coerceIn(0, pageCount - 1)
-        }
-    }
-    val pageSizeOptions = listOf(100, 500, 2000)
+    val pageCount = ((totalCount + pageSize - 1) / pageSize.coerceAtLeast(1)).coerceAtLeast(1)
+    // 当前页兜底夹在 [0, pageCount-1]，避免总数变化瞬间越界显示
+    val page = currentPage.coerceIn(0, pageCount - 1)
+
+    // 每页条数本地输入态：仅在“应用”时提交给 ViewModel（对齐 PC 端：填完再确认）
+    var pageSizeText by remember(pageSize) { mutableStateOf(pageSize.toString()) }
+    var jumpText by remember { mutableStateOf("") }
 
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            stringResource(R.string.page_info, currentPage + 1, pageCount.coerceAtLeast(1), totalCount),
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f)
-        )
-        // 每页条数切换
-        pageSizeOptions.forEach { opt ->
-            FilterChip(
-                selected = pageSize == opt,
-                onClick = { onPageSizeChange(opt) },
-                label = { Text("$opt/页", fontSize = 11.sp) },
-                modifier = Modifier.height(32.dp)
+        // 第一行：页码信息 + 每页条数设置
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                stringResource(R.string.page_info, page + 1, pageCount, totalCount),
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
             )
+            Text(
+                stringResource(R.string.page_size),
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = pageSizeText,
+                onValueChange = { pageSizeText = it.filter { c -> c.isDigit() } },
+                singleLine = true,
+                modifier = Modifier.width(64.dp).height(36.dp)
+            )
+            AppButton(
+                onClick = {
+                    val v = pageSizeText.toIntOrNull() ?: 100
+                    val clamped = v.coerceIn(10, 2000)
+                    pageSizeText = clamped.toString()
+                    onPageSizeChange(clamped)
+                },
+                modifier = Modifier.height(34.dp)
+            ) {
+                Text(stringResource(R.string.page_apply), fontSize = 12.sp)
+            }
         }
-    }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        AppButton(onClick = { onJumpToPage(0) }, modifier = Modifier.height(34.dp)) {
-            Text(stringResource(R.string.page_first), fontSize = 12.sp)
-        }
-        AppButton(
-            onClick = { onJumpToPage((currentPage - 1).coerceAtLeast(0)) },
-            enabled = currentPage > 0,
-            modifier = Modifier.height(34.dp)
+        // 第二行：首页 / 上一页 / 下一页 / 末页
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(stringResource(R.string.page_prev), fontSize = 12.sp)
+            AppOutlinedButton(
+                onClick = { onJumpToPage(0) },
+                enabled = page > 0,
+                modifier = Modifier.height(34.dp).weight(1f)
+            ) { Text(stringResource(R.string.page_first), fontSize = 12.sp) }
+            AppOutlinedButton(
+                onClick = { onJumpToPage((page - 1).coerceAtLeast(0)) },
+                enabled = page > 0,
+                modifier = Modifier.height(34.dp).weight(1f)
+            ) { Text(stringResource(R.string.page_prev), fontSize = 12.sp) }
+            AppOutlinedButton(
+                onClick = { onJumpToPage((page + 1).coerceAtMost(pageCount - 1)) },
+                enabled = page < pageCount - 1,
+                modifier = Modifier.height(34.dp).weight(1f)
+            ) { Text(stringResource(R.string.page_next), fontSize = 12.sp) }
+            AppOutlinedButton(
+                onClick = { onJumpToPage(pageCount - 1) },
+                enabled = page < pageCount - 1,
+                modifier = Modifier.height(34.dp).weight(1f)
+            ) { Text(stringResource(R.string.page_last), fontSize = 12.sp) }
         }
-        OutlinedTextField(
-            value = inputPage,
-            onValueChange = { s -> inputPage = s.filter { it.isDigit() } },
-            placeholder = { Text(stringResource(R.string.page_goto), fontSize = 12.sp) },
-            singleLine = true,
-            modifier = Modifier
-                .weight(1f)
-                .height(34.dp)
-        )
-        AppButton(
-            onClick = {
-                val p = inputPage.toIntOrNull()
-                if (p != null && p >= 1 && p <= pageCount) onJumpToPage(p - 1)
-                inputPage = ""
-            },
-            enabled = inputPage.isNotBlank(),
-            modifier = Modifier.height(34.dp)
+        // 第三行：跳转到指定页
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(stringResource(R.string.page_go), fontSize = 12.sp)
-        }
-        AppButton(
-            onClick = { onJumpToPage((currentPage + 1).coerceAtMost(pageCount - 1).coerceAtLeast(0)) },
-            enabled = currentPage < pageCount - 1,
-            modifier = Modifier.height(34.dp)
-        ) {
-            Text(stringResource(R.string.page_next), fontSize = 12.sp)
-        }
-        AppButton(
-            onClick = { onJumpToPage((pageCount - 1).coerceAtLeast(0)) },
-            enabled = pageCount > 1,
-            modifier = Modifier.height(34.dp)
-        ) {
-            Text(stringResource(R.string.page_last), fontSize = 12.sp)
+            Text(
+                stringResource(R.string.page_jump_to),
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedTextField(
+                value = jumpText,
+                onValueChange = { jumpText = it.filter { c -> c.isDigit() } },
+                placeholder = { Text(stringResource(R.string.page_goto), fontSize = 12.sp) },
+                singleLine = true,
+                modifier = Modifier.weight(1f).height(36.dp)
+            )
+            AppButton(
+                onClick = {
+                    val p = jumpText.toIntOrNull()
+                    if (p != null && p >= 1 && p <= pageCount) onJumpToPage(p - 1)
+                    jumpText = ""
+                },
+                enabled = jumpText.isNotBlank(),
+                modifier = Modifier.height(34.dp)
+            ) {
+                Text(stringResource(R.string.page_go), fontSize = 12.sp)
+            }
         }
     }
 }
@@ -951,5 +1027,36 @@ private fun formatDate(ts: Long): String {
         SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
     } catch (_: Exception) {
         ""
+    }
+}
+
+/**
+ * 紧凑筛选片：自绘以绕开 Material3 FilterChip 的 32dp 默认最小高度，
+ * 把文字与边框的上下距离压到 2dp，但保证文字完整可见（不裁剪）。
+ * 选中态：主题色填充 + 主题色描边 + 主题色文字；未选中：透明底 + 灰描边。
+ */
+@Composable
+private fun CompactChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    val bgColor = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+    val borderColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+    val textColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+    else MaterialTheme.colorScheme.onSurfaceVariant
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier = modifier
+            .height(28.dp)
+            .clip(shape)
+            .background(bgColor)
+            .border(1.dp, borderColor, shape)
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, fontSize = 13.sp, color = textColor)
     }
 }

@@ -26,7 +26,6 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.CompositionLocalProvider
@@ -104,12 +103,14 @@ fun ConfirmDialog(
         title = { Text(title, fontWeight = FontWeight.Bold) },
         text = { Text(message) },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text(confirmText, color = MaterialTheme.colorScheme.error)
-            }
+            AppButton(
+                onClick = onConfirm,
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
+            ) { Text(confirmText) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(dismissText) }
+            AppOutlinedButton(onClick = onDismiss) { Text(dismissText) }
         }
     )
 }

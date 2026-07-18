@@ -34,7 +34,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.filescanner.app.ui.components.AppOutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -203,7 +203,7 @@ fun KeywordReplaceScreen(
                 ) { Text(stringResource(R.string.confirm)) }
             },
             dismissButton = {
-                TextButton(onClick = { toDelete = null }) { Text(stringResource(R.string.cancel)) }
+                AppOutlinedButton(onClick = { toDelete = null }) { Text(stringResource(R.string.cancel)) }
             }
         )
     }
@@ -325,7 +325,7 @@ private fun RuleEditDialog(
             }) { Text(stringResource(R.string.confirm)) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+            AppOutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
         }
     )
 }

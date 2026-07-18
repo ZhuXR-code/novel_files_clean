@@ -6,6 +6,7 @@ import com.filescanner.app.data.database.dao.KeywordReplaceDao
 import com.filescanner.app.data.database.entity.ScannedFileEntity
 import com.filescanner.app.data.database.entity.ScanRunEntity
 import com.filescanner.app.data.database.entity.KeywordReplaceRuleEntity
+import com.filescanner.app.data.database.entity.DuplicateRow
 import com.filescanner.app.data.model.NovelGroup
 import com.filescanner.app.util.ExportService
 import com.filescanner.app.util.LogUtil
@@ -69,12 +70,25 @@ class FileRepository(
         dao.setMarked(id, if (marked) 1 else 0)
     }
 
-    suspend fun clearMarked(runId: Long) = dao.clearMarked(runId)
+    suspend fun clearMarked(runId: Long) {
+        LogUtil.i("Repo", "clearMarked 开始清除 run=$runId")
+        dao.clearMarked(runId)
+        LogUtil.i("Repo", "clearMarked 完成清除 run=$runId")
+    }
 
-    suspend fun insertAll(files: List<ScannedFileEntity>) = dao.insertAll(files)
+    suspend fun insertAll(files: List<ScannedFileEntity>) {
+        val n = files.size
+        LogUtil.i("Repo", "insertAll 开始写入 $n 条 (run=${files.firstOrNull()?.scanRunId})")
+        dao.insertAll(files)
+        LogUtil.i("Repo", "insertAll 完成写入 $n 条")
+    }
 
     suspend fun deleteByIds(ids: List<Long>) {
-        if (ids.isNotEmpty()) dao.deleteByIds(ids)
+        if (ids.isNotEmpty()) {
+            LogUtil.i("Repo", "deleteByIds 开始删除 ${ids.size} 条")
+            dao.deleteByIds(ids)
+            LogUtil.i("Repo", "deleteByIds 完成删除 ${ids.size} 条")
+        }
     }
 
     suspend fun deleteAll() = dao.deleteAll()
@@ -144,6 +158,116 @@ class FileRepository(
         }.flow
     }
 
+    // ===================== 真·页码分页（LIMIT/OFFSET + Flow 自动刷新） =====================
+
+    /** 拼装列表模式的 WHERE 子句（筛选 + 搜索），列表页与计数共用，保证两者口径一致。 */
+    private fun buildFilesWhere(filter: String, query: String, runId: Long): String {
+        val where = mutableListOf<String>()
+        where += "scan_run_id = $runId"
+        if (filter == "MARKED") where += "marked = 1"
+        val q = query.trim()
+        if (q.isNotEmpty()) {
+            val safe = q.replace("'", "''")
+            where += "(file_name LIKE '%$safe%' OR title LIKE '%$safe%' OR author LIKE '%$safe%')"
+        }
+        return where.joinToString(" AND ")
+    }
+
+    /**
+     * 列表模式：取第 [page] 页（0 基）的文件，每页 [pageSize] 条。用 LIMIT/OFFSET 只查一页，
+     * 返回 Flow：标记/删除等写操作后 Room 自动重发当前页，无需手动刷新。
+     */
+    fun filesPageFlow(
+        filter: String,
+        query: String,
+        sort: String,
+        runId: Long,
+        pageSize: Int,
+        page: Int
+    ): Flow<List<ScannedFileEntity>> {
+        val where = buildFilesWhere(filter, query, runId)
+        val orderBy = when (sort) {
+            "NAME" -> "file_name ASC"
+            "SIZE" -> "file_size DESC"
+            else -> "created_at DESC"
+        }
+        val limit = pageSize.coerceAtLeast(1)
+        val offset = (page.coerceAtLeast(0)) * limit
+        val sql = "SELECT * FROM scanned_file WHERE $where ORDER BY $orderBy LIMIT $limit OFFSET $offset"
+        return dao.filesPageFlow(SimpleSQLiteQuery(sql))
+    }
+
+    /** 列表模式：符合筛选/搜索条件的总条数（Flow），用于计算总页数并随表变化自动更新。 */
+    fun filesCountFlow(filter: String, query: String, runId: Long): Flow<Int> {
+        val where = buildFilesWhere(filter, query, runId)
+        val sql = "SELECT COUNT(*) FROM scanned_file WHERE $where"
+        return dao.filesCountFlow(SimpleSQLiteQuery(sql))
+    }
+
+    /** 拼装合集模式的 WHERE / HAVING（分组页与分组计数共用）。返回 (whereSql, havingSql)。 */
+    private fun buildGroupsClauses(
+        minCount: Int,
+        maxCount: Int,
+        excludeNames: List<String>,
+        query: String,
+        runId: Long
+    ): Pair<String, String> {
+        val where = mutableListOf<String>()
+        where += "scan_run_id = $runId"
+        val q = query.trim()
+        if (q.isNotEmpty()) {
+            val safe = q.replace("'", "''")
+            where += "(file_name LIKE '%$safe%' OR title LIKE '%$safe%' OR author LIKE '%$safe%')"
+        }
+        val having = mutableListOf<String>()
+        if (minCount > 0) having += "COUNT(*) >= $minCount"
+        if (maxCount >= 0) having += "COUNT(*) <= $maxCount"
+        if (excludeNames.isNotEmpty()) {
+            val inList = excludeNames.joinToString(",") { "'${it.replace("'", "''")}'" }
+            having += "title NOT IN ($inList)"
+        }
+        val whereSql = where.joinToString(" AND ")
+        val havingSql = if (having.isNotEmpty()) " HAVING ${having.joinToString(" AND ")}" else ""
+        return whereSql to havingSql
+    }
+
+    /** 合集模式：取第 [page] 页（0 基）的分组，每页 [pageSize] 个。 */
+    fun groupsPageFlow(
+        minCount: Int,
+        maxCount: Int,
+        excludeNames: List<String>,
+        query: String,
+        runId: Long,
+        pageSize: Int,
+        page: Int
+    ): Flow<List<NovelGroup>> {
+        val (whereSql, havingSql) = buildGroupsClauses(minCount, maxCount, excludeNames, query, runId)
+        val limit = pageSize.coerceAtLeast(1)
+        val offset = (page.coerceAtLeast(0)) * limit
+        val sql = buildString {
+            append("SELECT title AS group_title, COUNT(*) AS file_count, SUM(file_size) AS total_size")
+            append(" FROM scanned_file WHERE $whereSql GROUP BY title")
+            append(havingSql)
+            append(" ORDER BY (title = '') ASC, file_count DESC, title ASC")
+            append(" LIMIT $limit OFFSET $offset")
+        }
+        return dao.groupsPageFlow(SimpleSQLiteQuery(sql))
+    }
+
+    /** 合集模式：符合区间/排除/搜索条件的分组总数（Flow）。 */
+    fun groupsCountFlow(
+        minCount: Int,
+        maxCount: Int,
+        excludeNames: List<String>,
+        query: String,
+        runId: Long
+    ): Flow<Int> {
+        val (whereSql, havingSql) = buildGroupsClauses(minCount, maxCount, excludeNames, query, runId)
+        // 分组数 = 外层 COUNT 包裹「GROUP BY + HAVING」的结果集
+        val sql = "SELECT COUNT(*) FROM (SELECT title FROM scanned_file WHERE $whereSql GROUP BY title$havingSql)"
+        return dao.groupsCountFlow(SimpleSQLiteQuery(sql))
+    }
+
     /**
      * 合集模式：按书名分组的分页列表。
      * [minCount]/[maxCount]：合集文件数区间（maxCount<0 表示不限）。
@@ -191,6 +315,9 @@ class FileRepository(
     /** 取某合集内全部文件（展开时懒加载）。 */
     suspend fun getFilesByTitle(runId: Long, title: String): List<ScannedFileEntity> =
         dao.getFilesByTitle(runId, title)
+
+    /** 取某文库下参与重复判定的全部行（作者非空），供 ViewModel 分块计算合集重复进度。 */
+    suspend fun getDuplicateRows(runId: Long): List<DuplicateRow> = dao.getDuplicateRows(runId)
 
     /**
      * 复刻 PC 端 /api/groups/select-duplicates 的“标记重复”逻辑，只计算应勾选（待删）的 id：

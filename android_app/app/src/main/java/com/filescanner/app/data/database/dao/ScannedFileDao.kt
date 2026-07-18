@@ -94,6 +94,26 @@ interface ScannedFileDao {
     @RawQuery(observedEntities = [ScannedFileEntity::class])
     fun pagedGroupsRaw(query: SupportSQLiteQuery): PagingSource<Int, NovelGroup>
 
+    // ===================== 真·页码分页（LIMIT/OFFSET，Flow 自动刷新） =====================
+    /**
+     * 列表模式：取「当前页」这一批文件。SQL（含 WHERE/ORDER BY/LIMIT/OFFSET）由 Repository 拼装。
+     * 返回 Flow：底层 scanned_file 表增删改（标记/删除等）时 Room 会自动重新发射当前页，无需手动刷新。
+     */
+    @RawQuery(observedEntities = [ScannedFileEntity::class])
+    fun filesPageFlow(query: SupportSQLiteQuery): Flow<List<ScannedFileEntity>>
+
+    /** 列表模式：符合当前筛选/搜索条件的总条数（用于计算总页数）。表变化时自动重发。 */
+    @RawQuery(observedEntities = [ScannedFileEntity::class])
+    fun filesCountFlow(query: SupportSQLiteQuery): Flow<Int>
+
+    /** 合集模式：取「当前页」这一批分组（书名/文件数/总大小）。 */
+    @RawQuery(observedEntities = [ScannedFileEntity::class])
+    fun groupsPageFlow(query: SupportSQLiteQuery): Flow<List<NovelGroup>>
+
+    /** 合集模式：符合当前区间/排除/搜索条件的分组总数（用于计算总页数）。 */
+    @RawQuery(observedEntities = [ScannedFileEntity::class])
+    fun groupsCountFlow(query: SupportSQLiteQuery): Flow<Int>
+
     /** 取某个合集（书名）内的全部文件，供展开时懒加载。空书名传 "" 匹配未解析组。 */
     @Query("SELECT * FROM scanned_file WHERE scan_run_id = :runId AND title = :title ORDER BY file_name ASC")
     suspend fun getFilesByTitle(runId: Long, title: String): List<ScannedFileEntity>

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文件扫描管理系统</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=20260715e">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260717a">
 </head>
 <body>
     <div id="app">
@@ -144,6 +144,17 @@
                         <div id="parseProgressBar" class="parse-progress-bar" style="width:0%"></div>
                     </div>
                     <div id="parseLogPanel" class="parse-log-panel"></div>
+                </div>
+
+                <!-- 合集（文件分组）重建进度条 -->
+                <div id="rebuildProgress" class="parse-progress" style="display:none">
+                    <div class="parse-progress-info">
+                        <span id="rebuildProgressDesc">正在重建合集...</span>
+                        <span id="rebuildProgressCount">0/0</span>
+                    </div>
+                    <div class="parse-progress-bar-wrap">
+                        <div id="rebuildProgressBar" class="parse-progress-bar" style="width:0%"></div>
+                    </div>
                 </div>
 
                 <!-- 数据表格 -->
@@ -438,6 +449,6 @@
         <button class="back-nav-btn" id="backToBottomBtn" title="回到底部" onclick="scrollToBottom()">↓</button>
     </div>
 
-    <script src="/static/js/app.js?v=20260715d"></script>
+    <script src="/static/js/app.js?v=20260717d"></script>
 </body>
 </html>

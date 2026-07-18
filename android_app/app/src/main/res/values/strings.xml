@@ -212,4 +212,9 @@
     <string name="page_last">末页</string>
     <string name="page_goto">跳至页</string>
     <string name="page_go">跳转</string>
+    <!-- 分页导航补充 -->
+    <string name="page_size">每页</string>
+    <string name="page_apply">应用</string>
+    <string name="page_jump_to">跳到</string>
+    <string name="computing_duplicates">正在计算合集重复…</string>
 </resources>
