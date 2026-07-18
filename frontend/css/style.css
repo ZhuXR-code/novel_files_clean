@@ -479,8 +479,9 @@ body {
 }
 
 .btn-sm {
-    padding: 4px 10px;
+    padding: 2px 8px;
     font-size: 11px;
+    line-height: 1.4;
 }
 
 .btn-sm.danger {
@@ -815,7 +816,7 @@ tr.selected td {
 .back-nav {
     position: fixed;
     right: 24px;
-    bottom: 24px;
+    bottom: 70px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -1105,6 +1106,65 @@ tr.selected td {
 .pagination {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.pagination .pg-nav {
+    min-width: 28px;
+    text-align: center;
+    line-height: 1.4;
+}
+
+.pagination .pg-info {
+    margin: 0 8px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.pagination .pg-sep {
+    width: 1px;
+    align-self: stretch;
+    background: var(--border);
+    margin: 2px 4px;
+}
+
+.pagination .pg-setting {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pagination .pg-unit {
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+/* 分页输入框：保证可正常输入数字，高度与按钮协调 */
+.pagination .pg-input {
+    width: 56px;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.4;
+    min-height: 22px;
+    box-sizing: border-box;
+    user-select: text;
+    pointer-events: auto;
+}
+
+.pagination .pg-input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.pagination .pg-apply {
+    padding: 2px 8px;
+    font-size: 12px;
+    line-height: 1.4;
 }
 
 /* ===================== Selection ===================== */

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -140,6 +141,7 @@ fun AppButton(
     enabled: Boolean = true,
     containerColor: Color = MaterialTheme.colorScheme.primary,
     contentColor: Color = MaterialTheme.colorScheme.onPrimary,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
     content: @Composable RowScope.() -> Unit
 ) {
     val c = if (enabled) containerColor else containerColor.copy(alpha = 0.12f)
@@ -152,7 +154,7 @@ fun AppButton(
             .background(c)
             .semantics { role = Role.Button }
             .pointerInput(Unit) { detectTapGestures(onTap = { if (currentEnabled) currentOnClick() }) }
-            .padding(horizontal = 20.dp, vertical = 6.dp),
+            .padding(contentPadding),
         contentAlignment = Alignment.Center
     ) {
         CompositionLocalProvider(LocalContentColor provides t) {
@@ -174,6 +176,7 @@ fun AppOutlinedButton(
     enabled: Boolean = true,
     containerColor: Color = Color.Transparent,
     contentColor: Color = MaterialTheme.colorScheme.primary,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
     content: @Composable RowScope.() -> Unit
 ) {
     val t = if (enabled) contentColor else contentColor.copy(alpha = 0.38f)
@@ -187,7 +190,7 @@ fun AppOutlinedButton(
             .border(1.dp, b, MaterialTheme.shapes.small)
             .semantics { role = Role.Button }
             .pointerInput(Unit) { detectTapGestures(onTap = { if (currentEnabled) currentOnClick() }) }
-            .padding(horizontal = 20.dp, vertical = 6.dp),
+            .padding(contentPadding),
         contentAlignment = Alignment.Center
     ) {
         CompositionLocalProvider(LocalContentColor provides t) {

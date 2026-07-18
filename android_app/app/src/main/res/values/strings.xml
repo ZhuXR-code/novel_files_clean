@@ -33,6 +33,29 @@
     <string name="no_data_hint">还未扫描任何文件，点击“开始扫描”选择文件夹</string>
     <string name="rescan">重新扫描</string>
 
+    <!-- 一键清理（对齐电脑端一键清理：扫描 → 标记重复 → 删除） -->
+    <string name="one_click_title">一键清理</string>
+    <string name="one_click_subtitle">选择文件夹，自动完成：扫描 → 标记重复 → 删除（与电脑端一致）</string>
+    <string name="one_click_select_folder">选择文件夹</string>
+    <string name="one_click_folder_selected">已选文件夹：%1$s</string>
+    <string name="one_click_file_types">文件类型（逗号分隔，如 txt,md）</string>
+    <string name="one_click_start">开始一键清理</string>
+    <string name="one_click_collecting">正在遍历文件夹…</string>
+    <string name="one_click_scanning">正在扫描与解析…</string>
+    <string name="one_click_marking">正在标记重复文件…</string>
+    <string name="one_click_confirm_title">确认清理重复文件</string>
+    <string name="one_click_confirm_desc">共扫描 %1$d 个文件，发现 %2$d 个重复文件将被删除（每组重复保留一个）。</string>
+    <string name="one_click_confirm_delete">确认删除</string>
+    <string name="one_click_no_dup">未发现重复文件，无需清理</string>
+    <string name="one_click_deleting">正在删除重复文件…</string>
+    <string name="one_click_done_title">清理完成</string>
+    <string name="one_click_done_desc">扫描 %1$d 个文件，标记重复 %2$d 个</string>
+    <string name="one_click_success">成功删除 %1$d 个</string>
+    <string name="one_click_failed">删除失败 %1$d 个</string>
+    <string name="one_click_back_home">返回首页</string>
+    <string name="one_click_error">%1$s</string>
+    <string name="one_click_current">当前：%1$s</string>
+
     <!-- 扫描 -->
     <string name="scanning">正在扫描…</string>
     <string name="scan_preparing">准备扫描…</string>

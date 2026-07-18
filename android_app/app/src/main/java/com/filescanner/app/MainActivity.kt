@@ -18,6 +18,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.filescanner.app.ui.navigation.NavRoutes
 import com.filescanner.app.ui.navigation.NavRoutes.configEdit
+import com.filescanner.app.ui.screens.cleanup.OneClickCleanupScreen
 import com.filescanner.app.ui.screens.config.ConfigEditScreen
 import com.filescanner.app.ui.screens.config.ConfigListScreen
 import com.filescanner.app.ui.screens.delete.DeleteConfirmScreen
@@ -59,8 +60,12 @@ fun AppNavigation() {
                 onNavigateToLibrary = { navController.navigate(NavRoutes.LIBRARY) },
                 onNavigateToSettings = { navController.navigate(NavRoutes.SETTINGS) },
                 onNavigateToHelp = { navController.navigate(NavRoutes.HELP) },
-                onNavigateToConfigList = { navController.navigate(NavRoutes.CONFIG_LIST) }
+                onNavigateToConfigList = { navController.navigate(NavRoutes.CONFIG_LIST) },
+                onNavigateToOneClick = { navController.navigate(NavRoutes.ONE_CLICK) }
             )
+        }
+        composable(NavRoutes.ONE_CLICK) {
+            OneClickCleanupScreen(onBack = { navController.popBackStack() })
         }
         composable(NavRoutes.CONFIG_LIST) {
             ConfigListScreen(
@@ -95,6 +100,7 @@ fun AppNavigation() {
         }
         composable(NavRoutes.SCAN_PROGRESS) {
             ScanProgressScreen(
+                onBack = { navController.popBackStack() },
                 onFinished = { navController.navigate(NavRoutes.LIBRARY) }
             )
         }

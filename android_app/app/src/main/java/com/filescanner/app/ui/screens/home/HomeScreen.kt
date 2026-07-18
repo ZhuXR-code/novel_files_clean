@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +43,7 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToHelp: () -> Unit,
     onNavigateToConfigList: () -> Unit,
+    onNavigateToOneClick: () -> Unit,
     viewModel: HomeViewModel = viewModel()
 ) {
     val stats by viewModel.stats.collectAsStateWithLifecycle()
@@ -95,6 +97,18 @@ fun HomeScreen(
                 Icon(Icons.Filled.FolderOpen, contentDescription = null)
                 Spacer(Modifier.padding(start = 8.dp))
                 Text(stringResource(R.string.start_scan))
+            }
+
+            // 一键清理：选择文件夹后自动 扫描 → 标记重复 → 删除（与电脑端一致）
+            AppButton(
+                onClick = onNavigateToOneClick,
+                modifier = Modifier.fillMaxWidth(),
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
+            ) {
+                Icon(Icons.Filled.Delete, contentDescription = null)
+                Spacer(Modifier.padding(start = 8.dp))
+                Text(stringResource(R.string.one_click_title))
             }
 
             AppButton(

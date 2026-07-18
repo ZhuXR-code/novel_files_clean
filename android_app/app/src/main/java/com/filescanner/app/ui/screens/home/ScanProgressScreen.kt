@@ -9,6 +9,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Icon
+import androidx.compose.ui.platform.LocalContext
+import com.filescanner.app.service.ScanService
 
 
 import androidx.compose.material3.Button
@@ -34,12 +40,14 @@ import com.filescanner.app.ui.components.AppButton
 import com.filescanner.app.ui.components.AppOutlinedButton
 
 @Composable
-fun ScanProgressScreen(onFinished: () -> Unit) {
+fun ScanProgressScreen(onBack: () -> Unit, onFinished: () -> Unit) {
     val state by ScanStateManager.state.collectAsStateWithLifecycle()
     val isCollecting = state.isScanning && state.phase == "collecting"
+    val context = LocalContext.current
+    val lastConfig by ScanStateManager.lastConfig.collectAsStateWithLifecycle()
 
     Scaffold(
-        topBar = { TopBar(title = stringResource(R.string.scanning)) }
+        topBar = { TopBar(title = stringResource(R.string.scanning), onBack = onBack) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -123,6 +131,31 @@ fun ScanProgressScreen(onFinished: () -> Unit) {
             }
 
             if (state.finished) {
+                // 扫描完成 / 已停止：可“重新扫描”（沿用本次配置）或查看文库结果
+                if (lastConfig != null) {
+                    AppButton(
+                        onClick = {
+                            val c = lastConfig!!
+                            val intent = Intent(context, ScanService::class.java).apply {
+                                action = ScanService.ACTION_START_SCAN
+                                putExtra("tree_uri", c.treeUri)
+                                putExtra("file_types", c.fileTypes)
+                                putExtra("min_size_kb", c.minSizeKb)
+                                putExtra("recursive", c.recursive)
+                                putExtra("excluded_folders", c.excludedFolders)
+                                putExtra("config_name", c.configName)
+                                putExtra("folder_name", c.folderName)
+                            }
+                            context.startForegroundService(intent)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Filled.Refresh, contentDescription = null)
+                        Spacer(Modifier.padding(start = 8.dp))
+                        Text(stringResource(R.string.rescan))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
                 AppButton(
                     onClick = onFinished,
                     modifier = Modifier.fillMaxWidth()

@@ -22,6 +22,20 @@ data class ScanState(
     val finished: Boolean = false
 )
 
+/**
+ * 最近一次“开始扫描”所使用的配置参数。
+ * 供扫描进度页在“停止/完成后”提供“重新扫描”按钮，复用同一文件夹与参数重新发起扫描。
+ */
+data class LastScanConfig(
+    val treeUri: String,
+    val fileTypes: String,
+    val minSizeKb: Int,
+    val recursive: Boolean,
+    val excludedFolders: String,
+    val configName: String,
+    val folderName: String
+)
+
 object ScanStateManager {
     private val _state = MutableStateFlow(ScanState())
     val state: StateFlow<ScanState> = _state.asStateFlow()
@@ -38,6 +52,28 @@ object ScanStateManager {
         _stopRequested.value = true
     }
 
+    /**
+     * 当前（或最近一次）扫描对应的文库 runId。
+     * 供“一键清理”等编排流程在扫描完成后读取，以便对本次文库执行
+     * 标记重复 / 删除等操作。与扫描进度状态分开保存，避免被 ScanState 的
+     * 多次 update() 覆盖清零。
+     */
+    private val _runId = MutableStateFlow(0L)
+    val runId: StateFlow<Long> = _runId.asStateFlow()
+    fun setRunId(id: Long) {
+        _runId.value = id
+    }
+
+    /**
+     * 最近一次扫描的配置参数（文件夹/类型/排除项等），供“重新扫描”按钮复用。
+     * 不随 reset() 清空，确保停止后仍能按原参数重扫。
+     */
+    private val _lastConfig = MutableStateFlow<LastScanConfig?>(null)
+    val lastConfig: StateFlow<LastScanConfig?> = _lastConfig.asStateFlow()
+    fun setLastConfig(c: LastScanConfig) {
+        _lastConfig.value = c
+    }
+
     fun update(s: ScanState) {
         _state.value = s
     }
@@ -45,5 +81,6 @@ object ScanStateManager {
     fun reset() {
         _state.value = ScanState()
         _stopRequested.value = false
+        _runId.value = 0L
     }
 }

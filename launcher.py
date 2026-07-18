@@ -16,8 +16,34 @@ import sys
 import time
 import socket
 import threading
+import ctypes
 
 from backend.logger import logger
+
+# 命名互斥体：用于安装/更新时让 Inno Setup 能可靠识别并关闭正在运行的旧实例。
+# 必须与 build/FileScanner.iss 中的 AppMutex 完全一致（含 Global\ 前缀）。
+_APP_MUTEX_NAME = 'Global\\FileScannerAppMutex'
+_app_mutex = None
+
+
+def _acquire_app_mutex():
+    """Windows 上创建并持有命名互斥体，直到进程退出。
+
+    安装程序（Inno Setup）据 AppMutex 检测到“有对应应用正在运行”，
+    并向该进程发送关闭信号；本进程收到（窗口被关闭）后会立即退出，
+    从而释放对 FileScanner.exe 的文件锁，避免安装/更新时卡顿或报错。
+    """
+    global _app_mutex
+    if os.name != 'nt':
+        return
+    try:
+        kernel32 = ctypes.windll.kernel32
+        # 不继承、初始未被占用
+        _app_mutex = kernel32.CreateMutexW(None, False, _APP_MUTEX_NAME)
+        if not _app_mutex or _app_mutex == 0:
+            _app_mutex = None
+    except Exception:
+        _app_mutex = None
 
 # ---- 关键：必须在导入 backend.app 之前设置 SQLite 模式 ----
 os.environ['DB_BACKEND'] = 'sqlite'
@@ -95,34 +121,47 @@ def main():
     db_path = sqlite_db_path()
 
     # ---------- 本地软件窗口：把前端页面直接嵌进窗口 ----------
+    # 窗口尺寸自适应当前用户屏幕：按主屏分辨率乘系数，不再写死像素，
+    # 这样在不同分辨率/缩放的电脑上，页面展示宽度都能铺满、自适应。
+    try:
+        _sm = ctypes.windll.user32
+        _sw, _sh = _sm.GetSystemMetrics(0), _sm.GetSystemMetrics(1)
+        _win_w = max(960, int(_sw * 0.92))
+        _win_h = max(640, int(_sh * 0.9))
+    except Exception:
+        _win_w, _win_h = 1280, 860
+
+    # 创建命名互斥体，供安装程序检测并关闭旧实例（见 _acquire_app_mutex 说明）
+    _acquire_app_mutex()
+
     window = webview.create_window(
         '文件扫描管理系统（本地版）',
         url,
-        width=1280,
-        height=860,
+        width=_win_w,
+        height=_win_h,
         min_size=(900, 600),
         text_select=True,
         confirm_close=False,
     )
 
     def on_window_closed():
-        """窗口关闭时停掉后端服务并退出整个进程"""
-        logger.info('窗口已关闭，正在退出本地服务...')
+        """窗口关闭时停掉后端服务（真正退出在 webview.start() 之后统一进行）"""
+        logger.info('窗口已关闭，正在停止本地服务...')
         try:
             server.should_exit = True
         except Exception:
             pass
-        # 给服务一点时间退出
-        time.sleep(0.3)
-        logger.info('本地软件版 launcher 已退出')
-        os._exit(0)
 
     window.events.closed += on_window_closed
 
-    # webview.start() 阻塞直到所有窗口关闭；Windows 上须在主线程调用。
-    # pywebview 在 Windows 下默认使用 WebView2 (Edge 内核) 后端，
-    # 通过 .NET/pythonnet 桥接，无需打包浏览器，体积小。
+    # webview.start() 阻塞直到所有窗口关闭——无论用户点击 X，还是
+    # 安装程序/系统发送 WM_CLOSE。一旦返回即代表窗口已关闭，此处立即
+    # 强制退出整个进程，确保 FileScanner.exe 的文件锁被尽快释放。
+    # 这是修复“安装时旧实例关不掉/卡顿报错”的根本：进程必须真正退出，
+    # 安装程序才能替换文件。
     webview.start()
+    logger.info('本地软件版 launcher 已退出')
+    os._exit(0)
 
 
 if __name__ == '__main__':

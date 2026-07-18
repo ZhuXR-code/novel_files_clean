@@ -54,6 +54,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import com.filescanner.app.ui.components.AppOutlinedButton
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -70,6 +71,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -486,7 +488,7 @@ private fun RunFilesScreen(
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 16.dp, bottom = if (selection.isNotEmpty()) 84.dp else 20.dp),
+                        .padding(end = 16.dp, bottom = if (selection.isNotEmpty()) 110.dp else 60.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (showDown) {
@@ -916,39 +918,72 @@ private fun PageNavBar(
     // 当前页兜底夹在 [0, pageCount-1]，避免总数变化瞬间越界显示
     val page = currentPage.coerceIn(0, pageCount - 1)
 
-    // 每页条数本地输入态：仅在“应用”时提交给 ViewModel（对齐 PC 端：填完再确认）
-    var pageSizeText by remember(pageSize) { mutableStateOf(pageSize.toString()) }
+    // 每页条数本地输入态：仅在“应用(✓)”时提交给 ViewModel（对齐 PC 端：填完再确认）
+    var pageSizeText by remember(pageSize) { mutableStateOf((if (pageSize > 0) pageSize else 100).toString()) }
     var jumpText by remember { mutableStateOf("") }
+    val numKeyboard = KeyboardOptions(keyboardType = KeyboardType.Number)
+    val tfShape = RoundedCornerShape(6.dp)
 
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    // 分两行布局：第1行翻页导航（居中），第2行每页/跳页设置（居中）。
+    // 单行 9 个元素在手机窄屏（360dp）根本装不下，会被截断。
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // 第一行：页码信息 + 每页条数设置
+        // 第一行：首页 / 上一页 / 页码 / 下一页 / 末页（居中）
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)
         ) {
+            AppOutlinedButton(
+                onClick = { onJumpToPage(0) },
+                enabled = page > 0,
+                modifier = Modifier.height(30.dp),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+            ) { Text(stringResource(R.string.page_first), fontSize = 12.sp) }
+            AppOutlinedButton(
+                onClick = { onJumpToPage((page - 1).coerceAtLeast(0)) },
+                enabled = page > 0,
+                modifier = Modifier.height(30.dp),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+            ) { Text(stringResource(R.string.page_prev), fontSize = 12.sp) }
             Text(
                 stringResource(R.string.page_info, page + 1, pageCount, totalCount),
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.padding(horizontal = 4.dp)
             )
-            Text(
-                stringResource(R.string.page_size),
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            AppOutlinedButton(
+                onClick = { onJumpToPage((page + 1).coerceAtMost(pageCount - 1)) },
+                enabled = page < pageCount - 1,
+                modifier = Modifier.height(30.dp),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+            ) { Text(stringResource(R.string.page_next), fontSize = 12.sp) }
+            AppOutlinedButton(
+                onClick = { onJumpToPage(pageCount - 1) },
+                enabled = page < pageCount - 1,
+                modifier = Modifier.height(30.dp),
+                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+            ) { Text(stringResource(R.string.page_last), fontSize = 12.sp) }
+        }
+        // 第二行：每页条数 + 跳到指定页（居中）
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+        ) {
+            Text(stringResource(R.string.page_size), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(
                 value = pageSizeText,
                 onValueChange = { pageSizeText = it.filter { c -> c.isDigit() } },
                 singleLine = true,
-                modifier = Modifier.width(64.dp).height(36.dp)
+                keyboardOptions = numKeyboard,
+                shape = tfShape,
+                modifier = Modifier.width(60.dp).height(30.dp)
             )
             AppButton(
                 onClick = {
@@ -957,55 +992,17 @@ private fun PageNavBar(
                     pageSizeText = clamped.toString()
                     onPageSizeChange(clamped)
                 },
-                modifier = Modifier.height(34.dp)
-            ) {
-                Text(stringResource(R.string.page_apply), fontSize = 12.sp)
-            }
-        }
-        // 第二行：首页 / 上一页 / 下一页 / 末页
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            AppOutlinedButton(
-                onClick = { onJumpToPage(0) },
-                enabled = page > 0,
-                modifier = Modifier.height(34.dp).weight(1f)
-            ) { Text(stringResource(R.string.page_first), fontSize = 12.sp) }
-            AppOutlinedButton(
-                onClick = { onJumpToPage((page - 1).coerceAtLeast(0)) },
-                enabled = page > 0,
-                modifier = Modifier.height(34.dp).weight(1f)
-            ) { Text(stringResource(R.string.page_prev), fontSize = 12.sp) }
-            AppOutlinedButton(
-                onClick = { onJumpToPage((page + 1).coerceAtMost(pageCount - 1)) },
-                enabled = page < pageCount - 1,
-                modifier = Modifier.height(34.dp).weight(1f)
-            ) { Text(stringResource(R.string.page_next), fontSize = 12.sp) }
-            AppOutlinedButton(
-                onClick = { onJumpToPage(pageCount - 1) },
-                enabled = page < pageCount - 1,
-                modifier = Modifier.height(34.dp).weight(1f)
-            ) { Text(stringResource(R.string.page_last), fontSize = 12.sp) }
-        }
-        // 第三行：跳转到指定页
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                stringResource(R.string.page_jump_to),
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+                modifier = Modifier.height(30.dp)
+            ) { Text("✓", fontSize = 13.sp) }
+            Text(stringResource(R.string.page_jump_to), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(
                 value = jumpText,
                 onValueChange = { jumpText = it.filter { c -> c.isDigit() } },
                 placeholder = { Text(stringResource(R.string.page_goto), fontSize = 12.sp) },
                 singleLine = true,
-                modifier = Modifier.weight(1f).height(36.dp)
+                keyboardOptions = numKeyboard,
+                shape = tfShape,
+                modifier = Modifier.width(64.dp).height(30.dp)
             )
             AppButton(
                 onClick = {
@@ -1014,10 +1011,8 @@ private fun PageNavBar(
                     jumpText = ""
                 },
                 enabled = jumpText.isNotBlank(),
-                modifier = Modifier.height(34.dp)
-            ) {
-                Text(stringResource(R.string.page_go), fontSize = 12.sp)
-            }
+                modifier = Modifier.height(30.dp)
+            ) { Text("✓", fontSize = 13.sp) }
         }
     }
 }

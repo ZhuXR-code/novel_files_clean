@@ -13,6 +13,7 @@ import com.filescanner.app.MainActivity
 import com.filescanner.app.R
 import com.filescanner.app.data.database.entity.ScannedFileEntity
 import com.filescanner.app.data.model.ScanState
+import com.filescanner.app.data.model.LastScanConfig
 import com.filescanner.app.data.model.ScanStateManager
 import com.filescanner.app.util.FileUtil
 import com.filescanner.app.util.KeywordReplace
@@ -54,6 +55,19 @@ class ScanService : Service() {
             val folderName = intent.getStringExtra("folder_name") ?: ""
             LogUtil.i("ScanService", "startScan tree=$treeUri types=$fileTypes recursive=$recursive exclude=$excludedFolders")
 
+            // 记录本次扫描配置，供进度页“重新扫描”按钮复用
+            ScanStateManager.setLastConfig(
+                LastScanConfig(
+                    treeUri = treeUriStr,
+                    fileTypes = fileTypes,
+                    minSizeKb = minSizeKb,
+                    recursive = recursive,
+                    excludedFolders = excludedFolders,
+                    configName = configName,
+                    folderName = folderName
+                )
+            )
+
             startForeground(NOTIFICATION_ID, createNotification(getString(R.string.scan_preparing)))
             startScanning(treeUri, fileTypes, minSizeKb, recursive, excludedFolders, configName, folderName)
         } else if (intent?.action == ACTION_STOP_SCAN) {
@@ -76,6 +90,8 @@ class ScanService : Service() {
             // 本次扫描对应一个文库（scan_run）：进入扫描前先建记录，拿到 runId 关联文件
             val runName = configName.ifBlank { folderName.ifBlank { "文库" } }
             val runId = app.repository.createScanRun(runName, treeUri.toString(), folderName, fileTypes)
+            // 记录本次文库 runId，供“一键清理”等编排流程在扫描完成后使用
+            ScanStateManager.setRunId(runId)
             try {
                 // 收集阶段：实时上报“已收集 N 个文件”，避免大目录遍历时界面一直停在 0。
                 var lastCollectUpdate = 0L

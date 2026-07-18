@@ -12,6 +12,7 @@ object NavRoutes {
     const val KEYWORD_REPLACE = "keyword_replace"
     const val CONFIG_LIST = "config_list"
     const val CONFIG_EDIT = "config_edit/{id}"
+    const val ONE_CLICK = "one_click_cleanup"
 
     fun configEdit(id: Long) = "config_edit/$id"
     fun fileDetail(id: Long) = "file_detail/$id"

@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文件扫描管理系统</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=20260717a">
+    <link rel="icon" href="/static/favicon.ico?v=20260718">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260718b">
 </head>
 <body>
     <div id="app">
@@ -86,7 +87,7 @@
                                     </div>
                                     <div class="filter-footer">
                                         <span id="filterCountInfo">已选 0 个</span>
-                                        <button class="btn-sm btn-primary" onclick="applyNovelNameFilter()">应用筛选</button>
+                                        <button class="btn-sm btn-primary" onclick="applyNovelNameFilter()" title="应用筛选">√</button>
                                     </div>
                                 </div>
                             </div>
@@ -177,21 +178,22 @@
                 <div class="table-footer">
                     <span id="resultCount">共 0 条记录</span>
                     <div class="pagination">
-                        <button class="btn-sm" onclick="goToPage(1)" title="首页">&laquo;</button>
-                        <button class="btn-sm" onclick="goToPage(state.page - 1)" id="prevPageBtn">&lsaquo;</button>
-                        <span id="pageInfo" style="margin:0 8px;font-size:12px"></span>
-                        <button class="btn-sm" onclick="goToPage(state.page + 1)" id="nextPageBtn">&rsaquo;</button>
-                        <button class="btn-sm" onclick="goToPage(state.totalPages)" title="末页">&raquo;</button>
-                        <span style="margin-left:10px;display:flex;align-items:center;gap:4px">
-                            <span style="font-size:11px">跳转</span>
-                            <input type="number" id="pageJumpInput" value="" min="1" max="99999"
-                                   style="width:50px;padding:3px 6px;border:1px solid var(--border);font-size:12px;outline:none;background:var(--bg)">
-                            <button class="btn-sm" onclick="jumpToPage()" title="跳转">GO</button>
+                        <button class="btn-sm pg-nav" onclick="goToPage(1)" title="首页">&laquo;</button>
+                        <button class="btn-sm pg-nav" onclick="goToPage(state.page - 1)" id="prevPageBtn">&lsaquo;</button>
+                        <span id="pageInfo" class="pg-info"></span>
+                        <button class="btn-sm pg-nav" onclick="goToPage(state.page + 1)" id="nextPageBtn">&rsaquo;</button>
+                        <button class="btn-sm pg-nav" onclick="goToPage(state.totalPages)" title="末页">&raquo;</button>
+                        <span class="pg-sep"></span>
+                        <span class="pg-setting">
+                            <input type="number" id="pageSizeInput" value="100" min="10" max="2000" step="1"
+                                   class="pg-input" aria-label="每页条数">
+                            <span class="pg-unit">条/页</span>
                         </span>
-                        <span style="margin-left:10px;display:flex;align-items:center;gap:4px">
-                            <input type="number" id="pageSizeInput" value="100" min="10" max="2000" step="10"
-                                   style="width:60px;padding:3px 6px;border:1px solid var(--border);font-size:12px;outline:none;background:var(--bg)">
-                            <span style="font-size:11px">条/页</span>
+                        <span class="pg-setting">
+                            <span class="pg-unit">跳至</span>
+                            <input type="text" id="pageJumpInput" inputmode="numeric" value="" class="pg-input"
+                                   aria-label="跳转页码" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                            <button class="btn-sm pg-apply" onclick="jumpToPage()" title="跳转">√</button>
                         </span>
                     </div>
                 </div>
@@ -449,6 +451,6 @@
         <button class="back-nav-btn" id="backToBottomBtn" title="回到底部" onclick="scrollToBottom()">↓</button>
     </div>
 
-    <script src="/static/js/app.js?v=20260717d"></script>
+    <script src="/static/js/app.js?v=20260718d"></script>
 </body>
 </html>
