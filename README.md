@@ -38,6 +38,7 @@ txt文件清理-单工程清理/
 ├─ android_app/            # Android APP（Kotlin + Jetpack Compose + Room）
 ├─ 安装部署/               # 各端安装/使用/运维手册
 │  ├─ PC网页版/
+│  ├─ PC桌面软件版/
 │  └─ APP端/
 ├─ build/                  # 打包脚本（PyInstaller spec、Inno Setup iss）
 ├─ launcher.py             # 本地软件版启动器（SQLite）
@@ -113,4 +114,5 @@ cd android_app
 
 各端的安装部署、使用指南与运维手册见 `安装部署/` 目录：
 - `安装部署/PC网页版/`：安装部署手册、用户使用手册、产品功能操作介绍、运维手册
+- `安装部署/PC桌面软件版/`：安装部署手册、用户使用手册、产品功能操作介绍、运维手册（本地 EXE / SQLite）
 - `安装部署/APP端/`：安装部署手册、用户使用手册、产品功能操作介绍、运维手册

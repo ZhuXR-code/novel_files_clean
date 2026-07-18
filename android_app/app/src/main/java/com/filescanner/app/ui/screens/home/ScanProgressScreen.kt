@@ -1,6 +1,5 @@
 package com.filescanner.app.ui.screens.home
 
-import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,14 +23,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.filescanner.app.R
 import com.filescanner.app.data.model.ScanStateManager
-import com.filescanner.app.service.ScanService
 import com.filescanner.app.ui.components.TopBar
 import com.filescanner.app.ui.components.AppButton
 import com.filescanner.app.ui.components.AppOutlinedButton
@@ -39,7 +36,6 @@ import com.filescanner.app.ui.components.AppOutlinedButton
 @Composable
 fun ScanProgressScreen(onFinished: () -> Unit) {
     val state by ScanStateManager.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val isCollecting = state.isScanning && state.phase == "collecting"
 
     Scaffold(
@@ -112,13 +108,7 @@ fun ScanProgressScreen(onFinished: () -> Unit) {
             // 停止扫描：扫描/收集中均可停止，已扫描结果会保留
             if (state.isScanning) {
                 AppOutlinedButton(
-                    onClick = {
-                        context.startService(
-                            Intent(context, ScanService::class.java).apply {
-                                action = ScanService.ACTION_STOP_SCAN
-                            }
-                        )
-                    },
+                    onClick = { ScanStateManager.requestStop() },
                     modifier = Modifier.fillMaxWidth(),
                     contentColor = MaterialTheme.colorScheme.error
                 ) {

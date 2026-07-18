@@ -81,7 +81,8 @@ class ScanService : Service() {
                 var lastCollectUpdate = 0L
                 ScanStateManager.update(ScanState(isScanning = true, phase = "collecting"))
                 val fileList = FileUtil.collectSupportedFiles(
-                    app, treeUri, recursive, minSizeKb, fileTypes, excludedFolders
+                    app, treeUri, recursive, minSizeKb, fileTypes, excludedFolders,
+                    shouldStop = { ScanStateManager.stopRequested.value }
                 ) { collected ->
                     val now = System.currentTimeMillis()
                     if (now - lastCollectUpdate >= STATE_THROTTLE_MS) {
@@ -120,8 +121,13 @@ class ScanService : Service() {
                 // 进度 StateFlow 节流：每 200ms 最多发射一次（通知本身也节流），
                 // 避免 10w 级文件时每文件都新建对象并触发 UI 重组合
                 var lastState = System.currentTimeMillis()
+                var stopped = false
                 for (entry in fileList) {
-                    if (!isActive) break
+                    // 检测取消（协程被 cancel）或进程内停止请求标志，二者任一即退出
+                    if (!isActive || ScanStateManager.stopRequested.value) {
+                        stopped = true
+                        break
+                    }
                     // 1) 扫描阶段规则：先清洗文件名（与 PC scan_rules 作用于 file_name 一致）
                     val rawName = entry.name
                     val fileName = if (hasScanRules) (KeywordReplace.applyRules(rawName, scanRules) ?: rawName) else rawName
@@ -169,20 +175,37 @@ class ScanService : Service() {
                         buffer.clear()
                     }
                 }
-                if (buffer.isNotEmpty()) {
-                    app.repository.insertAll(buffer.toList())
-                    buffer.clear()
-                }
-
-                ScanStateManager.update(
-                    ScanState(
-                        isScanning = false, phase = "scanning", progress = 100, scannedFiles = total,
-                        totalFiles = total, finished = true, status = "completed"
+                if (stopped) {
+                    // 停止：保留已写入库的文件，flush 最后一批不足 50 条的记录
+                    if (buffer.isNotEmpty()) {
+                        app.repository.insertAll(buffer.toList())
+                        buffer.clear()
+                    }
+                    ScanStateManager.update(
+                        ScanState(
+                            isScanning = false, phase = "scanning",
+                            progress = if (total > 0) (done * 100) / total else 0,
+                            scannedFiles = done, totalFiles = total,
+                            finished = true, status = "stopped"
+                        )
                     )
-                )
-                app.repository.setRunFileCount(runId, total)
-                updateNotificationNow(getString(R.string.scan_completed, total))
-                LogUtil.i("ScanService", "Scan finished: $total files (run=$runId)")
+                    updateNotificationNow(getString(R.string.scan_stopped, done))
+                    LogUtil.i("ScanService", "Scan stopped by user at $done/$total (run=$runId)")
+                } else {
+                    if (buffer.isNotEmpty()) {
+                        app.repository.insertAll(buffer.toList())
+                        buffer.clear()
+                    }
+                    ScanStateManager.update(
+                        ScanState(
+                            isScanning = false, phase = "scanning", progress = 100, scannedFiles = total,
+                            totalFiles = total, finished = true, status = "completed"
+                        )
+                    )
+                    app.repository.setRunFileCount(runId, total)
+                    updateNotificationNow(getString(R.string.scan_completed, total))
+                    LogUtil.i("ScanService", "Scan finished: $total files (run=$runId)")
+                }
             } catch (e: CancellationException) {
                 LogUtil.i("ScanService", "Scan cancelled")
             } catch (e: Exception) {
@@ -199,6 +222,8 @@ class ScanService : Service() {
     }
 
     private fun stopScanning() {
+        // 置位进程内停止标志，确保协程（即便因后台限制未收到 stop 命令）也能在下一检查点退出
+        ScanStateManager.requestStop()
         scanJob?.cancel()
         scanJob = null
         val s = ScanStateManager.state.value
@@ -233,9 +258,9 @@ class ScanService : Service() {
         .addAction(
             android.R.drawable.ic_media_pause,
             getString(R.string.stop_scan),
-            PendingIntent.getService(
+            PendingIntent.getBroadcast(
                 this, 1,
-                Intent(this, ScanService::class.java).apply { action = ACTION_STOP_SCAN },
+                Intent(this, StopScanReceiver::class.java).apply { action = ACTION_STOP_SCAN },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
         )

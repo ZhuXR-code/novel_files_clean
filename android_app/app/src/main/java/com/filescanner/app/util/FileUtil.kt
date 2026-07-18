@@ -60,6 +60,8 @@ object FileUtil {
         minSizeKb: Int,
         fileTypes: String,
         excludedFolders: String = "",
+        /** 返回 true 时立即停止收集（用于“停止扫描”）。每次迭代都会检查，开销极小。 */
+        shouldStop: (() -> Boolean)? = null,
         onFound: ((collected: Int) -> Unit)? = null
     ): List<FileEntry> {
         val typeSet = fileTypes.split(",").map { it.trim().lowercase() }
@@ -70,7 +72,7 @@ object FileUtil {
             .filter { it.isNotEmpty() }.toSet()
         val results = mutableListOf<FileEntry>()
         val root = DocumentFile.fromTreeUri(context, folderUri) ?: return results
-        collect(context, root, recursive, minSize, typeSet, excludeSet, results, onFound)
+        collect(context, root, recursive, minSize, typeSet, excludeSet, results, shouldStop, onFound)
         return results
     }
 
@@ -82,14 +84,18 @@ object FileUtil {
         typeSet: Set<String>,
         excludeSet: Set<String>,
         results: MutableList<FileEntry>,
+        shouldStop: (() -> Boolean)?,
         onFound: ((collected: Int) -> Unit)?
-    ) {
-        val files = doc.listFiles() ?: return
+    ): Boolean {
+        val files = doc.listFiles() ?: return false
         for (file in files) {
+            if (shouldStop?.invoke() == true) return true
             if (file.isDirectory) {
                 // 排除列表按目录名匹配：命中的子文件夹整体跳过
                 if (excludeSet.isNotEmpty() && file.name != null && file.name in excludeSet) continue
-                if (recursive) collect(context, file, true, minSize, typeSet, excludeSet, results, onFound)
+                if (recursive) {
+                    if (collect(context, file, true, minSize, typeSet, excludeSet, results, shouldStop, onFound)) return true
+                }
             } else if (file.isFile) {
                 val name = file.name ?: continue
                 val len = file.length()
@@ -99,6 +105,7 @@ object FileUtil {
                 }
             }
         }
+        return false
     }
 
     /**

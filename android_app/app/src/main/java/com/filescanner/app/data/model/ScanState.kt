@@ -26,11 +26,24 @@ object ScanStateManager {
     private val _state = MutableStateFlow(ScanState())
     val state: StateFlow<ScanState> = _state.asStateFlow()
 
+    /**
+     * 进程内"停止扫描"请求标志。
+     * UI（界面按钮 / 通知栏按钮）点击停止时直接置位，扫描协程在循环中检测后自行退出。
+     * 之所以不依赖 startService(STOP) 跨组件通信，是因为 Android 8.0+ 的后台启动限制
+     * 常导致 stop 命令意图无法送达，出现"点了停止却没停"的问题。
+     */
+    private val _stopRequested = MutableStateFlow(false)
+    val stopRequested: StateFlow<Boolean> = _stopRequested.asStateFlow()
+    fun requestStop() {
+        _stopRequested.value = true
+    }
+
     fun update(s: ScanState) {
         _state.value = s
     }
 
     fun reset() {
         _state.value = ScanState()
+        _stopRequested.value = false
     }
 }
