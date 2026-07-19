@@ -17,6 +17,8 @@ venv/
 .vscode/
 *.swp
 *.swo
+# Trae 等 IDE 生成的 HTML 报告共享包（本机临时导出，含 zip 缓存）
+.trae-html-share-packages/
 
 # Logs
 logs/
@@ -26,8 +28,14 @@ exports/
 
 # Test files (root-level test files should be moved to tests/)
 _test_*.py
+# 测试数据目录（含生成的测试 txt、截图、测试脚本产物）
+_test_txt/
 _stress_out.txt
 _test_out.txt
+
+# 临时/调试产物（前缀 _ 开头的临时文件，如 _tmp.txt、_backup_xxx.json）
+_tmp*
+_backup_*
 
 # OS generated
 .DS_Store
@@ -35,6 +43,8 @@ Thumbs.db
 
 # Project-specific
 project-review-report/
+# 应用评估/对比 HTML 报告（独立项目副本，不属于本工程源代码）
+txt-cleaner-app-evaluation/
 
 # ===== 避免把本机路径/隐私数据/构建产物推到公开仓库 =====
 # 日志（含真实扫描的书名、作者、本机绝对路径）
