@@ -49,10 +49,14 @@ def _acquire_app_mutex():
 os.environ['DB_BACKEND'] = 'sqlite'
 logger.info('启动本地软件版 launcher（DB_BACKEND=sqlite）')
 
-# 便携模式：用 `launcher.exe --portable` 启动，或设置环境变量 SQLITE_DB_PATH，
-# 则数据库文件放在程序旁边（FileScannerData/file_scanner.db），便于整体拷贝。
+# 数据库位置：默认放在“程序所在安装目录”内的 FileScannerData\ 子目录
+# （见 backend/db_config.sqlite_db_path）。这样数据库的存放位置由用户在安装
+# 向导中指定的安装路径决定，不再散落到 %APPDATA%。
+# 仍可用环境变量 SQLITE_DB_PATH 显式覆盖（便于调试 / 自定义数据目录）。
+# 注：原 --portable 行为（数据库放程序旁）现在就是默认行为，故不再特殊处理。
 _args = sys.argv[1:]
 if '--portable' in _args and 'SQLITE_DB_PATH' not in os.environ:
+    # 兼容旧习惯：显式 --portable 时仍强制使用程序旁目录（等同默认）
     _exe_dir = os.path.dirname(os.path.abspath(sys.executable))
     os.environ['SQLITE_DB_PATH'] = os.path.join(_exe_dir, 'FileScannerData', 'file_scanner.db')
 

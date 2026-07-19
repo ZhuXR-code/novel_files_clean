@@ -26,6 +26,7 @@ from backend.logger import logger
 from backend.models import ScanResult, FileMetadata, FileGroup, ScanConfig, ParseLog
 from backend.scanner import scan_files
 from backend.regex_parser import parse_file_names_regex_only
+from backend.operation_log import log_operation
 
 
 # ---------- 全局单例状态 ----------
@@ -89,63 +90,40 @@ def _is_under_root(root, path):
 def compute_duplicate_ids(db, config_id):
     """计算某配置下「应删除」的 ScanResult id 集合。
 
-    逻辑与 /api/groups/select-duplicates 完全一致，但覆盖全部合集（非分页）：
-      每个 (小说名+作者) 组内：
-        - 任一行进度含完结/番外关键词 → 所有纯数字进度行标记为待删
-        - 否则 → 保留进度最大的一行，其余纯数字行标记待删
-      若组内 file_size 最大的行被标记，则取消（保留最大文件）。
+    直接复用 dup_logic.compute_duplicate_ids 的五则规则，与
+    /api/groups/select-duplicates 端点完全一致，避免一键清理与手动标记重复结果不一致。
     """
-    group_names = [g.novel_name for g in
-                   db.query(FileGroup.novel_name).filter(FileGroup.config_id == config_id).all()]
-    if not group_names:
-        return []
-
+    # 取出该 config 下全部条目（含 novel_name 为空者，由 dup_logic 按 (作者+小说名) 分组处理）
     items = db.query(
         ScanResult.id,
+        ScanResult.file_name,
+        ScanResult.file_size,
         func.coalesce(FileMetadata.novel_name, '').label('novel_name'),
         FileMetadata.author,
         FileMetadata.progress,
-        ScanResult.file_size,
+        ScanResult.created_date,
     ).outerjoin(
         FileMetadata, ScanResult.id == FileMetadata.scan_result_id
     ).filter(
         ScanResult.scan_config_id == config_id,
-        func.coalesce(FileMetadata.novel_name, '').in_(group_names),
     ).all()
 
-    grouped_all = defaultdict(list)
-    grouped_numeric = defaultdict(list)
-    for item in items:
-        author = (item.author or '').strip()
-        if not author:
-            continue
-        progress_str = (item.progress or '').strip()
-        key = (item.novel_name, author)
-        grouped_all[key].append((item.id, progress_str, item.file_size or 0))
-        if progress_str.isdigit():
-            grouped_numeric[key].append((item.id, int(progress_str), item.file_size or 0))
+    rows = [{
+        'id': it.id,
+        'file_name': it.file_name or '',
+        'file_size': it.file_size or 0,
+        'novel_name': it.novel_name or '',
+        'author': it.author or '',
+        'progress': it.progress or '',
+        'created_date': it.created_date,
+    } for it in items]
 
-    ids = []
-    for key, all_entries in grouped_all.items():
-        numeric_entries = grouped_numeric.get(key, [])
-        if len(numeric_entries) < 2:
-            continue
-        has_completion = any(
-            any(kw in (p or '') for kw in COMPLETION_KEYWORDS)
-            for _, p, _ in all_entries
-        )
-        checked = []
-        if has_completion:
-            checked = [i for i, _, _ in numeric_entries]
-        else:
-            ne = sorted(numeric_entries, key=lambda x: x[1], reverse=True)
-            checked = [i for i, _, _ in ne[1:]]
-        if checked:
-            max_item = max(all_entries, key=lambda x: x[2])
-            if max_item[0] in checked:
-                checked.remove(max_item[0])
-        ids.extend(checked)
-    return ids
+    if not rows:
+        return []
+
+    from backend.dup_logic import compute_duplicate_ids as _dup_compute
+    all_ids, _subgroups, _detail = _dup_compute(rows)
+    return list(all_ids)
 
 
 # ===================== 删除执行 =====================
@@ -199,6 +177,11 @@ def _delete_records(db, ids, delete_mode, config_folder, progress_cb):
 # ===================== 流程控制 =====================
 def start_pipeline(config_id, delete_mode):
     """启动一键清理。已在运行时抛 RuntimeError（单实例约束）。"""
+    try:
+        log_operation('一键清理-启动', detail=f'delete_mode={delete_mode}',
+                      config_id=config_id, delete_mode=delete_mode)
+    except Exception as _ole:
+        logger.warning(f'操作日志写入失败: {_ole}')
     global _pipeline_state
     with _pipeline_lock:
         if _pipeline_state and _pipeline_state['status'] in ('running', 'awaiting_confirm'):
@@ -341,6 +324,11 @@ def _run(config_id, delete_mode):
                    message=f'已删除 {deleted} 项' + (f'，失败 {len(failed)}' if failed else ''))
         _log(f'清理完成：已删除 {deleted} 项' + (f'，失败 {len(failed)}' if failed else ''),
              'info' if not failed else 'warn')
+        try:
+            log_operation('一键清理-删除', detail=f"已删除 {deleted} 项" + (f'，失败 {len(failed)}' if failed else ''),
+                          config_id=config_id, delete_mode=delete_mode, deleted=deleted, failed=len(failed))
+        except Exception as _ole:
+            logger.warning(f'操作日志写入失败: {_ole}')
         state['status'] = 'done'
         _log('一键清理全流程完成 ✅', 'info')
 

@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -46,6 +48,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -239,7 +242,7 @@ private fun RunFilesScreen(
     val groupPageState by viewModel.groupPageState.collectAsStateWithLifecycle()
     val currentPage by viewModel.currentPage.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
-    val selection by viewModel.selection.collectAsStateWithLifecycle()
+    val checkedCount by viewModel.checkedCount.collectAsStateWithLifecycle()
     val toast by viewModel.toast.collectAsStateWithLifecycle()
     val query by viewModel.query.collectAsStateWithLifecycle()
     val groupMode by viewModel.groupMode.collectAsStateWithLifecycle()
@@ -256,6 +259,8 @@ private fun RunFilesScreen(
     var sortMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
     var showGroupSettings by remember { mutableStateOf(false) }
+    // 批量删除选中：先弹窗让用户选择“仅删除记录”或“删除记录和源文件”
+    var showDeleteChoice by remember { mutableStateOf(false) }
     // 搜索框默认隐藏，顶部搜索图标点击后显示；再点切换回隐藏
     var searchVisible by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -281,9 +286,67 @@ private fun RunFilesScreen(
             initMax = maxCount,
             initExclude = excludeNames,
             onDismiss = { showGroupSettings = false },
-            onConfirm = { min, max, exclude ->
-                viewModel.applyGroupFilter(min, max, exclude)
-                showGroupSettings = false
+                onConfirm = { min, max, exclude ->
+                    viewModel.applyGroupFilter(min, max, exclude)
+                    showGroupSettings = false
+                }
+            )
+    }
+
+    if (showDeleteChoice) {
+        var delSource by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { showDeleteChoice = false },
+            title = { Text(stringResource(R.string.delete_choice_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { delSource = false }
+                            .padding(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = !delSource, onClick = { delSource = false })
+                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                            Text(stringResource(R.string.delete_record_only))
+                            Text(
+                                stringResource(R.string.delete_record_only_hint),
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { delSource = true }
+                            .padding(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = delSource, onClick = { delSource = true })
+                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                            Text(stringResource(R.string.delete_record_file))
+                            Text(
+                                stringResource(R.string.delete_record_file_hint),
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                AppButton(onClick = {
+                    showDeleteChoice = false
+                    // 把当前文库全部已勾选（checked）的 id 放入暂存单例，并标注是否删除源文件
+                    PendingDeleteHolder.ids = viewModel.takeSelectionForDelete()
+                    PendingDeleteHolder.deleteSource = delSource
+                    onNavigateToDeleteConfirm()
+                }) { Text(stringResource(R.string.confirm)) }
+            },
+            dismissButton = {
+                AppOutlinedButton(onClick = { showDeleteChoice = false }) { Text(stringResource(R.string.cancel)) }
             }
         )
     }
@@ -333,7 +396,7 @@ private fun RunFilesScreen(
             )
         },
         bottomBar = {
-            if (selection.isNotEmpty()) {
+            if (checkedCount > 0) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -341,19 +404,15 @@ private fun RunFilesScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    AppOutlinedButton(onClick = { viewModel.clearSelection() }) {
-                        Text(stringResource(R.string.deselect_all))
+                    AppOutlinedButton(onClick = { viewModel.clearChecked() }) {
+                        Text(stringResource(R.string.clear_checked))
                     }
                     Spacer(Modifier.weight(1f))
-                    Text(stringResource(R.string.marked_num, selection.size))
-                    AppButton(onClick = {
-                        // 把选择放入暂存单例（避免经导航路由传递 10w 级 id），再跳转确认页
-                        PendingDeleteHolder.ids = viewModel.takeSelectionForDelete()
-                        onNavigateToDeleteConfirm()
-                    }) {
+                    Text(stringResource(R.string.selected_count, checkedCount))
+                    AppButton(onClick = { showDeleteChoice = true }) {
                         Icon(Icons.Filled.Delete, contentDescription = null)
                         Spacer(Modifier.padding(start = 6.dp))
-                        Text(stringResource(R.string.delete_selected))
+                        Text(stringResource(R.string.batch_delete_selected))
                     }
                 }
             }
@@ -369,7 +428,7 @@ private fun RunFilesScreen(
                 SingleChoiceSegmentedButtonRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .padding(horizontal = 12.dp, vertical = 0.dp)
                 ) {
                     SegmentedButton(
                         selected = !groupMode,
@@ -389,12 +448,12 @@ private fun RunFilesScreen(
                         Text(stringResource(R.string.group_mode), fontSize = 13.sp)
                     }
                 }
-                // 列表模式才显示筛选 chips（合集模式用"合集设置"过滤）
-            if (!groupMode) {
+                // 筛选 chips：两种模式都显示（全部 / 已勾选 / 未勾选 / 已标记 / 未标记），与搜索框叠加使用
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     CompactChip(
@@ -403,14 +462,26 @@ private fun RunFilesScreen(
                         label = stringResource(R.string.filter_all)
                     )
                     CompactChip(
+                        selected = filter == FilterMode.CHECKED,
+                        onClick = { viewModel.setFilter(FilterMode.CHECKED) },
+                        label = stringResource(R.string.filter_checked)
+                    )
+                    CompactChip(
+                        selected = filter == FilterMode.UNCHECKED,
+                        onClick = { viewModel.setFilter(FilterMode.UNCHECKED) },
+                        label = stringResource(R.string.filter_unchecked)
+                    )
+                    CompactChip(
                         selected = filter == FilterMode.MARKED,
                         onClick = { viewModel.setFilter(FilterMode.MARKED) },
                         label = stringResource(R.string.filter_marked)
                     )
+                    CompactChip(
+                        selected = filter == FilterMode.UNMARKED,
+                        onClick = { viewModel.setFilter(FilterMode.UNMARKED) },
+                        label = stringResource(R.string.filter_unmarked)
+                    )
                 }
-            } else {
-                Spacer(Modifier.height(4.dp))
-            }
             // 搜索框：仅在用户点击顶部搜索图标后才显示
             if (searchVisible) {
                 OutlinedTextField(
@@ -451,12 +522,12 @@ private fun RunFilesScreen(
                         listState = listState,
                         groups = groupPageState.groups,
                         loading = groupPageState.loading,
+                        checkedCount = checkedCount,
                         expandedGroups = expandedGroups,
                         groupFiles = groupFiles,
-                        selection = selection,
                         onToggleExpand = { viewModel.toggleGroupExpand(it) },
                         onToggleGroupSelectAll = { viewModel.toggleGroupSelectAll(it) },
-                        onToggleSelect = { viewModel.toggleSelect(it) },
+                        onToggleSelect = { id, checked -> viewModel.toggleSelect(id, checked) },
                         onToggleMark = { id, m -> viewModel.toggleMark(id, m) },
                         onOpenFile = onOpenFile
                     )
@@ -465,8 +536,8 @@ private fun RunFilesScreen(
                         listState = listState,
                         items = listPageState.items,
                         loading = listPageState.loading,
-                        selection = selection,
-                        onToggleSelect = { viewModel.toggleSelect(it) },
+                        checkedCount = checkedCount,
+                        onToggleSelect = { id, checked -> viewModel.toggleSelect(id, checked) },
                         onToggleMark = { id, m -> viewModel.toggleMark(id, m) },
                         onOpenFile = onOpenFile
                     )
@@ -488,7 +559,7 @@ private fun RunFilesScreen(
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 16.dp, bottom = if (selection.isNotEmpty()) 110.dp else 60.dp),
+                        .padding(end = 16.dp, bottom = if (checkedCount > 0) 110.dp else 60.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (showDown) {
@@ -532,8 +603,8 @@ private fun FlatList(
     listState: LazyListState,
     items: List<ScannedFileEntity>,
     loading: Boolean,
-    selection: Set<Long>,
-    onToggleSelect: (Long) -> Unit,
+    checkedCount: Int,
+    onToggleSelect: (Long, Int) -> Unit,
     onToggleMark: (Long, Int) -> Unit,
     onOpenFile: (Long) -> Unit
 ) {
@@ -555,7 +626,7 @@ private fun FlatList(
                 // 底部留白，避免最后一行（其右侧星标）被右下角悬浮按钮遮挡而点不到
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     top = 12.dp,
-                    bottom = if (selection.isNotEmpty()) 136.dp else 72.dp
+                    bottom = if (checkedCount > 0) 136.dp else 72.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -565,8 +636,8 @@ private fun FlatList(
                 ) { f ->
                     FileRow(
                         f = f,
-                        selected = selection.contains(f.id),
-                        onToggleSelect = { onToggleSelect(f.id) },
+                        selected = f.checked == 1,
+                        onToggleSelect = { onToggleSelect(f.id, f.checked) },
                         onToggleMark = { onToggleMark(f.id, f.marked) },
                         onOpen = { onOpenFile(f.id) }
                     )
@@ -581,12 +652,12 @@ private fun GroupList(
     listState: LazyListState,
     groups: List<NovelGroup>,
     loading: Boolean,
+    checkedCount: Int,
     expandedGroups: Set<String>,
     groupFiles: Map<String, List<ScannedFileEntity>>,
-    selection: Set<Long>,
     onToggleExpand: (String) -> Unit,
     onToggleGroupSelectAll: (String) -> Unit,
-    onToggleSelect: (Long) -> Unit,
+    onToggleSelect: (Long, Int) -> Unit,
     onToggleMark: (Long, Int) -> Unit,
     onOpenFile: (Long) -> Unit
 ) {
@@ -608,7 +679,7 @@ private fun GroupList(
                 // 底部留白，避免末行（含其右侧星标）被右下角悬浮按钮遮挡
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     top = 12.dp,
-                    bottom = if (selection.isNotEmpty()) 136.dp else 72.dp
+                    bottom = if (checkedCount > 0) 136.dp else 72.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -620,8 +691,8 @@ private fun GroupList(
                     val files = groupFiles[g.title]
                     val groupState = when {
                         files == null -> ToggleableState.Off
-                        files.isNotEmpty() && files.all { selection.contains(it.id) } -> ToggleableState.On
-                        files.any { selection.contains(it.id) } -> ToggleableState.Indeterminate
+                        files.isNotEmpty() && files.all { it.checked == 1 } -> ToggleableState.On
+                        files.any { it.checked == 1 } -> ToggleableState.Indeterminate
                         else -> ToggleableState.Off
                     }
                     CardItem {
@@ -673,8 +744,8 @@ private fun GroupList(
                                     files.forEach { f ->
                                         GroupFileRow(
                                             f = f,
-                                            selected = selection.contains(f.id),
-                                            onToggleSelect = { onToggleSelect(f.id) },
+                                            selected = f.checked == 1,
+                                            onToggleSelect = { onToggleSelect(f.id, f.checked) },
                                             onToggleMark = { onToggleMark(f.id, f.marked) },
                                             onOpen = { onOpenFile(f.id) }
                                         )
@@ -983,7 +1054,7 @@ private fun PageNavBar(
                 singleLine = true,
                 keyboardOptions = numKeyboard,
                 shape = tfShape,
-                modifier = Modifier.width(60.dp).height(30.dp)
+                modifier = Modifier.width(64.dp)
             )
             AppButton(
                 onClick = {
@@ -1002,7 +1073,7 @@ private fun PageNavBar(
                 singleLine = true,
                 keyboardOptions = numKeyboard,
                 shape = tfShape,
-                modifier = Modifier.width(64.dp).height(30.dp)
+                modifier = Modifier.width(64.dp)
             )
             AppButton(
                 onClick = {

@@ -5,13 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文件扫描管理系统</title>
     <link rel="icon" href="/static/favicon.ico?v=20260718">
-    <link rel="stylesheet" href="/static/css/style.css?v=20260718b">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260719a">
 </head>
 <body>
     <div id="app">
         <!-- 顶部导航 -->
         <header class="header">
             <h1>文件扫描管理系统</h1>
+            <div class="usage-tip" style="flex:1;min-width:0;margin:0 24px;font-size:12px;line-height:1.6;color:var(--text-secondary)">
+                <div><b style="color:var(--primary)">方法一：</b>配置扫描路径 → 扫描 → 工程类全部解析 → 合集模式 → 标记重复 → 批量删除选中</div>
+                <div><b style="color:var(--primary)">方法二：</b>配置扫描路径 → 一键清理 → 确认要删除的文件</div>
+            </div>
             <div class="header-stats">
                 <span>文件总数: <strong id="statTotalFiles">0</strong></span>
                 <span>已解析: <strong id="statParsed">0</strong></span>
@@ -58,6 +62,7 @@
                     <span class="page-tab" onclick="switchPageTab('pipeline')" id="tabPipeline">一键清理</span>
                     <span class="page-tab" onclick="switchPageTab('settings')" id="tabSettings">设置</span>
                     <span class="page-tab" onclick="switchPageTab('help')" id="tabHelp">帮助手册</span>
+                    <span class="page-tab" onclick="switchPageTab('logs')" id="tabLogs">日志</span>
                 </div>
 
                 <!-- 数据列表页 -->
@@ -106,16 +111,17 @@
                                 <button class="dropdown-item" onclick="startRegexParseName()">文件名 ▸ 已选</button>
                                 <button class="dropdown-item" onclick="startRegexParseName(true)">文件名 ▸ 全部</button>
                                 <button class="dropdown-item danger-text" onclick="startRegexParseName(true,true)">文件名 ▸ 强制重跑全部</button>
-                                <div class="dropdown-sep"></div>
-                                <div class="dropdown-group-title">摘要提取（读取正文首章前简介）</div>
-                                <button class="dropdown-item" onclick="startRegexParseSummary()">摘要 ▸ 已选</button>
-                                <button class="dropdown-item" onclick="startRegexParseSummary(true)">摘要 ▸ 全部</button>
-                                <button class="dropdown-item danger-text" onclick="startRegexParseSummary(true,true)">摘要 ▸ 强制重跑全部</button>
                             </div>
                         </div>
                         <span class="toolbar-sep"></span>
                         <span class="toolbar-group-label">导出</span>
-                        <button class="btn" onclick="exportMarkdown()">导出MD</button>
+                        <div class="dropdown-wrapper">
+                            <button class="btn" id="exportMdBtn">导出MD ▾</button>
+                            <div class="dropdown-menu">
+                                <button class="dropdown-item" onclick="exportMarkdown()">导出选中</button>
+                                <button class="dropdown-item" onclick="exportMarkdown(true)">导出全部（当前配置）</button>
+                            </div>
+                        </div>
                         <div class="dropdown-wrapper">
                             <button class="btn" id="exportExcelBtn">导出Excel ▾</button>
                             <div class="dropdown-menu">
@@ -125,7 +131,7 @@
                         </div>
                         <span class="toolbar-sep"></span>
                         <span class="toolbar-sep"></span>
-                        <button class="btn" id="groupModeBtn" onclick="toggleGroupMode()" title="切换到合集模式，按文件名分组显示">合集模式</button>
+                        <button class="btn" id="groupModeBtn" onclick="toggleGroupMode()" title="切换到合集模式，按小说名聚合显示">合集模式</button>
                         <button class="btn btn-warning" id="markDupBtn" onclick="markDuplicates()" title="将每个合集里相同作者中进度数字较低的行自动勾选" style="display:none">标记重复</button>
                         <span class="toolbar-sep"></span>
                         <button class="btn btn-danger" onclick="confirmDelete()">删除选中</button>
@@ -217,9 +223,40 @@
                 </div>
                 <!-- /帮助手册页 -->
 
+                <!-- 日志页（操作日志 + 调试日志，独立页面） -->
+                <div id="pageLogs" class="page-content" style="display:none">
+                    <div class="page-header">
+                        <h2>日志</h2>
+                        <div class="toolbar">
+                            <button class="btn btn-primary" id="logOpBtn" onclick="switchLogView('op')">操作日志</button>
+                            <button class="btn" id="logDebugBtn" onclick="switchLogView('debug')">调试日志</button>
+                            <span class="toolbar-sep"></span>
+                            <button class="btn" onclick="refreshLogPage()">刷新</button>
+                            <button class="btn" id="logCopyBtn" onclick="copyLogPage()">复制</button>
+                        </div>
+                    </div>
+                    <div class="log-box" id="logPageBox"></div>
+                </div>
+                <!-- /日志页 -->
+
                 <!-- 设置页 -->
                 <div id="pageSettings" class="page-content" style="display:none">
                     <h2 style="font-size:15px;font-weight:500;margin:8px 0 16px">设置</h2>
+
+                    <!-- 界面字体大小 -->
+                    <section class="panel" style="margin-bottom:20px">
+                        <h2 class="panel-title">界面字体大小</h2>
+                        <div class="config-item" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--border-radius)">
+                            <span style="font-size:13px">选择显示字号：</span>
+                            <select id="fontSizeSelect" onchange="onFontSizeChange()" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--border-radius);font-size:13px;background:var(--surface);color:var(--text)">
+                                <option value="small">小</option>
+                                <option value="standard" selected>标准</option>
+                                <option value="large">大</option>
+                            </select>
+                            <span id="fontSizeHint" style="font-size:12px;color:var(--text-secondary)"></span>
+                        </div>
+                    </section>
+
                     <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px">
                         配置关键词替换规则。规则按「作用域」分别生效：
                         <strong>扫描阶段</strong>作用于扫描得到的文件名（含后缀）；
@@ -310,9 +347,14 @@
                     </section>
 
                     <section class="panel" style="margin-top:16px">
-                        <button id="pipelineLogBtn" class="btn btn-sm" onclick="togglePipelineLogs()">查看日志</button>
-                        <div id="pipelineLogPanel" style="display:none;margin-top:10px">
-                            <div id="pipelineLogBox" class="pipeline-logbox"></div>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                            <button id="debugLogOpBtn" class="btn btn-sm btn-primary" onclick="switchDebugLog('op')">操作日志</button>
+                            <button id="debugLogPipeBtn" class="btn btn-sm" onclick="switchDebugLog('pipe')">调试日志</button>
+                            <button id="debugLogCopyBtn" class="btn btn-sm" onclick="copyDebugLog()">一键复制</button>
+                            <button id="debugLogRefreshBtn" class="btn btn-sm" onclick="refreshDebugLog()">刷新</button>
+                        </div>
+                        <div id="debugLogPanel" style="margin-top:10px">
+                            <div id="debugLogBox" class="pipeline-logbox" style="max-height:320px;white-space:pre-wrap;font-family:Consolas,Menlo,monospace;font-size:12px"></div>
                         </div>
                     </section>
                 </div>
@@ -350,6 +392,9 @@
                 <div class="form-group">
                     <label>排除的文件夹 <small>(逗号分隔)</small></label>
                     <input type="text" id="cfgExcludedFolders" placeholder="如: node_modules, .git, __pycache__">
+                </div>
+                <div class="form-group">
+                    <label><input type="checkbox" id="cfgParseOnScan" checked> 扫描时同步进行工程类解析 <small>(勾选后扫描完成会自动解析文件名提取书名/作者，合集与标记重复立即可用；默认开启)</small></label>
                 </div>
             </div>
             <div class="modal-footer">
@@ -451,6 +496,6 @@
         <button class="back-nav-btn" id="backToBottomBtn" title="回到底部" onclick="scrollToBottom()">↓</button>
     </div>
 
-    <script src="/static/js/app.js?v=20260718d"></script>
+    <script src="/static/js/app.js?v=20260719e"></script>
 </body>
 </html>

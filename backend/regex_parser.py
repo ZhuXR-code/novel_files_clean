@@ -325,6 +325,9 @@ def _extract_source_progress(file_name: str):
 
     brackets = re.findall(r'\[([^\]]*)\]', name)
     brackets += re.findall(r'【([^】]*)】', name)
+    # 兼容圆括号（全角/半角）：常见文件名如「《书名》作者：xxx（更50）（d）」用圆括号标进度/标识
+    brackets += re.findall(r'（([^）]*)）', name)
+    brackets += re.findall(r'\(([^)]*)\)', name)
 
     if not brackets:
         tail = re.search(r'-(\d+)\s*$', name)
@@ -366,6 +369,9 @@ def _extract_source_progress(file_name: str):
 def _parse_filename_by_regex(file_name: str) -> Optional[dict]:
     """使用正则表达式解析常见文件名格式，返回 {title, author} 或 None"""
     name = os.path.splitext(file_name)[0]
+    # 防止超长文件名触发正则灾难性回溯
+    if len(name) > 300:
+        return None
 
     m = re.search(r'《([^》]+)》.*?作者[：:]\s*(.+)$', name)
     if m:
@@ -611,7 +617,17 @@ def _name_worker(args: tuple) -> dict:
     parsed_title = regex_res['title'] if regex_res else ''
     parsed_author = regex_res['author'] if regex_res else ''
     if parsed_author:
-        parsed_author = re.sub(r'\s*[\[（][^\]）]*?(?:\d+|[更完结npv1V]+)[^\]）]*?[\]）]\s*$', '', parsed_author).strip()
+        # 循环清洗末尾的"进度/标识"括号后缀，如（更50）（完结）（d）等，避免只洗一个导致残留
+        for _ in range(5):
+            m = re.search(r'\s*[\[【（(]([^]】）)]*?)[\]】）)]\s*$', parsed_author)
+            if not m:
+                break
+            inner = m.group(1)
+            # 仅清洗含"数字/进度词/单字母标识"的括号，保留合法括号（如作者笔名）
+            if re.search(r'\d|更|完结|完本|全本|连载|番外|出版|实体|校对|定制|断更|暂停|烂尾|坑|锁', inner) or re.fullmatch(r'[a-zA-Z]', inner):
+                parsed_author = parsed_author[:m.start()].strip()
+            else:
+                break
         parsed_author = re.sub(r'\s*-\d+\s*$', '', parsed_author).strip()
     parsed_progress = src_progress[1]
     parsed_source = src_progress[0]
@@ -753,15 +769,16 @@ def parse_file_names_regex_only(
                 if recs:
                     yield recs
         elif config_id is not None:
-            offset = 0
+            last_id = 0
             while True:
                 recs = db.query(ScanResult).filter(
-                    ScanResult.scan_config_id == config_id
-                ).offset(offset).limit(PAGE_SIZE).all()
+                    ScanResult.scan_config_id == config_id,
+                    ScanResult.id > last_id
+                ).order_by(ScanResult.id).limit(PAGE_SIZE).all()
                 if not recs:
                     break
                 yield recs
-                offset += PAGE_SIZE
+                last_id = recs[-1].id
 
     _report(force=True)
 
@@ -827,6 +844,19 @@ def parse_file_names_regex_only(
             logger.warning('[工程文件名解析] 已取消，停止后续解析')
             break
         _report(force=True)
+
+        # 增量写入：每页处理完立即写入已收集结果，避免中途卡死/取消丢失全部成果
+        if insert_batch and db_session_factory:
+            try:
+                _upsert_metadata_sqlalchemy(
+                    db_session_factory, insert_batch,
+                    ['novel_name', 'author', 'progress', 'source'],
+                )
+                logger.info(f'[工程文件名解析] 增量写入本页结果: {len(insert_batch)}条')
+            except Exception as e:
+                logger.error(f'[工程文件名解析] 增量写入失败(将在末尾重试): {e}')
+            else:
+                insert_batch = []  # 写入成功则清空，末尾只写剩余部分
 
     _report(force=True)
 
@@ -1017,15 +1047,16 @@ def parse_file_summary_regex_only(
                 if recs:
                     yield recs
         elif config_id is not None:
-            offset = 0
+            last_id = 0
             while True:
                 recs = db.query(ScanResult).filter(
-                    ScanResult.scan_config_id == config_id
-                ).offset(offset).limit(PAGE_SIZE).all()
+                    ScanResult.scan_config_id == config_id,
+                    ScanResult.id > last_id
+                ).order_by(ScanResult.id).limit(PAGE_SIZE).all()
                 if not recs:
                     break
                 yield recs
-                offset += PAGE_SIZE
+                last_id = recs[-1].id
 
     _report(force=True)
     t_start = time.time()

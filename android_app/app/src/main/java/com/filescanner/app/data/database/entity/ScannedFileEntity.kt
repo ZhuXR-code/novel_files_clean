@@ -10,6 +10,7 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["path", "scan_run_id"], unique = true),
         Index("marked"),
+        Index("checked"),
         Index("title"),
         Index("scan_run_id")
     ]
@@ -33,6 +34,8 @@ data class ScannedFileEntity(
     val ext: String = "",
     @ColumnInfo(name = "marked")
     val marked: Int = 0,
+    @ColumnInfo(name = "checked")
+    val checked: Int = 0,
     @ColumnInfo(name = "scan_run_id")
     val scanRunId: Long = 0,
     @ColumnInfo(name = "created_at")

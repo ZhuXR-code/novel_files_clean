@@ -76,6 +76,22 @@ fun HomeScreen(
                 fontSize = 14.sp
             )
 
+            CardItem(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        "方法一：配置扫描路径→扫描→工程类全部解析→合集模式→标记重复→批量删除选中",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "方法二：配置扫描路径→一键清理→确认要删除的文件",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 StatCard(
                     modifier = Modifier.weight(1f),

@@ -20,6 +20,7 @@ class FileScannerApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        LogUtil.init(this)
         LogUtil.i("App", "FileScannerApp onCreate")
 
         preferencesUtil = PreferencesUtil(this)

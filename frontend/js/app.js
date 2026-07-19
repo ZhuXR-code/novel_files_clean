@@ -100,9 +100,9 @@ async function apiGet(url) {
     }
 }
 
-async function apiPost(url, body) {
+async function apiPost(url, body, timeout = 30000) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
     try {
         const opts = {
             method: 'POST',
@@ -357,6 +357,7 @@ function showAddConfigModal() {
     document.querySelector('#fileTypesGroup input[value="txt"]').checked = true;
     document.getElementById('customFileType').value = '';
     document.getElementById('cfgExcludedFolders').value = '';
+    document.getElementById('cfgParseOnScan').checked = true;  // 新增配置默认开启同步解析
     openModal('configModal');
 }
 
@@ -373,6 +374,7 @@ function editConfig(id) {
     });
     document.getElementById('customFileType').value = '';
     document.getElementById('cfgExcludedFolders').value = cfg.excluded_folders || '';
+    document.getElementById('cfgParseOnScan').checked = cfg.parse_on_scan !== false;  // 未明确关闭即视为开启
     openModal('configModal');
 }
 
@@ -391,6 +393,7 @@ async function saveConfig() {
         folder_path: folderPath,
         file_types: types.join(','),
         excluded_folders: document.getElementById('cfgExcludedFolders').value.trim(),
+        parse_on_scan: document.getElementById('cfgParseOnScan').checked,
     };
     const editId = document.getElementById('cfgEditId').value;
     try {
@@ -460,7 +463,7 @@ async function runScan(configId) {
 
     try {
         toast('开始扫描...', 'info');
-        const result = await apiPost(`/scan/${configId}`);
+        const result = await apiPost(`/scan/${configId}`, null, 600000);  // 扫描同步阻塞，10分钟超时
         toast(result.message, 'success');
         state.currentConfigId = configId;
         await loadResults();
@@ -469,6 +472,17 @@ async function runScan(configId) {
         const cfg3 = state.configs.find(c => c.id === configId);
         if (cfg3) cfg3._progress = 100;
         renderConfigs();
+        // 扫描时同步工程类解析：等待解析完成后再重建合集，使合集/标记重复立即可用
+        if (result.parse_task_id) {
+            currentParseTaskId = result.parse_task_id;
+            sessionStorage.setItem('parseTaskId', result.parse_task_id);
+            showParseProgress(true);
+            const parseOk = await awaitParseTask(result.parse_task_id);
+            showParseProgress(false);
+            await loadResults();
+            await updateStats();
+            if (!parseOk) toast('工程类解析未正常完成，合集可能不完整', 'warning');
+        }
         // 扫描完成后显式触发“重建合集”并在前端展示进度条（大库下可能耗时）
         await rebuildGroups(configId);
     } catch (e) {
@@ -829,7 +843,7 @@ function renderGroupedTableBody() {
 
     if (state.groups.length === 0) {
         const colspan = columns.length + 4;
-        body.innerHTML = `<tr><td colspan="${colspan}" class="empty-state">暂无数据，请选择扫描配置并执行扫描</td></tr>`;
+        body.innerHTML = `<tr><td colspan="${colspan}" class="empty-state">合集为空：合集按「小说名」聚合，请先在工具栏执行「工程解析 ▾ › 文件名解析」提取书名/作者后查看；若已解析仍为空，可切回列表模式确认是否有数据。</td></tr>`;
         body._dataRendered = false;
         return;
     }
@@ -1604,6 +1618,34 @@ async function cancelParseTask() {
     }
 }
 
+// 等待指定解析任务完成（Promise），复用解析进度条 UI；用于「扫描时同步解析」流程。
+// resolve(true)=成功完成, resolve(false)=取消/失败/出错。
+function awaitParseTask(taskId) {
+    return new Promise((resolve) => {
+        async function tick() {
+            try {
+                const info = await apiGet(`/parse-tasks/${taskId}`);
+                updateParseProgress(info);
+                if (info.status === 'running') {
+                    setTimeout(tick, 1500);
+                } else if (info.status === 'done') {
+                    const r = info.result || {};
+                    const failTxt = r.failed ? `，失败${r.failed}个` : '';
+                    toast(`工程类解析完成: 共${r.total}个，成功${r.success}个${failTxt}`, r.failed ? 'warning' : 'success');
+                    resolve(true);
+                } else {
+                    toast('工程类解析: ' + (info.message || info.status), 'warning');
+                    resolve(false);
+                }
+            } catch (e) {
+                toast('获取解析进度失败: ' + e.message, 'error');
+                resolve(false);
+            }
+        }
+        tick();
+    });
+}
+
 async function pollParseTask(taskId) {
     currentParseTaskId = taskId;
     sessionStorage.setItem('parseTaskId', taskId);
@@ -1722,7 +1764,28 @@ async function startRegexParseSummary(fetchAll = false, force = false) {
 }
 
 // ===================== 导出 Markdown =====================
-async function exportMarkdown() {
+async function exportMarkdown(fetchAll = false) {
+    // 导出整个配置（对齐 Excel 行为）
+    if (fetchAll) {
+        if (!state.currentConfigId) {
+            toast('请先选择一个扫描配置', 'warning');
+            return;
+        }
+        if (!confirm('确定导出当前配置下的所有记录到Markdown？')) return;
+        try {
+            const result = await apiPost(`/export-md?config_id=${state.currentConfigId}`);
+            if (result.files && result.files.length > 0) {
+                alert(`成功导出 ${result.files.length} 个Markdown文件\n目录: ${result.directory}\n\n文件列表:\n${result.files.map(f => '  ' + f.file_name).join('\n')}`);
+                toast(`全部导出成功: ${result.files.length} 个文件`, 'success');
+            } else {
+                toast('当前配置无数据可导出', 'warning');
+            }
+        } catch (e) {
+            toast('导出全部MD失败: ' + e.message, 'error');
+        }
+        return;
+    }
+
     if (state.selectedIds.size === 0) {
         toast('请先选择要导出的文件', 'warning');
         return;
@@ -2005,7 +2068,7 @@ function toggleGroupMode() {
     openModal('groupModeModal');
 }
 
-function confirmGroupMode() {
+async function confirmGroupMode() {
     const minVal = parseInt(document.getElementById('minGroupCount').value, 10);
     const maxRaw = document.getElementById('maxGroupCount').value;
     const maxVal = maxRaw === '' ? null : (parseInt(maxRaw, 10) || 0);
@@ -2032,6 +2095,13 @@ function confirmGroupMode() {
     const markDupBtn = document.getElementById('markDupBtn');
     if (markDupBtn) {
         markDupBtn.style.display = state.groupByFileName ? '' : 'none';
+    }
+
+    // 进入合集模式时自动重建分组（按小说名聚合），确保从任意入口进入都能看到最新合集，
+    // 避免 file_groups 为空导致合集页面空白。
+    if (state.groupByFileName && state.currentConfigId) {
+        await rebuildGroups(state.currentConfigId); // 内部会调用 loadResults()
+        return;
     }
 
     loadResults();
@@ -2068,7 +2138,7 @@ async function markDuplicates() {
         const summary = resp.summary || {};
 
         if (ids.length === 0) {
-            toast('未找到符合条件（同作者+纯数字进度+多条记录）的重复行', 'info');
+            toast('未找到符合条件的重复文件（标记重复）', 'info');
             return;
         }
 
@@ -2085,12 +2155,10 @@ async function markDuplicates() {
         renderGroupedTableBody();
         updateStats();
 
-        const extra = summary.authors_with_completion
-            ? `（其中 ${summary.authors_with_completion} 组含完结/番外，全部勾选）`
-            : '';
+        const sp = summary.groups_processed || 0;
+        const sd = summary.subgroups_with_duplicates || 0;
         toast(
-            `已处理 ${summary.groups_processed || '?'} 个合集，` +
-            `${summary.authors_with_duplicates || '?'} 组作者有重复${extra}，` +
+            `已处理 ${sp} 个合集，${sd} 个(作者+小说名)子组存在重复，` +
             `新增勾选 ${addedCount} 条（共应勾选 ${ids.length} 条）`,
             'success'
         );
@@ -2125,7 +2193,27 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
+    applyFontSize();
 });
+
+// ===================== 界面字体大小 =====================
+function applyFontSize() {
+    const size = localStorage.getItem('fontSize') || 'standard';
+    document.body.setAttribute('data-font', size);
+    const sel = document.getElementById('fontSizeSelect');
+    if (sel) sel.value = size;
+    const hint = document.getElementById('fontSizeHint');
+    if (hint) {
+        hint.textContent = size === 'small' ? '当前：小' : (size === 'large' ? '当前：大' : '当前：标准');
+    }
+}
+
+function onFontSizeChange() {
+    const sel = document.getElementById('fontSizeSelect');
+    if (!sel) return;
+    localStorage.setItem('fontSize', sel.value);
+    applyFontSize();
+}
 
 // ===================== 回到顶部/底部 =====================
 function scrollToTop() {
@@ -2598,37 +2686,149 @@ function showPipelineConfirm(st) {
     modal.style.display = 'flex';
 }
 
-async function togglePipelineLogs() {
-    const panel = document.getElementById('pipelineLogPanel');
-    const btn = document.getElementById('pipelineLogBtn');
-    if (!panel || !btn) return;
-    if (panel.style.display === 'block') {
-        panel.style.display = 'none';
-        btn.textContent = '查看日志';
-        stopPipelineLogPoll();
-        return;
+// ===================== 调试日志（操作日志 + 调试日志，一键复制） =====================
+let debugLogMode = 'op';   // 'op' = 操作日志, 'pipe' = 调试日志
+let debugLogTimer = null;
+let debugLogLast = '';       // 缓存最近一次文本，避免重复渲染
+
+function switchDebugLog(mode) {
+    debugLogMode = mode;
+    document.getElementById('debugLogOpBtn').classList.toggle('btn-primary', mode === 'op');
+    document.getElementById('debugLogPipeBtn').classList.toggle('btn-primary', mode === 'pipe');
+    debugLogLast = '';  // 切换时强制刷新
+    refreshDebugLog();
+}
+
+// 读取当前模式的日志文本（纯文本，用于展示与复制）
+async function fetchDebugLogText() {
+    const url = debugLogMode === 'op' ? '/api/operation-logs' : '/api/pipeline-logs';
+    const resp = await apiGet(url);
+    const logs = resp.logs || [];
+    if (debugLogMode === 'op') {
+        // 操作日志是完整记录（含换行），直接拼接
+        return logs.join('\n\n');
     }
-    panel.style.display = 'block';
-    btn.textContent = '隐藏日志';
-    await refreshPipelineLogs();
-    startPipelineLogPoll();
+    // 调试日志为 [{time, level, msg}]，还原为单行
+    return logs.map(l => `[${l.time}] [${l.level}] ${l.msg}`).join('\n');
 }
-function startPipelineLogPoll() {
-    stopPipelineLogPoll();
-    pipelineLogTimer = setInterval(refreshPipelineLogs, 2000);
-}
-function stopPipelineLogPoll() {
-    if (pipelineLogTimer) { clearInterval(pipelineLogTimer); pipelineLogTimer = null; }
-}
-async function refreshPipelineLogs() {
-    const box = document.getElementById('pipelineLogBox');
+
+async function refreshDebugLog() {
+    const box = document.getElementById('debugLogBox');
     if (!box) return;
     try {
-        const resp = await apiGet('/pipeline/logs');
-        const logs = resp.logs || [];
-        box.innerHTML = logs.map(l => `<div class=\"plog plog-${l.level}\"><span class=\"plog-time\">${l.time}</span>${escapeHtml(l.msg)}</div>`).join('') || '<div class=\"empty-state\" style=\"color:#888\">暂无日志</div>';
-        box.scrollTop = box.scrollHeight;
+        const text = await fetchDebugLogText();
+        if (text !== debugLogLast) {
+            debugLogLast = text;
+            box.textContent = text || (debugLogMode === 'op' ? '暂无操作日志' : '暂无调试日志');
+            box.scrollTop = box.scrollHeight;
+        }
     } catch (e) { /* 忽略轮询错误 */ }
+}
+
+// 一键复制当前日志到剪贴板
+async function copyDebugLog() {
+    const box = document.getElementById('debugLogBox');
+    if (!box) return;
+    let text = box.textContent || "";
+    if (!text.trim()) {
+        try { text = await fetchDebugLogText(); } catch (e) { text = ""; }
+    }
+    if (!text.trim()) { alert('当前没有可复制的日志'); return; }
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (e) {
+        const ta = document.createElement("textarea");
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); } catch (_) {}
+        document.body.removeChild(ta);
+    }
+    const btn = document.getElementById('debugLogCopyBtn');
+    const old = btn.textContent;
+    btn.textContent = '已复制 \u2713';
+    setTimeout(() => { btn.textContent = old; }, 1500);
+}
+
+// 进入一键清理页时自动开始轮询，离开时停止
+function startDebugLogPoll() {
+    stopDebugLogPoll();
+    refreshDebugLog();
+    debugLogTimer = setInterval(refreshDebugLog, 2000);
+}
+function stopDebugLogPoll() {
+    if (debugLogTimer) { clearInterval(debugLogTimer); debugLogTimer = null; }
+}
+// ===================== 独立日志页面（操作日志 + 调试日志） =====================
+let logViewMode = 'op';   // 'op' = 操作日志, 'debug' = 调试日志(app.log)
+let logPageTimer = null;
+let logPageLast = '';       // 缓存最近一次文本，避免重复渲染
+
+function switchLogView(mode) {
+    logViewMode = mode;
+    const opBtn = document.getElementById('logOpBtn');
+    const dbgBtn = document.getElementById('logDebugBtn');
+    if (opBtn) opBtn.classList.toggle('btn-primary', mode === 'op');
+    if (dbgBtn) dbgBtn.classList.toggle('btn-primary', mode === 'debug');
+    logPageLast = '';  // 切换时强制刷新
+    refreshLogPage();
+}
+
+// 读取当前模式的日志文本（纯文本，用于展示与复制）
+async function fetchLogPageText() {
+    const url = logViewMode === 'op' ? '/api/operation-logs' : '/api/app-logs';
+    const resp = await apiGet(url);
+    const logs = resp.logs || [];
+    if (logViewMode === 'op') {
+        // 操作日志是完整记录（含换行），直接拼接
+        return logs.join('\n\n');
+    }
+    // 调试日志为 app.log 原始行，直接拼接
+    return logs.join('\n');
+}
+
+async function refreshLogPage() {
+    const box = document.getElementById('logPageBox');
+    if (!box) return;
+    try {
+        const text = await fetchLogPageText();
+        if (text !== logPageLast) {
+            logPageLast = text;
+            box.textContent = text || (logViewMode === 'op' ? '暂无操作日志' : '暂无调试日志');
+            box.scrollTop = box.scrollHeight;
+        }
+    } catch (e) { /* 忽略轮询错误 */ }
+}
+
+// 一键复制当前日志到剪贴板
+async function copyLogPage() {
+    const box = document.getElementById('logPageBox');
+    if (!box) return;
+    let text = box.textContent || '';
+    if (!text.trim()) {
+        try { text = await fetchLogPageText(); } catch (e) { text = ''; }
+    }
+    if (!text.trim()) { alert('当前没有可复制的日志'); return; }
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch (e) {
+        const ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        document.body.removeChild(ta);
+    }
+    const btn = document.getElementById('logCopyBtn');
+    const old = btn.textContent;
+    btn.textContent = '已复制 \u2713';
+    setTimeout(() => { btn.textContent = old; }, 1500);
+}
+
+// 进入日志页时自动开始轮询，离开时停止
+function startLogPagePoll() {
+    stopLogPagePoll();
+    refreshLogPage();
+    logPageTimer = setInterval(refreshLogPage, 3000);
+}
+function stopLogPagePoll() {
+    if (logPageTimer) { clearInterval(logPageTimer); logPageTimer = null; }
 }
 
 // ===================== 关键词替换设置 =====================
@@ -2743,7 +2943,10 @@ function switchPageTab(tab) {
     document.getElementById('page' + tab.charAt(0).toUpperCase() + tab.slice(1)).style.display = '';
     if (tab === 'help') loadHelpDocs();
     if (tab === 'settings') loadKeywordRules();
-    if (tab === 'pipeline') loadPipelinePage();
+    if (tab === 'pipeline') { loadPipelinePage(); startDebugLogPoll(); }
+    else { stopDebugLogPoll(); }
+    if (tab === 'logs') { switchLogView(logViewMode); startLogPagePoll(); }
+    else { stopLogPagePoll(); }
 }
 
 // ===================== 初始化 =====================

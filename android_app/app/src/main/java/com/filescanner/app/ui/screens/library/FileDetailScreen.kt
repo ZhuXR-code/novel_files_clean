@@ -3,6 +3,8 @@ package com.filescanner.app.ui.screens.library
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.core.content.FileProvider
+import com.filescanner.app.util.FileUtil
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -104,28 +106,13 @@ fun FileDetailScreen(
                 DetailRow(stringResource(R.string.detail_ext), f.ext.ifBlank { "—" })
                 DetailRow(stringResource(R.string.detail_size), FormatUtil.formatSize(f.fileSize))
                 DetailRow(stringResource(R.string.detail_marked), if (f.marked == 1) stringResource(R.string.mark) else stringResource(R.string.unmark))
+                DetailRow(stringResource(R.string.detail_checked), if (f.checked == 1) stringResource(R.string.state_checked) else stringResource(R.string.state_unchecked))
                 DetailRow(stringResource(R.string.detail_content_hash), f.contentHash.ifBlank { "—" })
                 DetailRow(stringResource(R.string.detail_path), f.path, isPath = true)
 
                 Spacer(Modifier.height(20.dp))
                 AppButton(
-                    onClick = {
-                        try {
-                            val uri = Uri.parse(f.path)
-                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                setDataAndType(uri, "*/*")
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.open_file_failed, e.message ?: ""),
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    },
+                    onClick = { openFileWithViewer(context, f.path) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Filled.OpenInNew, contentDescription = null)
@@ -166,5 +153,58 @@ private fun DetailRow(label: String, value: String, isPath: Boolean = false) {
         androidx.compose.material3.HorizontalDivider(
             color = MaterialTheme.colorScheme.outlineVariant
         )
+    }
+}
+
+/**
+ * 用系统查看器打开指定文件。
+ * - 路径为 SAF content:// URI 时直接用作 ACTION_VIEW 的 data；
+ * - 路径为本地文件路径（file:// 或绝对路径）时通过 FileProvider 暴露为 content URI，
+ *   避免 Android 7+ 的 FileUriExposedException。
+ * 关键：必须按扩展名给出正确 MIME（如 txt -> text/plain），否则系统会把
+ * 请求派发给文件管理器并打开“所在文件夹”而非文件本身。
+ */
+private fun openFileWithViewer(context: android.content.Context, path: String) {
+    try {
+        val uri = Uri.parse(path)
+        val isContentUri = uri.scheme == "content"
+        val name = FileUtil.getFileName(context, uri)
+        val ext = FileUtil.getFileExtension(name)
+        val mimeType = when (ext) {
+            "txt" -> "text/plain"
+            "epub" -> "application/epub+zip"
+            "pdf" -> "application/pdf"
+            "mobi" -> "application/x-mobipocket-ebook"
+            "json" -> "application/json"
+            "csv" -> "text/csv"
+            else -> context.contentResolver.getType(uri) ?: "*/*"
+        }
+        val viewUri = if (isContentUri) {
+            uri
+        } else {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                java.io.File(path)
+            )
+        }
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(viewUri, mimeType)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val chooser = Intent.createChooser(intent, context.getString(R.string.choose_viewer))
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (intent.resolveActivity(context.packageManager) != null) {
+            context.startActivity(chooser)
+        } else {
+            Toast.makeText(context, context.getString(R.string.no_viewer_found), Toast.LENGTH_SHORT).show()
+        }
+    } catch (e: Exception) {
+        Toast.makeText(
+            context,
+            context.getString(R.string.open_file_failed, e.message ?: ""),
+            Toast.LENGTH_LONG
+        ).show()
     }
 }

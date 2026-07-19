@@ -55,6 +55,8 @@ import kotlinx.coroutines.flow.flowOf
  */
 object PendingDeleteHolder {
     var ids: List<Long> = emptyList()
+    /** 批量删除选中时选择的方式：true=删除记录和源文件，false=仅删除记录 */
+    var deleteSource: Boolean = false
 }
 
 @Composable
@@ -97,6 +99,7 @@ fun DeleteConfirmScreen(
                         val intent = Intent(context, DeleteService::class.java).apply {
                             action = DeleteService.ACTION_START_DELETE
                             putExtra("ids", selected.toLongArray())
+                            putExtra("deleteSource", PendingDeleteHolder.deleteSource)
                         }
                         context.startForegroundService(intent)
                         onStartDelete()

@@ -28,6 +28,8 @@ import java.util.concurrent.atomic.AtomicLong
 class DeleteService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var deleteJob: Job? = null
+    /** 是否同时删除源文件：true=删除记录+源文件（旧默认）；false=仅删除记录、保留源文件。 */
+    private var deleteSource: Boolean = true
 
     private val lastNotificationTime = AtomicLong(0)
     private val NOTIFICATION_THROTTLE_MS = 1500L
@@ -42,6 +44,8 @@ class DeleteService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            // 是否同时删除源文件：批量删除选中弹窗会显式传入；缺省 true 沿用旧行为（连源文件一起删）
+            deleteSource = intent.getBooleanExtra("deleteSource", true)
             startForeground(NOTIFICATION_ID, createNotification(getString(R.string.deleting)))
             startDeleting(ids)
         }
@@ -54,6 +58,7 @@ class DeleteService : Service() {
             try {
                 val entities = app.repository.getByIds(ids)
                 val total = entities.size
+                LogUtil.i("DeleteService", "[操作] 开始删除：共 $total 个文件（${if (deleteSource) "删除记录+源文件" else "仅删除记录"}）")
                 if (total == 0) {
                     DeleteStateManager.update(DeleteState(finished = true, total = 0))
                     stopSelf()
@@ -64,14 +69,22 @@ class DeleteService : Service() {
                 var failed = 0
                 for (f in entities) {
                     if (!isActive) break
-                    val ok = FileUtil.deleteViaUri(app, Uri.parse(f.path))
-                    if (ok) {
+                    if (deleteSource) {
+                        // 删除记录 + 源文件：物理删除成功才删记录
+                        val ok = FileUtil.deleteViaUri(app, Uri.parse(f.path))
+                        if (ok) {
+                            successIds.add(f.id)
+                            success++
+                            DeleteStateManager.log("✓ ${f.fileName}（${FormatUtil.formatSize(f.fileSize)}）", true)
+                        } else {
+                            failed++
+                            DeleteStateManager.log("✗ ${f.fileName} —— 删除失败（可能已被移动或权限不足）", false)
+                        }
+                    } else {
+                        // 仅删除记录：不碰源文件，直接删库
                         successIds.add(f.id)
                         success++
-                        DeleteStateManager.log("✓ ${f.fileName}（${FormatUtil.formatSize(f.fileSize)}）", true)
-                    } else {
-                        failed++
-                        DeleteStateManager.log("✗ ${f.fileName} —— 删除失败（可能已被移动或权限不足）", false)
+                        DeleteStateManager.log("✓ ${f.fileName}（仅删除记录，保留源文件）", true)
                     }
                     val now = System.currentTimeMillis()
                     if (now - lastNotificationTime.get() >= NOTIFICATION_THROTTLE_MS) {
@@ -92,7 +105,7 @@ class DeleteService : Service() {
                         success = success, failed = failed, finished = true)
                 )
                 DeleteStateManager.flushLogs()
-                LogUtil.i("DeleteService", "Delete finished: success=$success failed=$failed")
+                LogUtil.i("DeleteService", "[操作] 删除完成：共 $total 个，成功 $success，失败 $failed")
             } catch (e: CancellationException) {
                 LogUtil.i("DeleteService", "Delete cancelled")
             } catch (e: Exception) {

@@ -31,7 +31,14 @@ body {
     line-height: 1.7;
     letter-spacing: 0.01em;
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
 }
+
+/* ===================== 界面字体大小 ===================== */
+/* 通过 body 的 data-font 缩放整体界面（小 / 标准 / 大，默认标准） */
+body[data-font="small"]    { zoom: 0.9; }
+body[data-font="standard"] { zoom: 1; }
+body[data-font="large"]    { zoom: 1.18; }
 
 /* ===================== Header ===================== */
 

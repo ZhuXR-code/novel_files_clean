@@ -40,6 +40,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     onBack: () -> Unit,
     onNavigateToKeywordReplace: () -> Unit = {},
+    onNavigateToLog: () -> Unit = {},
     viewModel: SettingsViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -117,6 +118,30 @@ fun SettingsScreen(
                         )
                         Text(
                             stringResource(R.string.keyword_replace_desc),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            // 调试日志（查看 / 复制 / 清空）
+            CardItem(onClick = onNavigateToLog) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.log_viewer_title),
+                            fontWeight = MaterialTheme.typography.titleSmall.fontWeight,
+                            fontSize = MaterialTheme.typography.titleSmall.fontSize
+                        )
+                        Text(
+                            stringResource(R.string.log),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 2.dp)

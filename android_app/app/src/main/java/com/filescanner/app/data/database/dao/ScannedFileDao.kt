@@ -51,6 +51,21 @@ interface ScannedFileDao {
     @Query("UPDATE scanned_file SET marked = 1 WHERE id IN (:ids)")
     suspend fun markIds(ids: List<Long>)
 
+    @Query("UPDATE scanned_file SET checked = :c WHERE id = :id")
+    suspend fun setChecked(id: Long, c: Int)
+
+    @Query("UPDATE scanned_file SET checked = :c WHERE id IN (:ids)")
+    suspend fun setCheckedForIds(ids: List<Long>, c: Int)
+
+    @Query("UPDATE scanned_file SET checked = 0 WHERE scan_run_id = :runId")
+    suspend fun clearChecked(runId: Long)
+
+    @Query("SELECT id FROM scanned_file WHERE scan_run_id = :runId AND checked = 1")
+    suspend fun getCheckedIds(runId: Long): List<Long>
+
+    @Query("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id = :runId AND checked = 1")
+    fun checkedCountFlow(runId: Long): Flow<Int>
+
     @Query("DELETE FROM scanned_file WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 
@@ -114,17 +129,27 @@ interface ScannedFileDao {
     @RawQuery(observedEntities = [ScannedFileEntity::class])
     fun groupsCountFlow(query: SupportSQLiteQuery): Flow<Int>
 
-    /** 取某个合集（书名）内的全部文件，供展开时懒加载。空书名传 "" 匹配未解析组。 */
-    @Query("SELECT * FROM scanned_file WHERE scan_run_id = :runId AND title = :title ORDER BY file_name ASC")
-    suspend fun getFilesByTitle(runId: Long, title: String): List<ScannedFileEntity>
+    /** 取某个合集（书名）内的全部文件，供展开时懒加载。空书名传 "" 匹配未解析组。
+     *  [marked]：为 null 不过滤；为 1 仅已标记（已勾选）；为 0 仅未标记。 */
+    @Query("""
+        SELECT * FROM scanned_file
+        WHERE scan_run_id = :runId AND title = :title
+          AND (:marked IS NULL OR marked = :marked)
+          AND (:checked IS NULL OR checked = :checked)
+        ORDER BY file_name ASC
+    """)
+    suspend fun getFilesByTitle(runId: Long, title: String, marked: Int? = null, checked: Int? = null): List<ScannedFileEntity>
 
     /**
-     * 复刻 PC 端“标记重复”：取某文库全部文件的(id, 书名, 作者, 进度, 大小) 投影，
-     * 由 Repository 在 Kotlin 端按 (书名+作者) 分组、纯数字进度比较后计算待删 id。
-     * 别名 file_size AS fileSize 以匹配字段名。
+     * 复刻 PC 端“标记重复”：取某文库全部文件的
+     * (id, 文件名, 书名, 作者, 进度, 大小, 创建时间) 投影，
+     * 由 Repository 在 Kotlin 端按 (文件名+大小+书名+作者+进度) 五元组分组、
+     * 比较创建时间后计算待删 id。
+     * 别名 file_name AS fileName、file_size AS fileSize、created_at AS createdAt 以匹配字段名。
      */
     @Query("""
-        SELECT id, title, author, progress, file_size AS fileSize
+        SELECT id, file_name AS fileName, title, author, progress,
+               file_size AS fileSize, created_at AS createdAt
         FROM scanned_file WHERE scan_run_id = :runId
     """)
     suspend fun getDuplicateRows(runId: Long): List<DuplicateRow>

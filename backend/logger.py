@@ -4,7 +4,10 @@ import logging
 import multiprocessing
 from logging.handlers import RotatingFileHandler
 
-LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+from backend.db_config import app_data_root
+
+# 日志统一落在安装目录的 FileScannerData/logs（与数据库同根），不再散落到项目/Python 目录
+LOG_DIR = os.path.join(app_data_root(), 'logs')
 LOG_FILE = os.path.join(LOG_DIR, 'app.log')
 
 # 保留的轮转日志文件数量（与实际行为保持一致，避免文档与代码不符）

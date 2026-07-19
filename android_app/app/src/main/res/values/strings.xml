@@ -72,6 +72,7 @@
     <string name="library">文库</string>
     <string name="filter_all">全部</string>
     <string name="filter_marked">已标记</string>
+    <string name="filter_unmarked">未标记</string>
 
     <string name="sort_time">时间</string>
     <string name="sort_name">名称</string>
@@ -85,6 +86,16 @@
     <string name="select_all">全选</string>
     <string name="deselect_all">全不选</string>
     <string name="delete_selected">删除选中</string>
+    <string name="batch_delete_selected">批量删除选中</string>
+    <string name="selected_count">已勾选 %1$d 个</string>
+    <string name="clear_checked">清除勾选</string>
+    <string name="filter_checked">已勾选</string>
+    <string name="filter_unchecked">未勾选</string>
+    <string name="delete_choice_title">选择删除方式</string>
+    <string name="delete_record_only">仅删除记录</string>
+    <string name="delete_record_only_hint">只删除数据库记录，保留手机/存储中的源文件</string>
+    <string name="delete_record_file">删除记录和源文件</string>
+    <string name="delete_record_file_hint">同时删除数据库记录与源文件（不可恢复）</string>
     <string name="marked_num">已选 %1$d</string>
     <string name="no_files">没有可显示的文件</string>
 
@@ -157,6 +168,14 @@
 
     <!-- 日志 -->
     <string name="log">日志</string>
+    <string name="log_viewer_title">调试日志</string>
+    <string name="log_empty">暂无日志</string>
+    <string name="log_copy">复制</string>
+    <string name="log_copy_all">复制全部</string>
+    <string name="log_copied">已复制到剪贴板</string>
+    <string name="log_clear">清空</string>
+    <string name="log_cleared">已清空日志</string>
+    <string name="log_refresh">刷新</string>
 
     <!-- 通知渠道 -->
     <string name="scan_channel_name">扫描与清理</string>
@@ -220,10 +239,15 @@
     <string name="detail_ext">扩展名</string>
     <string name="detail_size">大小</string>
     <string name="detail_marked">标记</string>
+    <string name="detail_checked">勾选状态</string>
+    <string name="state_checked">已勾选</string>
+    <string name="state_unchecked">未勾选</string>
     <string name="detail_content_hash">内容哈希</string>
     <string name="detail_path">路径</string>
     <string name="open_file">打开文件</string>
     <string name="open_file_failed">无法打开文件：%1$s</string>
+    <string name="choose_viewer">选择应用打开文件</string>
+    <string name="no_viewer_found">未找到可打开该文件的应用</string>
     <string name="file_not_found">未找到该文件记录（可能已被删除）</string>
     <string name="original_name_prefix">原名：</string>
 

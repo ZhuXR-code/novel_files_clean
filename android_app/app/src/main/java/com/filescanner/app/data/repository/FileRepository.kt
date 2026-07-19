@@ -61,6 +61,15 @@ class FileRepository(
     suspend fun getById(id: Long): ScannedFileEntity? = dao.getById(id)
     suspend fun getByIds(ids: List<Long>): List<ScannedFileEntity> = dao.getByIds(ids)
     suspend fun getMarked(): List<ScannedFileEntity> = dao.getMarked()
+
+    /** 勾选（checked）相关：与 marked(星标) 完全独立。 */
+    suspend fun setChecked(id: Long, checked: Boolean) = dao.setChecked(id, if (checked) 1 else 0)
+    suspend fun setCheckedForIds(ids: List<Long>, checked: Boolean) {
+        if (ids.isNotEmpty()) dao.setCheckedForIds(ids, if (checked) 1 else 0)
+    }
+    suspend fun clearChecked(runId: Long) = dao.clearChecked(runId)
+    suspend fun getCheckedIds(runId: Long): List<Long> = dao.getCheckedIds(runId)
+    fun checkedCountFlow(runId: Long): Flow<Int> = dao.checkedCountFlow(runId)
     /** 某文库文件总数，供分页导航条计算总页数。 */
     fun countByRun(runId: Long): Flow<Int> = dao.countByRunFlow(runId)
     suspend fun count(): Int = 0 // 已改用 totalCount 流；保留以兼容潜在调用
@@ -136,6 +145,9 @@ class FileRepository(
         val where = mutableListOf<String>()
         where += "scan_run_id = $runId"
         if (filter == "MARKED") where += "marked = 1"
+        if (filter == "UNMARKED") where += "marked = 0"
+        if (filter == "CHECKED") where += "checked = 1"
+        if (filter == "UNCHECKED") where += "checked = 0"
         val q = query.trim()
         if (q.isNotEmpty()) {
             val safe = q.replace("'", "''")
@@ -165,6 +177,9 @@ class FileRepository(
         val where = mutableListOf<String>()
         where += "scan_run_id = $runId"
         if (filter == "MARKED") where += "marked = 1"
+        if (filter == "UNMARKED") where += "marked = 0"
+        if (filter == "CHECKED") where += "checked = 1"
+        if (filter == "UNCHECKED") where += "checked = 0"
         val q = query.trim()
         if (q.isNotEmpty()) {
             val safe = q.replace("'", "''")
@@ -210,10 +225,15 @@ class FileRepository(
         maxCount: Int,
         excludeNames: List<String>,
         query: String,
-        runId: Long
+        runId: Long,
+        filter: String = "ALL"
     ): Pair<String, String> {
         val where = mutableListOf<String>()
         where += "scan_run_id = $runId"
+        if (filter == "MARKED") where += "marked = 1"
+        if (filter == "UNMARKED") where += "marked = 0"
+        if (filter == "CHECKED") where += "id IN (SELECT id FROM scanned_file WHERE scan_run_id = $runId AND checked = 1)"
+        if (filter == "UNCHECKED") where += "id NOT IN (SELECT id FROM scanned_file WHERE scan_run_id = $runId AND checked = 1)"
         val q = query.trim()
         if (q.isNotEmpty()) {
             val safe = q.replace("'", "''")
@@ -239,9 +259,10 @@ class FileRepository(
         query: String,
         runId: Long,
         pageSize: Int,
-        page: Int
+        page: Int,
+        filter: String = "ALL"
     ): Flow<List<NovelGroup>> {
-        val (whereSql, havingSql) = buildGroupsClauses(minCount, maxCount, excludeNames, query, runId)
+        val (whereSql, havingSql) = buildGroupsClauses(minCount, maxCount, excludeNames, query, runId, filter)
         val limit = pageSize.coerceAtLeast(1)
         val offset = (page.coerceAtLeast(0)) * limit
         val sql = buildString {
@@ -260,9 +281,10 @@ class FileRepository(
         maxCount: Int,
         excludeNames: List<String>,
         query: String,
-        runId: Long
+        runId: Long,
+        filter: String = "ALL"
     ): Flow<Int> {
-        val (whereSql, havingSql) = buildGroupsClauses(minCount, maxCount, excludeNames, query, runId)
+        val (whereSql, havingSql) = buildGroupsClauses(minCount, maxCount, excludeNames, query, runId, filter)
         // 分组数 = 外层 COUNT 包裹「GROUP BY + HAVING」的结果集
         val sql = "SELECT COUNT(*) FROM (SELECT title FROM scanned_file WHERE $whereSql GROUP BY title$havingSql)"
         return dao.groupsCountFlow(SimpleSQLiteQuery(sql))
@@ -312,59 +334,167 @@ class FileRepository(
         }.flow
     }
 
-    /** 取某合集内全部文件（展开时懒加载）。 */
-    suspend fun getFilesByTitle(runId: Long, title: String): List<ScannedFileEntity> =
-        dao.getFilesByTitle(runId, title)
+    /** 取某合集内全部文件（展开时懒加载）。[marked]/[checked] 为 null 不过滤，1/0 按对应字段筛选。 */
+    suspend fun getFilesByTitle(runId: Long, title: String, marked: Int? = null, checked: Int? = null): List<ScannedFileEntity> =
+        dao.getFilesByTitle(runId, title, marked, checked)
 
     /** 取某文库下参与重复判定的全部行（作者非空），供 ViewModel 分块计算合集重复进度。 */
     suspend fun getDuplicateRows(runId: Long): List<DuplicateRow> = dao.getDuplicateRows(runId)
 
     /**
-     * 复刻 PC 端 /api/groups/select-duplicates 的“标记重复”逻辑，只计算应勾选（待删）的 id：
-     * 按 (书名 + 作者) 分组；作者为空跳过；仅当组内纯数字进度条目 >= 2 才处理：
-     *   - 组内任一行进度含“完结/番外/完本/全本” → 所有纯数字进度行勾选
-     *   - 否则 → 保留进度值最大的一行，其余纯数字行勾选
-     * 若组内 file_size 最大的行被勾选，则取消（保留最大文件）。
-     * 返回应勾选的 id 列表（不直接写库，交 ViewModel 并入 selection）。
+     * 复刻并增强 PC 端 /api/groups/select-duplicates 的“标记重复”逻辑，只计算应勾选（待删）的 id。
+     * 所有判定在【同一文库】内、按 (作者 + 书名) 子分组进行五则规则（与 backend/dup_logic.py 完全一致）：
+     *
+     * 规则 1（完全相等去重）：(文件名 + 大小 + 书名 + 作者 + 进度) 五字段完全一致，
+     *     且同组 >= 2 本时，最新(createdAt 最晚，并列取 id 最大)的不勾选，其余全部勾选。
+     * 规则 2（纯数字进度对比）：同 (作者+书名) 内，若【所有】进度均为纯数字，则
+     *     进度数字最大的不勾选，其余纯数字文件全部勾选。
+     * 规则 3（含中文进度 / 完结特例）：
+     *     - 进度含中文(如“完结/连载/断更”)的，不勾选（保护状态文件）；
+     *     - 若同组存在文件名带『完结』等关键词、且“进度数字最大文件”的大小
+     *       小于同组所有含中文进度文件的大小时，该“进度数字最大文件”也要勾选
+     *       （说明存在更完整的完结版，部分进度版冗余应删）。
+     * 规则 4（最大文件不勾选原则）：已勾选的文件若为本 (作者+书名) 组内文件大小最大者，则不勾选。
+     *
+     * 返回应勾选的 id 列表，并直接把结果【持久化写入 checked=1】——标记重复即“勾选”，
+     * 与 marked(星标) 完全无关。仅新增勾选、不清空其它已勾选，保证“合并勾选”语义。
      */
     suspend fun selectDuplicateIds(runId: Long): List<Long> {
         val rows = dao.getDuplicateRows(runId)
-        val groupedAll = LinkedHashMap<Pair<String, String>, MutableList<Triple<Long, String, Long>>>()
-        val groupedNumeric = LinkedHashMap<Pair<String, String>, MutableList<Triple<Long, Int, Long>>>()
-        for (r in rows) {
-            val author = r.author.trim()
-            if (author.isEmpty()) continue
-            val key = r.title.trim() to author
-            val progress = r.progress.trim()
-            groupedAll.getOrPut(key) { mutableListOf() }.add(Triple(r.id, progress, r.fileSize))
-            if (progress.isNotEmpty() && progress.all { it.isDigit() }) {
-                groupedNumeric.getOrPut(key) { mutableListOf() }.add(Triple(r.id, progress.toInt(), r.fileSize))
+        // 按 (作者 + 书名) 子分组
+        val subgroups = rows.groupBy { subKey(it.author, it.title) }
+        val allResult = mutableSetOf<Long>()
+        var subgroupsWithDups = 0
+        val detailLines = mutableListOf<String>()
+
+        for ((_, S) in subgroups) {
+            if (S.size < 2) continue
+
+            val c = mutableSetOf<Long>()   // 应勾选
+            val nc = mutableSetOf<Long>()  // 永不勾选（保护）
+            val fc = mutableSetOf<Long>()  // 强制勾选（覆盖保护）
+
+            // 规则 1：五字段完全相等的精确重复组
+            val exact = S.groupBy { Triple(it.fileName, it.fileSize, it.progress.trim()) }
+            for ((_, g) in exact) {
+                if (g.size < 2) continue
+                val newest = g.maxWithOrNull(compareBy<DuplicateRow> { it.createdAt }.thenBy { it.id })!!
+                nc.add(newest.id)
+                for (f in g) if (f.id != newest.id) {
+                    // 精确重复的非最新本：强制勾选（覆盖规则2“最大进度不勾选”的保护；
+                    // 精确重复=同尺寸，不可能同时是“唯一最大文件”，故不会与规则4冲突）。
+                    c.add(f.id)
+                    fc.add(f.id)
+                }
             }
-        }
-        val completionKeywords = listOf("完结", "番外", "完本", "全本")
-        val result = mutableListOf<Long>()
-        for ((key, allEntries) in groupedAll) {
-            val numeric = groupedNumeric[key] ?: continue
-            if (numeric.size < 2) continue
-            val hasCompletion = allEntries.any { (_, p, _) ->
-                completionKeywords.any { kw -> p.contains(kw) }
-            }
-            val checked = if (hasCompletion) {
-                numeric.map { it.first }
+
+            // 进度分类
+            val numericFiles = S.filter { progressValue(it.progress) != null }
+            val chineseFiles = S.filter { hasCjk(it.progress) }
+            val allNumeric = numericFiles.size == S.size
+
+            if (allNumeric) {
+                // 规则 2：纯数字进度，最大者不勾选，其余纯数字全部勾选
+                val maxVal = S.maxOf { progressValue(it.progress)!! }
+                val maxFiles = S.filter { progressValue(it.progress) == maxVal }
+                val maxIds = maxFiles.map { it.id }.toSet()
+                maxFiles.forEach { nc.add(it.id) }
+                S.forEach { if (it.id !in maxIds) c.add(it.id) }
             } else {
-                val sorted = numeric.sortedByDescending { it.second }
-                sorted.drop(1).map { it.first }
+                // 规则 3A：含中文进度者不勾选
+                chineseFiles.forEach { nc.add(it.id) }
+                // 规则 3B：完结特例——进度数字最大文件更小则强制勾选
+                if (chineseFiles.isNotEmpty() && numericFiles.isNotEmpty()) {
+                    val maxNumVal = numericFiles.maxOf { progressValue(it.progress)!! }
+                    val maxNumFiles = numericFiles.filter { progressValue(it.progress) == maxNumVal }
+                    val hasCompletion = S.any { cf -> COMPLETION_KW.any { kw -> (cf.fileName).contains(kw) } }
+                    val minChineseSize = chineseFiles.minOf { it.fileSize }
+                    if (hasCompletion && maxNumFiles.all { mn -> mn.fileSize < minChineseSize }) {
+                        maxNumFiles.forEach { fc.add(it.id) }
+                    }
+                }
             }
-            if (checked.isNotEmpty()) {
-                val maxItem = allEntries.maxByOrNull { it.third } ?: continue
-                val adjusted = checked.toMutableList()
-                if (maxItem.first in adjusted) adjusted.remove(maxItem.first)
-                result.addAll(adjusted)
+
+            // 规则 4：本组内【唯一】文件大小最大者，不勾选（最大文件不勾选原则）。
+            //   若多本并列最大则按大小无法区分，不据此保护，以免同大小重复组被整体保留。
+            val maxSize = S.maxOf { it.fileSize }
+            val maxSizeCount = S.count { it.fileSize == maxSize }
+            if (maxSizeCount == 1) {
+                S.forEach { if (it.fileSize == maxSize) nc.add(it.id) }
+            }
+
+            // 规则 5（新增）：完结+N番外 组合排序去重。
+            //   进度【严格】匹配 `完结+数字番外`（如「完结+3番外」）的文件，在同 (作者+书名)
+            //   组内按数字 N 排序；数字最大者不勾选，其余打勾（强制勾选，覆盖规则③A 对中文进度的保护）；
+            //   但被勾选的文件若恰为本组 (作者+书名) 内【文件大小最大者】，则也不勾选。
+            val fanwai = S.filter { fanwaiValue(it.progress) != null }
+            if (fanwai.isNotEmpty()) {
+                val maxN = fanwai.maxOf { fanwaiValue(it.progress)!! }
+                val maxNIds = fanwai.filter { fanwaiValue(it.progress) == maxN }.map { it.id }.toSet()
+                for (f in fanwai) {
+                    when {
+                        f.id in maxNIds -> { nc.add(f.id); fc.remove(f.id) }   // 数字最大：不勾选
+                        f.fileSize == maxSize -> { nc.add(f.id); fc.remove(f.id) } // 本组文件大小最大：不勾选
+                        else -> { c.add(f.id); fc.add(f.id) }                   // 强制勾选，覆盖规则③A
+                    }
+                }
+            }
+
+            val subResult = (c - nc) + fc
+            if (subResult.isNotEmpty()) {
+                subgroupsWithDups++
+                val nv = S[0].title.ifEmpty { "?" }
+                val au = S[0].author.ifEmpty { "?" }
+                detailLines.add(
+                    "标记重复-重复子组 书名=$nv 作者=$au 共${S.size}本 -> 勾选${subResult.size}个: ${subResult.sorted()}"
+                )
+                allResult += subResult
             }
         }
-        LogUtil.i("Repo", "selectDuplicateIds for run=$runId -> ${result.size} ids")
-        return result
+        LogUtil.i(
+            "Repo",
+            "标记重复 完成 run=$runId 重复子组=$subgroupsWithDups 应勾选=${allResult.size} 个"
+        )
+        if (detailLines.isNotEmpty()) LogUtil.i("Repo", detailLines.joinToString("\n"))
+        if (allResult.isNotEmpty()) setCheckedForIds(allResult.toList(), true)
+        return allResult.toList()
     }
+
+    /** 文件名中代表“已完结/完整版”的关键词：用于规则 3 的特例判定。 */
+    private val COMPLETION_KW = listOf("完结", "完本", "全本", "全集", "完整", "全套", "全集版")
+
+    /** 进度【严格】匹配「完结+数字番外」正则（用于规则 5 的完结+N番外 组合排序）。 */
+    private val FANWAI_RE = Regex("""^完结\+(\d+(?:\.\d+)?)番外$""")
+
+    /** 判断字符串是否含有中文（CJK）字符。 */
+    private fun hasCjk(s: String?): Boolean {
+        if (s.isNullOrEmpty()) return false
+        for (c in s) {
+            val o = c.code
+            if (o in 0x4E00..0x9FFF || o in 0x3400..0x4DBF) return true
+        }
+        return false
+    }
+
+    /** 若进度为纯数字（可选小数、可选尾随 %），返回 Double 数值，否则返回 null。 */
+    private fun progressValue(s: String?): Double? {
+        val t = (s ?: "").trim()
+        if (t.isEmpty() || hasCjk(t)) return null
+        val m = Regex("""^(\d+(?:\.\d+)?)\s*%?$""").matchEntire(t) ?: return null
+        return m.groupValues[1].toDoubleOrNull()
+    }
+
+    /** 若进度严格匹配「完结+数字番外」（如「完结+3番外」），返回数字 N，否则 null。 */
+    private fun fanwaiValue(s: String?): Double? {
+        val t = (s ?: "").trim()
+        if (t.isEmpty()) return null
+        val m = FANWAI_RE.matchEntire(t) ?: return null
+        return m.groupValues[1].toDoubleOrNull()
+    }
+
+    /** (作者 + 书名) 归一化子分组键（统一小写、去空格）。 */
+    private fun subKey(author: String, title: String): String =
+        "${author.trim().lowercase()}\u0000${title.trim().lowercase()}"
 
 
     /**

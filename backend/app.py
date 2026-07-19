@@ -5,6 +5,7 @@ import time
 import uuid
 import shutil
 import threading
+import re
 import pymysql
 from datetime import datetime
 from typing import List, Optional
@@ -139,7 +140,7 @@ DATABASE_URL = f'mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAM
 INIT_URL = f'mysql+pymysql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}?charset=utf8mb4'
 
 # 本地 EXE 模式：使用内置 SQLite，不依赖外部 MySQL
-from backend.db_config import IS_SQLITE, sqlite_db_path
+from backend.db_config import IS_SQLITE, sqlite_db_path, app_data_root
 
 engine = None
 SessionLocal = None
@@ -256,6 +257,9 @@ def init_database():
     # 迁移：为 scan_configs 表添加自定义名称列（若已存在则跳过）
     _migrate_scan_config_name()
 
+    # 迁移：为 scan_configs 表添加 parse_on_scan 列（扫描时同步工程类解析）
+    _migrate_scan_config_parse_on_scan()
+
     # 第三步：初始化默认数据
     _init_default_data()
 
@@ -283,6 +287,9 @@ def _init_sqlite_database():
 
     Base.metadata.create_all(bind=engine)
     logger.info('SQLite 数据表创建完成')
+
+    # 迁移：为旧 SQLite 库补 parse_on_scan 列（create_all 不会给已存在的表加列）
+    _migrate_scan_config_parse_on_scan()
 
     _init_default_data()
     logger.info(f'SQLite 初始化完成: {db_path}')
@@ -579,6 +586,30 @@ def _migrate_scan_config_name():
         logger.warning(f'scan_configs name 迁移警告: {e}')
 
 
+def _migrate_scan_config_parse_on_scan():
+    """迁移：为 scan_configs 表添加 parse_on_scan 列（扫描时同步工程类解析）。
+
+    旧库升级时补列，避免已有 SQLite/MySQL 库因缺列导致查询崩溃。
+    使用 SQLAlchemy inspector，兼容 MySQL 与 SQLite。
+    """
+    try:
+        from sqlalchemy import inspect as sa_inspect
+        insp = sa_inspect(engine)
+        if 'scan_configs' not in insp.get_table_names():
+            return
+        existing_cols = {c['name'] for c in insp.get_columns('scan_configs')}
+        if 'parse_on_scan' in existing_cols:
+            return
+        with engine.begin() as conn:
+            if IS_SQLITE:
+                conn.execute(text("ALTER TABLE scan_configs ADD COLUMN parse_on_scan BOOLEAN NOT NULL DEFAULT 1"))
+            else:
+                conn.execute(text("ALTER TABLE scan_configs ADD COLUMN parse_on_scan TINYINT(1) NOT NULL DEFAULT 1 COMMENT '扫描时是否同步执行工程类解析'"))
+        logger.info('迁移: 添加列 scan_configs.parse_on_scan')
+    except Exception as e:
+        logger.warning(f'scan_configs parse_on_scan 迁移警告: {e}')
+
+
 def _init_default_data():
     """初始化默认配置数据"""
     db = SessionLocal()
@@ -697,7 +728,7 @@ def _seed_help_docs(db: Session):
 
 ## 第 6 步（可选）：合集与标记重复
 - **操作**：在「数据列表」页点「合集模式」按钮，文件按小说名聚合为合集；点「标记重复」一键勾选应清理的冗余行。
-- **效果**：同一作者同一本书的多个版本中，进度较小 / 非完结的版本会被自动勾选，方便你批量清理。
+- **效果**：在「同一合集内、按 (作者+小说名) 子分组」套用五则规则智能勾选——① 五字段完全相等的多本删旧留新；② 进度全为纯数字则留进度最大者；③ 含中文进度(如完结)不删，但若存在更小的"进度最大文件"且组内有完结版则连它一起删；④ 本组内唯一最大文件始终保留；⑤ 进度为「完结+数字番外」组合时按数字排序，数字最大者不删、其余删（被删者若恰为本组文件大小最大者也不删）。详细规则与举例见《功能说明》第 4 节。
 - **注意**：标记只是「勾选」，**并不删除**；真正删除要走删除或一键清理（见下）。
 
 ## 第 7 步（可选）：设置关键词替换
@@ -802,12 +833,27 @@ def _seed_help_docs(db: Session):
 
 ## 4. 合集模式与重复标记
 - **合集模式**：在「数据列表」页点「合集模式」按钮，文件按**小说名**聚合成合集，便于同类归并查看；再次点击退出合集视图。
-- **「标记重复」规则**（按 `小说名 + 作者` 分组，与一键清理一致）：
-  - 作者为空的行不参与标记；
-  - 同一组内纯数字进度少于 2 个时不标记；
-  - 若组内任一行进度含 `完结 / 番外 / 完本 / 全本` → 其余纯数字进度行全部标记为待删；
-  - 否则保留进度最大的那一行，其余纯数字进度行标记待删；
-  - 若文件体积最大的行被标记，则取消它的标记（防止误删最完整版本）。
+- **「标记重复」规则**（在**同一合集内、按 `(作者 + 小说名)` 子分组**套用，与一键清理、APP 端完全一致；核心算法见 `backend/dup_logic.py`）：
+
+  | 规则 | 名称 | 判定 |
+  | --- | --- | --- |
+  | ① | 完全相等去重 | `文件名 + 大小 + 小说名 + 作者 + 进度` 五字段完全一致的**多本**中，保留最新(创建最晚，并列取 id 最大) 一本，**其余全部勾选**。 |
+  | ② | 纯数字进度对比 | 同 `(作者+小说名)` 内，若**所有**进度均为纯数字(可含小数、尾随 `%`)，则**进度数字最大者不勾选**，其余纯数字文件全部勾选。 |
+  | ③ | 含中文进度 / 完结特例 | 进度含中文(如「完结/连载/断更」) 的**不勾选**；但若同组存在文件名带「完结/完本/全本/全集/完整/全套/全集版」等关键词、且「进度数字最大文件」的大小 **小于** 同组**所有**含中文进度文件的大小，则该「进度数字最大文件」**也要勾选**（存在更完整的完结版，部分进度版冗余应删）。 |
+  | ④ | 最大文件不勾选原则 | 已勾选文件中，本 `(作者+小说名)` 组内**唯一**文件大小最大者**不勾选**；若多本并列最大，则按大小无法区分、不据此保护，以免同尺寸重复组被整体保留。 |
+  | ⑤ | 完结+N番外 组合排序 | 进度【严格】匹配 `完结+数字番外`（如「完结+3番外」）的文件，在同 `(作者+小说名)` 组内按数字 N 排序：**数字最大者不勾选**，其余勾选（强制勾选，覆盖规则③A 对中文进度的保护）；但被勾选的文件若恰为本组 `(作者+小说名)` 内**文件大小最大者**，则也不勾选。 |
+
+  > 最终勾选集 = (规则①/②/⑤ 勾选集 − 规则①/③/④/⑤ 保护集) ∪ 规则①/③/⑤ 强制勾选集。
+  > 规则①的精确重复(=同尺寸)不可能同时是「唯一最大文件」，故强制勾选不会与规则④冲突。
+
+  **举例**：
+  - 完全相等去重（规则①）：3 个文件五字段完全一致，创建时间 A(最早)/B/C(最新) → C 不勾选，A、B 勾选（删旧留新）。
+  - 纯数字进度对比（规则②）：进度 `12% / 30% / 30%` → 两个 `30%` 并列最大不勾选，`12%` 勾选；若 `12% / 30% / 50%` → `50%` 不勾选，`12%`、`30%` 勾选。
+  - 含中文进度 + 完结特例（规则③）：F1 进度 `80%`(2.0MB)、F2 `斗破苍穹完结版.txt` 进度 `完结`(5.0MB)、F3 进度 `完结`(6.0MB) → F2/F3 含中文受保护不勾选；F1 进度最大但比所有含中文文件都小，且组内有「完结」关键词 → F1 强制勾选(删)，F2/F3 保留更完整的完结版。
+  - 最大文件保护（规则④）：进度均为 `50% / 50% / 50% / 50%`、大小 1/2/2/4 MB → 进度并列最大全部不勾选，唯一最大 4MB 即便被勾选也保护；本例最终不勾选任何文件。
+
+  - 完结+N番外 组合（规则⑤）：F1 `完结+3番外`(2.0MB)、F2 `完结+5番外`(5.0MB)、F3 `完结`(6.0MB) → M={F1,F2} 按 N 排序，数字最大 F2 不勾选，F1 勾选（除非 F1 恰为本组最大文件）；F3 含中文受规则③保护不勾选。最终 F1 勾选、F2/F3 保留。
+
 - 标记只是**勾选**，不删除；在合集视图下可直接批量清理。
 
 ## 5. 导出
@@ -866,7 +912,7 @@ def _seed_help_docs(db: Session):
 
 ### 数据存在哪里？
 数据保存在数据库，具体位置取决于你使用的版本：
-- **本地软件（EXE）版本**：使用内置 **SQLite** 数据库，默认位于 `C:\\Users\\<你的用户名>\\AppData\\Roaming\\FileScanner\\file_scanner.db`；若以「便携模式」启动，则位于程序所在目录的 `FileScannerData\\` 文件夹。无需安装 MySQL。
+- **本地软件（EXE）版本**：使用内置 **SQLite** 数据库，默认位于程序**安装目录**下的 `FileScannerData\\file_scanner.db`（如 `C:\\Users\\<你的用户名>\\AppData\\Local\\Programs\\FileScanner\\FileScannerData\\file_scanner.db`）。日志与导出文件也统一存放于该 `FileScannerData\\` 文件夹内，数据库、日志、导出随安装目录整体迁移。无需安装 MySQL。
 - **网页版**：使用 **MySQL** 数据库，默认库名为 `file_scanner_noai`。扫描结果、解析数据、合集、关键词规则、帮助文档等都存在对应表中，可直接查看与维护。
 
 ### 解析结果不准怎么办？
@@ -1081,6 +1127,7 @@ def list_configs(db: Session = Depends(get_db)):
             'folder_path': c.folder_path,
             'file_types': c.file_types,
             'excluded_folders': c.excluded_folders or '',
+            'parse_on_scan': bool(c.parse_on_scan),
             'created_at': c.created_at.isoformat() if c.created_at else None,
         }
         for c in configs
@@ -1090,16 +1137,24 @@ def list_configs(db: Session = Depends(get_db)):
 @app.post('/api/configs')
 def create_config(data: dict, db: Session = Depends(get_db)):
     """创建扫描配置"""
+    parse_on_scan = data.get('parse_on_scan', True)
     config = ScanConfig(
         name=(data.get('name') or '').strip(),
         folder_path=data['folder_path'],
         file_types=data.get('file_types', 'txt'),
         excluded_folders=data.get('excluded_folders', ''),
+        parse_on_scan=parse_on_scan if isinstance(parse_on_scan, bool) else str(parse_on_scan).lower() in ('1', 'true', 'yes', 'on'),
     )
     db.add(config)
     db.commit()
     db.refresh(config)
-    logger.info(f'创建扫描配置: ID={config.id}, path={config.folder_path}')
+    logger.info(f'创建扫描配置: ID={config.id}, path={config.folder_path}, parse_on_scan={config.parse_on_scan}')
+    try:
+        from backend.operation_log import log_operation
+        log_operation('创建扫描配置', detail=f'{config.name or config.folder_path}',
+                      config_id=config.id, path=config.folder_path, parse_on_scan=config.parse_on_scan)
+    except Exception:
+        pass
     return {'id': config.id, 'message': '创建成功'}
 
 
@@ -1118,9 +1173,18 @@ def update_config(config_id: int, data: dict, db: Session = Depends(get_db)):
         config.file_types = data['file_types']
     if 'excluded_folders' in data:
         config.excluded_folders = data.get('excluded_folders', '')
+    if 'parse_on_scan' in data:
+        v = data['parse_on_scan']
+        config.parse_on_scan = v if isinstance(v, bool) else str(v).lower() in ('1', 'true', 'yes', 'on')
 
     db.commit()
-    logger.info(f'更新扫描配置: ID={config_id}')
+    logger.info(f'更新扫描配置: ID={config_id}, parse_on_scan={config.parse_on_scan}')
+    try:
+        from backend.operation_log import log_operation
+        log_operation('更新扫描配置', detail=f'{config.name or config.folder_path}',
+                      config_id=config_id, parse_on_scan=config.parse_on_scan)
+    except Exception:
+        pass
     return {'message': '更新成功'}
 
 
@@ -1157,6 +1221,12 @@ def delete_config(config_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f'删除失败: {str(e)}')
 
     logger.info(f'删除扫描配置: ID={config_id}, path={config.folder_path}, file_types={config.file_types}')
+    try:
+        from backend.operation_log import log_operation
+        log_operation('删除扫描配置', detail=f'{config.name or config.folder_path}',
+                      config_id=config_id, path=config.folder_path)
+    except Exception:
+        pass
     return {'message': '删除成功'}
 
 
@@ -1190,11 +1260,38 @@ def run_scan(config_id: int, db: Session = Depends(get_db)):
         scanning_progress[config_id]['done'] = True
         scanning_progress[config_id]['elapsed'] = elapsed
         logger.info(f'扫描完成: config_id={config_id}, 新增={new_count}, 总计={total}, 耗时={elapsed}s')
+        try:
+            from backend.operation_log import log_operation
+            log_operation('执行扫描', detail=f'{config.name or config.folder_path}：共{total}个（新增{new_count}个），耗时{elapsed}s',
+                          config_id=config_id, total=total, new=new_count, elapsed=elapsed,
+                          parse_on_scan=bool(config.parse_on_scan))
+        except Exception:
+            pass
         # 注意：重建文件分组（合集计算）不再在此同步执行，以避免大库下阻塞
         # 扫描请求直至重建结束。改为扫描返回后由前端显式调用
         # POST /api/groups/rebuild/{config_id} 后台异步重建，并轮询进度条。
         rebuild_progress.pop(config_id, None)
-        return {'new_count': new_count, 'total': total, 'message': f'扫描完成，共{total}个文件（新增{new_count}个，耗时{elapsed}秒）'}
+
+        # 扫描时同步进行工程类解析（默认开启）：扫描完成后自动启动「工程文件名解析」
+        # 后台任务，前端拿到 parse_task_id 后轮询解析进度，解析完成再重建合集，
+        # 使合集/标记重复立即可用，无需用户再手动点「文件名解析」。
+        parse_task_id = None
+        if getattr(config, 'parse_on_scan', True) and total > 0:
+            try:
+                parse_task_id = _start_parse_task(
+                    parse_file_names_regex_only, f'扫描同步工程文件名解析 ({total}个)',
+                    SessionLocal, concurrency=8, force=False,
+                    config_id=config_id, forward_config_id=True,
+                    pymysql_factory=(None if IS_SQLITE else make_pymysql_conn),
+                )
+                logger.info(f'扫描后自动启动工程文件名解析: config_id={config_id}, task_id={parse_task_id}, file_count={total}')
+            except Exception:
+                logger.exception('扫描后自动启动工程文件名解析失败')
+
+        msg = f'扫描完成，共{total}个文件（新增{new_count}个，耗时{elapsed}秒）'
+        if parse_task_id:
+            msg += '，正在同步进行工程类解析...'
+        return {'new_count': new_count, 'total': total, 'parse_task_id': parse_task_id, 'message': msg}
     except FileNotFoundError as e:
         scanning_progress.pop(config_id, None)
         raise HTTPException(status_code=400, detail=str(e))
@@ -1350,6 +1447,34 @@ def list_novel_names(
 
 # ===================== 扫描结果 API =====================
 
+@app.delete('/api/results')
+def delete_results(ids: List[int] = Query(...), db: Session = Depends(get_db)):
+    """批量删除扫描结果（仅删数据库记录，不删源文件）"""
+    if not ids:
+        raise HTTPException(status_code=400, detail='请选择要删除的记录')
+
+    records = db.query(ScanResult).filter(ScanResult.id.in_(ids)).all()
+    if not records:
+        return {'deleted': 0, 'message': '未找到对应记录'}
+
+    config_id = records[0].scan_config_id
+    # 先删关联的 file_metadata，再删 scan_results（ORM 方式，避免 IN 参数绑定差异）
+    db.query(FileMetadata).filter(FileMetadata.scan_result_id.in_(ids)).delete(synchronize_session=False)
+    deleted_count = db.query(ScanResult).filter(ScanResult.id.in_(ids)).delete(synchronize_session=False)
+    db.commit()
+
+    # 重建文件分组
+    rebuild_file_groups(config_id, db)
+    logger.info(f'仅删除数据库记录: 成功={deleted_count}, ids_count={len(ids)}')
+    try:
+        from backend.operation_log import log_operation
+        log_operation('删除记录（仅数据库）', detail=f'成功删除{deleted_count}条记录',
+                      config_id=config_id, deleted=deleted_count)
+    except Exception:
+        pass
+    return {'deleted': deleted_count, 'message': f'成功删除{deleted_count}条记录'}
+
+
 @app.delete('/api/results/with-files')
 def delete_results_with_files(ids: List[int] = Query(...), db: Session = Depends(get_db)):
     """批量删除扫描结果并删除源文件（先删源文件，验证成功后，再删数据库记录）"""
@@ -1416,6 +1541,19 @@ def delete_results_with_files(ids: List[int] = Query(...), db: Session = Depends
     # 重建文件分组
     rebuild_file_groups(config_id, db)
     fail_suffix = f'，{len(failed_files)}个失败' if failed_files else ''
+    try:
+        from backend.operation_log import log_operation
+        log_operation(
+            action='删除记录（含文件）',
+            detail=f'成功删除{deleted_count}个文件{fail_suffix}',
+            config_id=config_id,
+            requested=len(ids),
+            deleted=deleted_count,
+            failed=len(failed_files),
+        )
+    except Exception as _ole:
+        logger.warning(f'操作日志写入失败: {_ole}')
+
     return {
         'deleted': deleted_count,
         'failed_files': failed_files,
@@ -1496,6 +1634,20 @@ def clear_config_results(config_id: int, with_files: bool = Query(False), db: Se
     logger.info(f'{log_msg}, path={config.folder_path}')
 
     fail_suffix = f'，{len(failed_files)}个删除失败' if failed_files else ''
+    try:
+        from backend.operation_log import log_operation
+        log_operation(
+            action='清空扫描配置',
+            detail=f'成功清空{count}条记录{fail_suffix}',
+            config_id=config_id,
+            with_files=with_files,
+            deleted=count,
+            deleted_files=deleted_files,
+            failed=len(failed_files),
+        )
+    except Exception as _ole:
+        logger.warning(f'操作日志写入失败: {_ole}')
+
     return {
         'deleted': count,
         'deleted_files': deleted_files,
@@ -1815,144 +1967,138 @@ def select_duplicates(
     db: Session = Depends(get_db),
 ):
     """
-    标记当前页合集中的重复条目：
-    每个合集内，同一（小说名 + 作者）的条目：
-    - 若组内有任一行进度含"完结/番外/完本/全本"关键词 → 所有纯数字进度行全勾选
-    - 若无上述关键词 → 保留进度值最大的不勾选，其余纯数字行勾选
-    以上两种情况下，如果该组中文件大小最大的行被勾选了，则取消勾选（不标记最大文件）。
-    进度为非纯数字（含汉字、符号、空白）的行不参与比较。
+    合集模式下“标记重复”（待删勾选）的完整规则，所有判定在【同一合集】内、
+    按 (作者 + 小说名) 子分组进行（算法见 backend/dup_logic.py）：
+
+    规则 1（完全相等去重）：(文件名 + 大小 + 小说名 + 作者 + 进度) 五字段完全一致，
+        且同组 >= 2 本时，最新(创建时间最晚，并列取 id 最大)的不勾选，其余全部勾选。
+    规则 2（纯数字进度对比）：同 (作者+小说名) 内，若所有进度均为纯数字，则
+        进度数字最大的不勾选，其余纯数字文件全部勾选。
+    规则 3（含中文进度 / 完结特例）：
+        - 进度含中文的，不勾选（保护“完结/连载”等状态文件）；
+        - 若同组存在文件名带『完结』等关键词、且“进度数字最大文件”的大小
+          小于同组所有含中文进度文件的大小时，该“进度数字最大文件”也要勾选
+          （说明有更完整的完结版，部分进度版冗余）。
+    规则 4（最大文件不勾选原则）：已勾选的文件若为本 (作者+小说名) 组内文件大小最大者，
+        则不勾选。
+
+    返回所有合集（按筛选条件）累计应勾选的文件 id 列表。
     """
-    from collections import defaultdict
 
-    # 1. 复用 /api/groups 的分页+排序逻辑，获取当前页的合集名列表
-    group_query = db.query(FileGroup).filter(FileGroup.config_id == config_id)
-
+    # 1. 先按筛选条件，一次性取出“需要参与判定”的合集名集合（一次查询，
+    #    避免逐页重复执行昂贵的合集排序子查询）
+    name_query = db.query(FileGroup.novel_name).filter(FileGroup.config_id == config_id)
     if min_count > 0:
-        group_query = group_query.filter(FileGroup.file_count >= min_count)
+        name_query = name_query.filter(FileGroup.file_count >= min_count)
     if max_count is not None:
-        group_query = group_query.filter(FileGroup.file_count <= max_count)
-
+        name_query = name_query.filter(FileGroup.file_count <= max_count)
     if exclude_names:
         exclude_list = [n.strip() for n in exclude_names.split(',') if n.strip()]
         if exclude_list:
-            group_query = group_query.filter(FileGroup.novel_name.notin_(exclude_list))
+            name_query = name_query.filter(FileGroup.novel_name.notin_(exclude_list))
+    valid_names = set(n[0] for n in name_query.all())
+    collections_processed = len(valid_names)
 
-    # 作者重复子查询（与 /api/groups 保持一致的分页排序）
-    author_dup_sub = db.query(
-        func.coalesce(FileMetadata.novel_name, '').label('group_name'),
-        (func.count(FileMetadata.author) - func.count(func.distinct(FileMetadata.author))).label('author_dup_cnt')
-    ).outerjoin(
-        ScanResult, FileMetadata.scan_result_id == ScanResult.id
-    ).filter(
-        ScanResult.scan_config_id == config_id
-    ).group_by(
-        func.coalesce(FileMetadata.novel_name, '')
-    ).subquery()
-
-    group_query = group_query.outerjoin(
-        author_dup_sub, FileGroup.novel_name == author_dup_sub.c.group_name
-    )
-
-    group_query = group_query.order_by(
-        (FileGroup.novel_name == text("''")).asc(),
-        FileGroup.file_count.desc(),
-        func.coalesce(author_dup_sub.c.author_dup_cnt, 0).desc(),
-        FileGroup.total_size.desc(),
-    )
-
-    page_groups = group_query.offset((page - 1) * page_size).limit(page_size).all()
-    group_names = [g.novel_name for g in page_groups]
-
-    if not group_names:
+    if not valid_names:
         return {
             'ids_to_check': [],
             'summary': {
                 'groups_processed': 0,
-                'authors_with_duplicates': 0,
+                'subgroups_with_duplicates': 0,
                 'total_checked': 0,
             }
         }
 
-    # 2. 查询当前页所有合集的条目（含 id, novel_name, author, progress, file_size）
+    # 2. 仅一次查询取出该 config 下全部条目，再按 valid_names 在内存中过滤
+    #    （避免逐页重复执行昂贵的合集排序子查询）
     items = db.query(
         ScanResult.id,
+        ScanResult.file_name,
+        ScanResult.file_size,
         func.coalesce(FileMetadata.novel_name, '').label('novel_name'),
         FileMetadata.author,
         FileMetadata.progress,
-        ScanResult.file_size,
+        ScanResult.created_date,
     ).outerjoin(
         FileMetadata, ScanResult.id == FileMetadata.scan_result_id
     ).filter(
         ScanResult.scan_config_id == config_id,
-        func.coalesce(FileMetadata.novel_name, '').in_(group_names),
     ).all()
 
-    # 3. 按 (novel_name, author) 分组，同时收集纯数字进度和所有进度
-    COMPLETION_KEYWORDS = ['完结', '番外', '完本', '全本']
-    grouped_numeric = defaultdict(list)   # 纯数字进度条目 (id, progress, file_size)
-    grouped_all = defaultdict(list)        # 全部条目（用于判断是否有完结/番外等关键词）
+    rows = [{
+        'id': it.id,
+        'file_name': it.file_name or '',
+        'file_size': it.file_size or 0,
+        'novel_name': it.novel_name or '',
+        'author': it.author or '',
+        'progress': it.progress or '',
+        'created_date': it.created_date,
+    } for it in items if (it.novel_name or '') in valid_names]
 
-    for item in items:
-        author = (item.author or '').strip()
-        if not author:
-            continue
-        progress_str = (item.progress or '').strip()
-        key = (item.novel_name, author)
-        grouped_all[key].append((item.id, progress_str, item.file_size or 0))
-        if progress_str.isdigit():
-            grouped_numeric[key].append((item.id, int(progress_str), item.file_size or 0))
+    from backend.dup_logic import compute_duplicate_ids
+    all_ids, subgroups_with_dups, dup_detail_lines = compute_duplicate_ids(rows)
 
-    # 4. 判断逻辑：
-    #    - 组内任一行进度含"完结/番外/完本/全本" → 该组所有纯数字行全部勾选
-    #    - 否则 → 保留最大纯数字进度不勾，其余勾选
-    ids_to_check = []
-    authors_processed = 0
-    completion_count = 0
-
-    for key, all_entries in grouped_all.items():
-        numeric_entries = grouped_numeric.get(key, [])
-        if len(numeric_entries) < 2:
-            continue
-
-        # 检查该组内是否有完结/番外等关键词
-        has_completion = any(
-            any(kw in (progress or '') for kw in COMPLETION_KEYWORDS)
-            for _, progress, _ in all_entries
+    # 3. 操作日志：本次“标记重复”的判定结果（调试用，可一键复制）
+    try:
+        from backend.operation_log import log_operation, log_block
+        log_operation(
+            '标记重复', level='INFO',
+            config_id=config_id, page=page,
+            scanned_collections=collections_processed,
+            duplicate_collections=subgroups_with_dups,
+            total_checked=len(all_ids),
         )
-
-        group_checked = []
-
-        if has_completion:
-            completion_count += 1
-            # 有完结/番外 → 该组所有纯数字行全部勾选
-            for item_id, _, _ in numeric_entries:
-                group_checked.append(item_id)
-        else:
-            # 无关键词 → 最大值不勾，其余勾选
-            numeric_entries.sort(key=lambda x: x[1], reverse=True)
-            for item_id, _, _ in numeric_entries[1:]:
-                group_checked.append(item_id)
-
-        # 如果该合集中文件大小最大的行被勾选了，取消勾选它
-        if group_checked:
-            # 找到该合集（该组所有条目）中 file_size 最大的那个
-            max_size_item = max(all_entries, key=lambda x: x[2])
-            max_size_id = max_size_item[0]
-            if max_size_id in group_checked:
-                group_checked.remove(max_size_id)
-
-        ids_to_check.extend(group_checked)
-        authors_processed += 1
+        if dup_detail_lines:
+            log_block('标记重复-重复组明细', dup_detail_lines)
+    except Exception as log_ex:
+        logger.warning(f"写操作日志失败（不影响主流程）: {log_ex}")
 
     return {
-        'ids_to_check': ids_to_check,
+        'ids_to_check': all_ids,
         'summary': {
-            'groups_processed': len(page_groups),
-            'authors_with_duplicates': authors_processed,
-            'authors_with_completion': completion_count,
-            'total_checked': len(ids_to_check),
+            'groups_processed': collections_processed,
+            'subgroups_with_duplicates': subgroups_with_dups,
+            'total_checked': len(all_ids),
         }
     }
+
+
+# ===================== 操作日志 / 调试日志（一键复制） =====================
+
+@app.get('/api/operation-logs')
+def api_operation_logs(limit: int = 2000):
+    """读取 operation.log 中的结构化操作日志（标记重复、清理等），供前端展示与一键复制。"""
+    try:
+        from backend.operation_log import get_operation_logs
+        return {'logs': get_operation_logs(limit=limit)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'读取操作日志失败: {e}')
+
+
+@app.get('/api/pipeline-logs')
+def api_pipeline_logs():
+    """读取最近一次一键清理的流水线运行日志（ParseLog 结构化记录），供前端调试与一键复制；无运行记录时返回空数组。"""
+    try:
+        from backend import pipeline
+        logs = pipeline.get_logs()
+        return {'logs': logs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'读取调试日志失败: {e}')
+
+
+@app.get('/api/app-logs')
+def api_app_logs(lines: int = 2000):
+    """读取运行日志 app.log（调试/排查用，含 DEBUG/INFO 等运行期信息）的最新内容，供独立日志页面展示与一键复制。"""
+    try:
+        from backend.logger import LOG_FILE
+        if not os.path.exists(LOG_FILE):
+            return {'logs': []}
+        with open(LOG_FILE, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read().splitlines()
+        tail = content[-lines:] if lines and lines > 0 else content
+        return {'logs': tail}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'读取运行日志失败: {e}')
 
 
 class ResultUpdate(BaseModel):
@@ -2363,12 +2509,18 @@ def get_parse_task_progress(task_id: str, db: Session = Depends(get_db)):
 # ===================== 导出 Markdown API =====================
 
 @app.post('/api/export-md')
-def export_markdown(ids: List[int] = Query(...), db: Session = Depends(get_db)):
-    """导出选中文件的解析结果为Markdown文件"""
-    if not ids:
-        raise HTTPException(status_code=400, detail='请选择要导出的文件')
+def export_markdown(
+    ids: List[int] = Query(default=None),
+    config_id: int = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """导出选中文件的解析结果为Markdown文件。
+    支持两种方式：① ids=1,2,3 导出指定记录；② config_id=N 导出整个配置的记录。
+    """
+    if not ids and not config_id:
+        raise HTTPException(status_code=400, detail='请提供 ids 或 config_id')
 
-    records = db.query(
+    query = db.query(
         ScanResult.id,
         ScanResult.file_name,
         FileMetadata.novel_name,
@@ -2378,23 +2530,34 @@ def export_markdown(ids: List[int] = Query(...), db: Session = Depends(get_db)):
         FileMetadata.source,
     ).outerjoin(
         FileMetadata, ScanResult.id == FileMetadata.scan_result_id
-    ).filter(ScanResult.id.in_(ids)).all()
+    )
+    if ids:
+        query = query.filter(ScanResult.id.in_(ids))
+    elif config_id:
+        query = query.filter(ScanResult.scan_config_id == config_id)
+    records = query.all()
 
     if not records:
         raise HTTPException(status_code=404, detail='未找到记录')
 
-    export_dir = os.path.join(PROJECT_ROOT, 'exports')
+    export_dir = os.path.join(app_data_root(), 'exports')
     os.makedirs(export_dir, exist_ok=True)
 
     exported_files = []
 
     name_counts = {}
     for r in records:
-        name_base = os.path.splitext(r.file_name)[0]
-        # 清理文件名中的非法字符
-        safe_name = "".join(c if c.isalnum() or c in ' _-()（）,，.' else '_' for c in name_base)
-        if r.novel_name:
-            safe_name = f"{r.novel_name}"
+        # 优先使用解析后的小说名（novel_name），否则用源文件名。
+        # 关键修复：r.novel_name 来自 DB 解析结果，可能含 Windows 非法字符
+        # （? / \ : * 等），旧代码直接作为文件名会导致 open() 抛 OSError。
+        # 现在统一走 _sanitize_md_filename 清洗。
+        raw_name = (r.novel_name or '').strip()
+        if not raw_name:
+            raw_name = os.path.splitext(r.file_name)[0]
+        safe_name = _sanitize_md_filename(raw_name)
+        if not safe_name:
+            # 极端兜底：原始名清洗后全空，用 id 区分避免互相覆盖
+            safe_name = f"未命名_{r.id}"
 
         # 同名文件去重
         if safe_name in name_counts:
@@ -2501,7 +2664,7 @@ def export_excel(ids: Optional[List[int]] = Query(None),
             if cell.value and isinstance(cell.value, str) and len(cell.value) > 50:
                 cell.alignment = Alignment(wrap_text=True, vertical='top')
 
-    export_dir = os.path.join(PROJECT_ROOT, 'exports')
+    export_dir = os.path.join(app_data_root(), 'exports')
     os.makedirs(export_dir, exist_ok=True)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     file_path = os.path.join(export_dir, f'解析结果_{timestamp}.xlsx')
@@ -2510,7 +2673,7 @@ def export_excel(ids: Optional[List[int]] = Query(None),
     logger.info(f'导出Excel: {len(records)}条记录, {file_path}')
     return {
         'exported_count': len(records),
-        'file_name': f'AI分析结果_{timestamp}.xlsx',
+        'file_name': f'解析结果_{timestamp}.xlsx',
         'directory': export_dir,
         'message': f'成功导出{len(records)}条记录到Excel',
     }
@@ -2727,8 +2890,45 @@ def serve_index():
 if os.path.isdir(FRONTEND_DIR):
     app.mount('/static', StaticFiles(directory=FRONTEND_DIR), name='static')
 
+# 挂载导出文件目录（Excel/MD 导出产物），供前端 window.open('/exports/xxx') 下载
+_exports_dir = os.path.join(app_data_root(), 'exports')
+os.makedirs(_exports_dir, exist_ok=True)
+app.mount('/exports', StaticFiles(directory=_exports_dir), name='exports')
+
 
 # ===================== 工具函数 =====================
+
+
+def _sanitize_md_filename(name, max_length: int = 80) -> str:
+    r"""清洗用于 Markdown 导出的文件名（处理 Windows 非法字符 + 边界情况）。
+
+    策略（黑名单 + 保留其它一切 Unicode 字符，包括中英文标点）：
+      - 用黑名单替换 Windows 保留的非法字符：< > : " / \ | ? *
+      - 替换控制字符（ord < 32，如 \\r \\n \\t）
+      - 去除首尾的空白、点、下划线（Windows 文件名规则）
+      - 限制长度避免超长路径
+      - 空结果回退为"未命名"避免覆盖或写入失败
+
+    与早期实现的区别：旧版用"白名单 isalnum + 极少标点"导致 novel_name 含
+    《》【】、「」等中文书名号/方括号时被错误替换成下划线；
+    本版采用黑名单方式，可保留常见中文标点，又避免含 Windows 非法字符时写入失败。
+    """
+    if not name:
+        return ''
+    # Windows 保留的非法字符集（注意：全角冒号"：" / 全角问号"？"
+    # 在 Windows 文件名中是合法的，常见于小说标题，不应被替换）
+    illegal = '<>:"/\\|?*'
+    cleaned_chars = []
+    for c in str(name):
+        if c in illegal or ord(c) < 32:
+            cleaned_chars.append('_')
+        else:
+            cleaned_chars.append(c)
+    result = ''.join(cleaned_chars).strip(' ._')
+    if len(result) > max_length:
+        result = result[:max_length].rstrip(' ._')
+    return result or '未命名'
+
 
 def _build_md_export(r) -> str:
     """构建单个文件的Markdown导出内容"""

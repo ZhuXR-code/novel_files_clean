@@ -30,6 +30,7 @@ import com.filescanner.app.ui.screens.library.LibraryScreen
 import com.filescanner.app.ui.screens.library.FileDetailScreen
 import com.filescanner.app.ui.screens.settings.SettingsScreen
 import com.filescanner.app.ui.screens.settings.KeywordReplaceScreen
+import com.filescanner.app.ui.screens.settings.LogViewerScreen
 import com.filescanner.app.service.ScanService
 import com.filescanner.app.ui.theme.FileScannerTheme
 
@@ -66,6 +67,9 @@ fun AppNavigation() {
         }
         composable(NavRoutes.ONE_CLICK) {
             OneClickCleanupScreen(onBack = { navController.popBackStack() })
+        }
+        composable(NavRoutes.LOG_VIEWER) {
+            LogViewerScreen(onBack = { navController.popBackStack() })
         }
         composable(NavRoutes.CONFIG_LIST) {
             ConfigListScreen(
@@ -140,7 +144,8 @@ fun AppNavigation() {
         composable(NavRoutes.SETTINGS) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
-                onNavigateToKeywordReplace = { navController.navigate(NavRoutes.KEYWORD_REPLACE) }
+                onNavigateToKeywordReplace = { navController.navigate(NavRoutes.KEYWORD_REPLACE) },
+                onNavigateToLog = { navController.navigate(NavRoutes.LOG_VIEWER) }
             )
         }
         composable(NavRoutes.KEYWORD_REPLACE) {
