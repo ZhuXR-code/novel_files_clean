@@ -234,6 +234,9 @@
     <string name="replace_to">→ %1$s</string>
     <string name="delete_text">删除</string>
     <string name="detail_delete_hint">将删除该文件，请选择删除方式：</string>
+    <string name="delete_next_step">下一步</string>
+    <string name="detail_delete_confirm_record">确定要删除该文件的数据库记录吗？（手机/存储中的源文件将保留）</string>
+    <string name="detail_delete_confirm_source">警告：将同时删除数据库记录与源文件，源文件删除后不可恢复！</string>
 
     <!-- 文件明细 -->
     <string name="file_detail_title">文件明细</string>

@@ -71,6 +71,8 @@ fun FileDetailScreen(
     // 详情页删除：对话框可见性 + 删除方式（false=仅删记录，true=记录+源文件）
     var showDeleteDialog by remember { mutableStateOf(false) }
     var deleteSourceChoice by remember { mutableStateOf(false) }
+    // 二次确认对话框：防止误删
+    var showConfirmDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(fileId) {
         file = withContext(Dispatchers.IO) { viewModel.getById(fileId) }
@@ -212,10 +214,43 @@ fun FileDetailScreen(
                 AppButton(
                     onClick = {
                         showDeleteDialog = false
+                        showConfirmDialog = true
+                    },
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                ) { Text(stringResource(R.string.delete_next_step)) }
+            },
+            dismissButton = {
+                AppOutlinedButton(onClick = { showDeleteDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 二次确认：防止误删（尤其“删除记录和源文件”不可恢复）
+    if (showConfirmDialog && file != null) {
+        val target = file!!
+        val willDeleteSource = deleteSourceChoice
+        AlertDialog(
+            onDismissRequest = { showConfirmDialog = false },
+            title = { Text(stringResource(R.string.delete_confirm_title)) },
+            text = {
+                Text(
+                    if (willDeleteSource) stringResource(R.string.detail_delete_confirm_source)
+                    else stringResource(R.string.detail_delete_confirm_record),
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                AppButton(
+                    onClick = {
+                        showConfirmDialog = false
                         val intent = Intent(context, DeleteService::class.java).apply {
                             action = DeleteService.ACTION_START_DELETE
                             putExtra("ids", longArrayOf(target.id))
-                            putExtra("deleteSource", deleteSourceChoice)
+                            putExtra("deleteSource", willDeleteSource)
                         }
                         context.startForegroundService(intent)
                         onBack()
@@ -225,7 +260,7 @@ fun FileDetailScreen(
                 ) { Text(stringResource(R.string.delete_text)) }
             },
             dismissButton = {
-                AppOutlinedButton(onClick = { showDeleteDialog = false }) {
+                AppOutlinedButton(onClick = { showConfirmDialog = false }) {
                     Text(stringResource(R.string.cancel))
                 }
             }
