@@ -233,6 +233,7 @@
     <string name="rule_enabled">启用</string>
     <string name="replace_to">→ %1$s</string>
     <string name="delete_text">删除</string>
+    <string name="detail_delete_hint">将删除该文件，请选择删除方式：</string>
 
     <!-- 文件明细 -->
     <string name="file_detail_title">文件明细</string>

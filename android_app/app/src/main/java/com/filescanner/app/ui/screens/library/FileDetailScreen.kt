@@ -21,9 +21,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,6 +49,8 @@ import com.filescanner.app.R
 import com.filescanner.app.data.database.entity.ScannedFileEntity
 import com.filescanner.app.ui.components.TopBar
 import com.filescanner.app.ui.components.AppButton
+import com.filescanner.app.ui.components.AppOutlinedButton
+import com.filescanner.app.service.DeleteService
 import com.filescanner.app.util.FormatUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -63,6 +68,9 @@ fun FileDetailScreen(
     val context = LocalContext.current
     var file by remember { mutableStateOf<ScannedFileEntity?>(null) }
     val toast by viewModel.toast.collectAsStateWithLifecycle()
+    // 详情页删除：对话框可见性 + 删除方式（false=仅删记录，true=记录+源文件）
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var deleteSourceChoice by remember { mutableStateOf(false) }
 
     LaunchedEffect(fileId) {
         file = withContext(Dispatchers.IO) { viewModel.getById(fileId) }
@@ -83,6 +91,14 @@ fun FileDetailScreen(
                                 ),
                                 tint = if (f.marked == 1) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        // 详情页删除入口
+                        IconButton(onClick = { showDeleteDialog = true }) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = stringResource(R.string.delete_text),
+                                tint = MaterialTheme.colorScheme.error
                             )
                         }
                     }
@@ -119,6 +135,18 @@ fun FileDetailScreen(
                     Spacer(Modifier.size(8.dp))
                     Text(stringResource(R.string.open_file))
                 }
+                Spacer(Modifier.height(12.dp))
+                // 删除该文件（提供“仅删除记录 / 删除记录和源文件”两种选择）
+                AppButton(
+                    onClick = { showDeleteDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.delete_text))
+                }
             } ?: run {
                 Text(
                     stringResource(R.string.file_not_found),
@@ -126,6 +154,82 @@ fun FileDetailScreen(
                 )
             }
         }
+    }
+
+    // 删除确认对话框：复用 DeleteService，支持“仅删除记录”与“删除记录和源文件”两种选择
+    if (showDeleteDialog && file != null) {
+        val target = file!!
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text(stringResource(R.string.delete_confirm_title)) },
+            text = {
+                Column {
+                    Text(
+                        stringResource(R.string.detail_delete_hint),
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    // 选项一：仅删除记录
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { deleteSourceChoice = false }
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = !deleteSourceChoice, onClick = { deleteSourceChoice = false })
+                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                            Text(stringResource(R.string.delete_record_only))
+                            Text(
+                                stringResource(R.string.delete_record_only_hint),
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    // 选项二：删除记录和源文件
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { deleteSourceChoice = true }
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = deleteSourceChoice, onClick = { deleteSourceChoice = true })
+                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                            Text(stringResource(R.string.delete_record_file))
+                            Text(
+                                stringResource(R.string.delete_record_file_hint),
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                AppButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        val intent = Intent(context, DeleteService::class.java).apply {
+                            action = DeleteService.ACTION_START_DELETE
+                            putExtra("ids", longArrayOf(target.id))
+                            putExtra("deleteSource", deleteSourceChoice)
+                        }
+                        context.startForegroundService(intent)
+                        onBack()
+                    },
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                ) { Text(stringResource(R.string.delete_text)) }
+            },
+            dismissButton = {
+                AppOutlinedButton(onClick = { showDeleteDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
     }
 }
 
