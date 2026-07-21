@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -79,13 +80,13 @@ fun HomeScreen(
             CardItem(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        "方法一：配置扫描路径→扫描→工程类全部解析→合集模式→标记重复→批量删除选中",
+                        "方法一-开始扫描/查看文库：配置扫描路径→扫描+解析→合集模式→标记重复→批量删除选中",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "方法二：配置扫描路径→一键清理→确认要删除的文件",
+                        "方法二-一键清理：配置扫描路径→一键清理→确认要删除的文件",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp
                     )
@@ -119,8 +120,8 @@ fun HomeScreen(
             AppButton(
                 onClick = onNavigateToOneClick,
                 modifier = Modifier.fillMaxWidth(),
-                containerColor = MaterialTheme.colorScheme.error,
-                contentColor = MaterialTheme.colorScheme.onError
+                containerColor = Color(0xFF4CAF50),
+                contentColor = Color.White
             ) {
                 Icon(Icons.Filled.Delete, contentDescription = null)
                 Spacer(Modifier.padding(start = 8.dp))

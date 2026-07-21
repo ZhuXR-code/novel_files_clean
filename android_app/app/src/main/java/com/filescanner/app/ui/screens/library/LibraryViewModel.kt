@@ -78,9 +78,17 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _currentPage = MutableStateFlow(0)
     val currentPage: StateFlow<Int> = _currentPage
 
-    /** 每页条数 + 当前页 合成一个键，便于放进 5 参数 combine。 */
+    /**
+     * 重查信号：标记/勾选/删除等写库操作不会让 Room Flow 自动重发当前页，
+     * 通过自增该值触发 listPageState / groupPageState 重新查询，使界面即时刷新。
+     */
+    private val _reloadSignal = MutableStateFlow(0L)
+
+    /** 每页条数 + 当前页 合成一个键，便于放进 5 参数 combine。
+     *  额外并入 _reloadSignal：写库操作（清标记/清勾选/删除）后自增它，
+     *  即可让 listPageState / groupPageState 都重新查询当前页，使界面即时刷新。 */
     private val _pageKey: Flow<Pair<Int, Int>> =
-        combine(_pageSize, _currentPage) { ps, page -> ps to page }
+        combine(_pageSize, _currentPage, _reloadSignal) { ps, page, sig -> ps to page }
 
     /** 当前文库【已勾选】(checked) 文件总数，供底部批量操作栏显隐与计数。 */
     val checkedCount: StateFlow<Int> = _currentRunId.flatMapLatest { runId ->
@@ -113,6 +121,11 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     // 已展开合集的文件缓存：书名 -> 文件列表（懒加载）
     private val _groupFiles = MutableStateFlow<Map<String, List<ScannedFileEntity>>>(emptyMap())
     val groupFiles: StateFlow<Map<String, List<ScannedFileEntity>>> = _groupFiles
+
+    // 各合集已勾选文件数（书名 -> 已勾选数），供合集头部三态复选框显示「部分勾选(-)」状态。
+    // 初始从 groupPageState 的聚合字段 seeded，勾选/取消时乐观更新，避免 RawQuery 不观测导致的状态陈旧。
+    private val _groupCheckedCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val groupCheckedCounts: StateFlow<Map<String, Int>> = _groupCheckedCounts
 
     init {
         viewModelScope.launch {
@@ -192,6 +205,18 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             }.flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), GroupPageState())
 
+    // groupPageState 在本 init 块之前已声明初始化，此处再订阅它刷新各合集头部已勾选数状态。
+    init {
+        // 合集列表每页加载时，用数据库聚合的已勾选数刷新各合集头部状态（重置为真实值）
+        viewModelScope.launch {
+            groupPageState.collect { st ->
+                if (st.groups.isNotEmpty()) {
+                    _groupCheckedCounts.value = st.groups.associate { it.title to it.checkedCount }
+                }
+            }
+        }
+    }
+
     fun setCurrentRunId(runId: Long?) {
         _currentRunId.value = runId
         _currentPage.value = 0
@@ -265,35 +290,88 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         val files = _groupFiles.value[title] ?: return
         val ids = files.map { it.id }
         val allChecked = files.isNotEmpty() && files.all { it.checked == 1 }
-        val target = !allChecked
+        val target = if (allChecked) 0 else 1
+        val currentChecked = files.count { it.checked == 1 }
+        val delta = if (target == 1) (files.size - currentChecked) else -currentChecked
         viewModelScope.launch(Dispatchers.IO) {
-            repo.setCheckedForIds(ids, target)
+            repo.setCheckedForIds(ids, target == 1)
+        }
+        // 同步翻转快照，使组内各文件复选框与顶部三态复选框立即刷新
+        _groupFiles.value = _groupFiles.value.toMutableMap().apply {
+            this[title] = files.map { it.copy(checked = target) }
+        }
+        // 同步合集头部勾选计数（决定三态复选框是否显示「-」）
+        bumpGroupCheckedCount(title, delta)
+    }
+
+    /** 调整某合集的已勾选计数（乐观更新），供合集头部三态复选框判断部分勾选状态。 */
+    private fun bumpGroupCheckedCount(title: String, delta: Int) {
+        val cur = _groupCheckedCounts.value.toMutableMap()
+        cur[title] = (cur[title] ?: 0) + delta
+        _groupCheckedCounts.value = cur
+    }
+
+    /**
+     * 合集模式里 _groupFiles 是一次性快照，写库后不会自动刷新。
+     * 这里同步翻转内存快照中该文件的 checked，让 UI 立即反映勾选变化
+     * （仅更新所属合集的列表，避免对全部展开合集做全量 mapValues 重建）。
+     */
+    private fun syncGroupFileChecked(title: String, id: Long, newChecked: Int) {
+        val cur = _groupFiles.value
+        val files = cur[title] ?: return
+        _groupFiles.value = cur.toMutableMap().apply {
+            this[title] = files.map { if (it.id == id) it.copy(checked = newChecked) else it }
+        }
+    }
+
+    /** 同上，针对 marked 星标的乐观更新。内部定位所属合集，仅更新该合集。 */
+    private fun syncGroupFileMarked(id: Long, newMarked: Int) {
+        val cur = _groupFiles.value
+        if (cur.isEmpty()) return
+        val entry = cur.entries.firstOrNull { it.value.any { f -> f.id == id } } ?: return
+        _groupFiles.value = cur.toMutableMap().apply {
+            this[entry.key] = entry.value.map { if (it.id == id) it.copy(marked = newMarked) else it }
         }
     }
 
     /** 勾选/取消勾选单个文件（持久化到 checked 字段，与 marked 星标无关）。 */
     fun toggleSelect(id: Long, currentChecked: Int) {
+        val newChecked = if (currentChecked != 1) 1 else 0
         viewModelScope.launch(Dispatchers.IO) {
-            repo.setChecked(id, currentChecked != 1)
+            repo.setChecked(id, newChecked == 1)
+        }
+        // 先定位 id 所属合集（用于局部更新该合集快照与勾选计数，避免全量 mapValues 重建）
+        val title = _groupFiles.value.entries.firstOrNull { it.value.any { f -> f.id == id } }?.key
+        if (title != null) {
+            syncGroupFileChecked(title, id, newChecked)
+            bumpGroupCheckedCount(title, if (newChecked == 1) 1 else -1)
         }
     }
 
     /** 清空当前文库的勾选（取消批量删除选择）。 */
     fun clearChecked() {
         val runId = _currentRunId.value ?: return
-        viewModelScope.launch(Dispatchers.IO) { repo.clearChecked(runId) }
+        viewModelScope.launch(Dispatchers.IO) {
+            repo.clearChecked(runId)
+            // 同时刷新内存快照，否则界面勾选不会立即消失
+            _groupFiles.value = _groupFiles.value.mapValues { (_, list) -> list.map { it.copy(checked = 0) } }
+            // 强制分页流重查，使列表/合集模式立即同步（Room Flow 不会自动重发当前页）
+            _reloadSignal.value += 1
+        }
     }
 
     /** 取出当前文库所有【已勾选】(checked) 的文件 id，交给删除流程（暂存单例）。 */
-    fun takeSelectionForDelete(): List<Long> {
+    suspend fun takeSelectionForDelete(): List<Long> {
         val runId = _currentRunId.value ?: return emptyList()
-        return runBlocking { runCatching { repo.getCheckedIds(runId) }.getOrDefault(emptyList()) }
+        return runCatching { repo.getCheckedIds(runId) }.getOrDefault(emptyList())
     }
 
     fun toggleMark(id: Long, current: Int) {
+        val newMarked = if (current != 1) 1 else 0
         viewModelScope.launch(Dispatchers.IO) {
-            repo.setMarked(id, current != 1)
+            repo.setMarked(id, newMarked == 1)
         }
+        syncGroupFileMarked(id, newMarked)
     }
 
     suspend fun getById(id: Long): ScannedFileEntity? = repo.getById(id)
@@ -310,6 +388,10 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         val runId = _currentRunId.value ?: run { _toast.value = "请先进入某个文库"; return }
         viewModelScope.launch(Dispatchers.IO) {
             repo.clearMarked(runId)
+            // 同时刷新内存快照，否则界面星标不会立即消失（snap 仍保留 marked=1）
+            _groupFiles.value = _groupFiles.value.mapValues { (_, list) -> list.map { it.copy(marked = 0) } }
+            // 强制分页流重查，使列表/合集模式立即同步（Room Flow 不会自动重发当前页）
+            _reloadSignal.value += 1
             _toast.value = "已清除本文库全部标记"
         }
     }

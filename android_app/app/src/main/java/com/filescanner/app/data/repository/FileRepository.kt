@@ -266,7 +266,7 @@ class FileRepository(
         val limit = pageSize.coerceAtLeast(1)
         val offset = (page.coerceAtLeast(0)) * limit
         val sql = buildString {
-            append("SELECT title AS group_title, COUNT(*) AS file_count, SUM(file_size) AS total_size")
+            append("SELECT title AS group_title, COUNT(*) AS file_count, SUM(file_size) AS total_size, SUM(checked) AS checked_count")
             append(" FROM scanned_file WHERE $whereSql GROUP BY title")
             append(havingSql)
             append(" ORDER BY (title = '') ASC, file_count DESC, title ASC")
@@ -320,7 +320,7 @@ class FileRepository(
             having += "title NOT IN ($inList)"
         }
         val sql = buildString {
-            append("SELECT title AS group_title, COUNT(*) AS file_count, SUM(file_size) AS total_size")
+            append("SELECT title AS group_title, COUNT(*) AS file_count, SUM(file_size) AS total_size, SUM(checked) AS checked_count")
             append(" FROM scanned_file")
             if (where.isNotEmpty()) append(" WHERE ${where.joinToString(" AND ")}")
             append(" GROUP BY title")

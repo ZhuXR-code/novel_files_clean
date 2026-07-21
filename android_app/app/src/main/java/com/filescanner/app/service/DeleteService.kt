@@ -56,52 +56,61 @@ class DeleteService : Service() {
         DeleteStateManager.reset()
         deleteJob = serviceScope.launch {
             try {
-                val entities = app.repository.getByIds(ids)
-                val total = entities.size
+                val total = ids.size
                 LogUtil.i("DeleteService", "[操作] 开始删除：共 $total 个文件（${if (deleteSource) "删除记录+源文件" else "仅删除记录"}）")
                 if (total == 0) {
                     DeleteStateManager.update(DeleteState(finished = true, total = 0))
                     stopSelf()
                     return@launch
                 }
-                val successIds = mutableListOf<Long>()
                 var success = 0
                 var failed = 0
-                for (f in entities) {
+                var processed = 0
+                // 分批加载实体并删除，避免一次性 SELECT * 全部实体导致 OOM（上万文件时）
+                val batchSize = 200
+                for (batchStart in ids.indices step batchSize) {
                     if (!isActive) break
-                    if (deleteSource) {
-                        // 删除记录 + 源文件：物理删除成功才删记录
-                        val ok = FileUtil.deleteViaUri(app, Uri.parse(f.path))
-                        if (ok) {
+                    val batchEnd = minOf(batchStart + batchSize, ids.size)
+                    val entities = app.repository.getByIds(ids.subList(batchStart, batchEnd))
+                    val successIds = mutableListOf<Long>()
+                    for (f in entities) {
+                        if (!isActive) break
+                        if (deleteSource) {
+                            // 删除记录 + 源文件：物理删除成功才删记录
+                            val ok = FileUtil.deleteViaUri(app, Uri.parse(f.path))
+                            if (ok) {
+                                successIds.add(f.id)
+                                success++
+                                DeleteStateManager.log("✓ ${f.fileName}（${FormatUtil.formatSize(f.fileSize)}）", true)
+                            } else {
+                                failed++
+                                DeleteStateManager.log("✗ ${f.fileName} —— 删除失败（可能已被移动或权限不足）", false)
+                            }
+                        } else {
+                            // 仅删除记录：不碰源文件，直接删库
                             successIds.add(f.id)
                             success++
-                            DeleteStateManager.log("✓ ${f.fileName}（${FormatUtil.formatSize(f.fileSize)}）", true)
-                        } else {
-                            failed++
-                            DeleteStateManager.log("✗ ${f.fileName} —— 删除失败（可能已被移动或权限不足）", false)
+                            DeleteStateManager.log("✓ ${f.fileName}（仅删除记录，保留源文件）", true)
                         }
-                    } else {
-                        // 仅删除记录：不碰源文件，直接删库
-                        successIds.add(f.id)
-                        success++
-                        DeleteStateManager.log("✓ ${f.fileName}（仅删除记录，保留源文件）", true)
+                        processed++
+                    }
+                    // 每批立即删除已成功的记录，释放内存
+                    if (successIds.isNotEmpty()) {
+                        app.repository.deleteByIds(successIds)
                     }
                     val now = System.currentTimeMillis()
                     if (now - lastNotificationTime.get() >= NOTIFICATION_THROTTLE_MS) {
                         lastNotificationTime.set(now)
                         DeleteStateManager.update(
-                            DeleteState(isDeleting = true, done = success + failed,
+                            DeleteState(isDeleting = true, done = processed,
                                 total = total, success = success, failed = failed)
                         )
                         DeleteStateManager.flushLogs()
-                        updateNotificationNow("已处理 ${success + failed}/$total（成功 $success，失败 $failed）")
+                        updateNotificationNow("已处理 $processed/$total（成功 $success，失败 $failed）")
                     }
                 }
-                if (successIds.isNotEmpty()) {
-                    app.repository.deleteByIds(successIds)
-                }
                 DeleteStateManager.update(
-                    DeleteState(isDeleting = false, done = total, total = total,
+                    DeleteState(isDeleting = false, done = processed, total = total,
                         success = success, failed = failed, finished = true)
                 )
                 DeleteStateManager.flushLogs()

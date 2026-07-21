@@ -31,8 +31,13 @@ body {
     line-height: 1.7;
     letter-spacing: 0.01em;
     -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
+    /* 窗口太窄时允许整页横向滚动，避免内容被裁且无滚动条 */
+    overflow-x: auto;
+    /* 保证 html/body 至少占满视口，sticky 元素正常工作 */
+    min-height: 100vh;
 }
+
+html { overflow-y: scroll; }  /* 始终显示纵向滚动条占位，避免内容切换时抖动 */
 
 /* ===================== 界面字体大小 ===================== */
 /* 通过 body 的 data-font 缩放整体界面（小 / 标准 / 大，默认标准） */
@@ -49,6 +54,8 @@ body[data-font="large"]    { zoom: 1.18; }
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;        /* 窄窗口下元素换行，避免溢出 */
+    gap: 10px;
     position: sticky;
     top: 0;
     z-index: 100;
@@ -82,6 +89,7 @@ body[data-font="large"]    { zoom: 1.18; }
     max-width: 100%;
     margin: 0 auto;
     min-height: calc(100vh - 60px);
+    min-width: 0;     /* 允许 flex 子项收缩，避免内部内容撑大 main 宽度 */
 }
 
 /* ===================== Sidebar ===================== */
@@ -238,9 +246,21 @@ body[data-font="large"]    { zoom: 1.18; }
 
 .content {
     flex: 1;
+    min-width: 0;     /* 关键：flex item 默认 min-width:auto 不缩小，会导致内部 toolbar/表格撑大 content */
     display: flex;
     flex-direction: column;
     background: var(--surface);
+}
+
+/* 页面内容容器：让 .table-wrapper 的 flex:1 生效（旧版 .page-content 无 CSS 规则，
+   导致 .table-wrapper 是普通 block，flex:1 失效，表格不能正确占满剩余空间） */
+.page-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    /* 注意：不能加 overflow:hidden/auto，否则 .toolbar 的 position:sticky
+       会以 .page-content 为 containing block 而非视口，导致工具栏不固定顶部 */
 }
 
 /* ===================== Toolbar ===================== */
@@ -257,6 +277,12 @@ body[data-font="large"]    { zoom: 1.18; }
     align-items: center;
     flex-wrap: wrap;
     gap: 10px;
+    min-width: 0;
+    /* 注意：不能加 overflow-x:auto，否则会：
+       1) 裁掉 .filter-dropdown / .dropdown-menu 等 position:absolute 子元素
+       2) 让 overflow-y 被计算为 auto（CSS 规范），导致 position:sticky 失效，
+          工具栏不再固定顶部，筛选框需要下滑才能看到。
+       按钮挤不下时靠 flex-wrap:wrap 换行即可。 */
 }
 
 .toolbar-left {
@@ -507,6 +533,7 @@ body[data-font="large"]    { zoom: 1.18; }
 .table-wrapper {
     flex: 1;
     overflow: auto;
+    min-width: 0;     /* 让表格内容超出时正确触发横向滚动条，而不是撑大容器 */
 }
 
 table {
@@ -652,6 +679,9 @@ tr.selected td {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;    /* 分页按钮挤不下时换行，避免溢出 */
+    gap: 8px;
+    min-width: 0;
 }
 
 /* ===================== Modal ===================== */
@@ -959,6 +989,23 @@ tr.selected td {
     padding: 10px 12px;
     border-radius: var(--border-radius);
 }
+
+/* 操作日志页：原本 .log-box 无 CSS 定义，日志会撑高页面无滚动条 */
+.log-box {
+    flex: 1;
+    min-height: 0;
+    max-height: calc(100vh - 220px);
+    overflow: auto;            /* 横向 + 纵向均可滚动，长行不会被裁 */
+    background: #1e1e1e;
+    color: #d4d4d4;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    padding: 10px 12px;
+    border-radius: var(--border-radius);
+    white-space: pre-wrap;     /* 保留换行，但超长行自动换行避免横向溢出 */
+    word-break: break-all;
+}
 .plog { white-space: pre-wrap; word-break: break-all; }
 .plog-time { color: #6a9955; margin-right: 6px; }
 .plog-warn { color: #dcdcaa; }
@@ -1080,6 +1127,8 @@ tr.selected td {
     gap: 0;
     border-bottom: 2px solid var(--border);
     margin-bottom: 12px;
+    flex-wrap: wrap;        /* 标签多/窗口窄时换行，避免溢出 */
+    min-width: 0;
 }
 
 .page-tab {
@@ -1364,7 +1413,8 @@ th {
     left: 0;
     margin-top: 4px;
     width: 320px;
-    max-height: 420px;
+    max-width: calc(100vw - 32px);                  /* 窄窗口下不超出视口右边缘 */
+    max-height: min(420px, calc(100vh - 180px));    /* 低窗口高度时不超出视口底部，留出 toolbar+header 空间 */
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: 0 8px 24px rgba(0,0,0,0.08);
@@ -1532,6 +1582,8 @@ th {
     display: flex;
     gap: 20px;
     align-items: flex-start;
+    flex-wrap: wrap;        /* 窄窗口下导航和内容换行，避免溢出 */
+    min-width: 0;
 }
 
 .help-nav {

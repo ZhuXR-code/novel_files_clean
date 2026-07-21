@@ -16,6 +16,7 @@ import com.filescanner.app.data.model.ScanState
 import com.filescanner.app.data.model.LastScanConfig
 import com.filescanner.app.data.model.ScanStateManager
 import com.filescanner.app.util.FileUtil
+import com.filescanner.app.util.FileEntry
 import com.filescanner.app.util.KeywordReplace
 import com.filescanner.app.util.LogUtil
 import com.filescanner.app.util.Parser
@@ -25,9 +26,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.max
+import kotlin.math.min
+import com.filescanner.app.data.database.entity.KeywordReplaceRuleEntity
 
 class ScanService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -132,86 +138,91 @@ class ScanService : Service() {
 
                 ScanStateManager.update(ScanState(isScanning = true, phase = "scanning", totalFiles = total))
 
-                var done = 0
-                val buffer = mutableListOf<ScannedFileEntity>()
-                // 进度 StateFlow 节流：每 200ms 最多发射一次（通知本身也节流），
-                // 避免 10w 级文件时每文件都新建对象并触发 UI 重组合
-                var lastState = System.currentTimeMillis()
-                var stopped = false
-                for (entry in fileList) {
-                    // 检测取消（协程被 cancel）或进程内停止请求标志，二者任一即退出
-                    if (!isActive || ScanStateManager.stopRequested.value) {
-                        stopped = true
-                        break
-                    }
-                    // 1) 扫描阶段规则：先清洗文件名（与 PC scan_rules 作用于 file_name 一致）
-                    val rawName = entry.name
-                    val fileName = if (hasScanRules) (KeywordReplace.applyRules(rawName, scanRules) ?: rawName) else rawName
-                    // 2) 解析文件名得到 书名/作者/进度/来源
-                    val parsed = Parser.parseFileName(fileName)
-                    // 3) 解析阶段规则：清洗解析结果（与 PC parse_rules 作用于 书名/作者/进度/来源 一致）
-                    val title = if (hasParseRules) (KeywordReplace.applyRules(parsed.title, parseRules) ?: parsed.title) else parsed.title
-                    val author = if (hasParseRules) (KeywordReplace.applyRules(parsed.author, parseRules) ?: parsed.author) else parsed.author
-                    val progress = if (hasParseRules) (KeywordReplace.applyRules(parsed.progress, parseRules) ?: parsed.progress) else parsed.progress
-                    val source = if (hasParseRules) (KeywordReplace.applyRules(parsed.source, parseRules) ?: parsed.source) else parsed.source
-                    val hash = ""
-                    val ext = FileUtil.getFileExtension(fileName)
-                    buffer.add(
-                        ScannedFileEntity(
-                            path = entry.uri.toString(),
-                            fileName = fileName,
-                            fileSize = entry.size,
-                            title = title,
-                            author = author,
-                            progress = progress,
-                            source = source,
-                            contentHash = hash,
-                            ext = ext,
-                            scanRunId = runId
-                        )
-                    )
-                    done++
-                    val now = System.currentTimeMillis()
-                    if (now - lastState >= STATE_THROTTLE_MS || done == total) {
-                        lastState = now
-                        val progress = (done * 100) / total
-                        ScanStateManager.update(
-                            ScanState(
-                                isScanning = true, phase = "scanning", progress = progress,
-                                scannedFiles = done, totalFiles = total, currentFile = fileName
+                // ===== 解析与写库并行化 =====
+                // 解析（CPU 密集：正则 + 关键词替换）放在默认调度器的多线程池并行执行，
+                // 结果通过有界 Channel 传给单协程消费者批量落库（IO 密集），二者重叠运行，
+                // 避免原串行「解析完才能写、写完才能解析下一条」的等待瓶颈（10w 级文件尤为明显）。
+                val channel = Channel<ScannedFileEntity>(capacity = 256)
+                val done = AtomicInteger(0)
+                val lastState = AtomicLong(0L)
+                // 并行解析线程数：绑定到 CPU 核数但上限 4，避免移动端线程过多反而拖慢
+                val workerCount = min(4, max(1, Runtime.getRuntime().availableProcessors()))
+                val parseDispatcher = Dispatchers.Default.limitedParallelism(workerCount)
+                val producerJobs = mutableListOf<Job>()
+                val sliceSize = (total + workerCount - 1) / workerCount
+                for (i in 0 until workerCount) {
+                    val from = i * sliceSize
+                    val to = min(from + sliceSize, total)
+                    if (from >= to) break
+                    producerJobs += launch(parseDispatcher) {
+                        for (idx in from until to) {
+                            // 检测取消（协程被 cancel）或进程内停止请求标志，二者任一即退出
+                            if (!isActive || ScanStateManager.stopRequested.value) return@launch
+                            val entry = fileList[idx]
+                            val entity = parseOne(entry, runId, scanRules, parseRules, hasScanRules, hasParseRules)
+                            val d = done.incrementAndGet()
+                            reportParseProgress(d, total, entity.fileName, lastState)
+                            updateNotificationThrottled(
+                                getString(R.string.scanning_file, entity.fileName, d, total)
                             )
-                        )
-                    }
-                    updateNotificationThrottled(
-                        getString(R.string.scanning_file, fileName, done, total)
-                    )
-                    // 批量写库，减少事务次数（每 50 条落一次）
-                    if (buffer.size >= 50) {
-                        app.repository.insertAll(buffer.toList())
-                        buffer.clear()
+                            channel.send(entity)
+                        }
                     }
                 }
-                if (stopped) {
-                    // 停止：保留已写入库的文件，flush 最后一批不足 50 条的记录
-                    if (buffer.isNotEmpty()) {
-                        app.repository.insertAll(buffer.toList())
-                        buffer.clear()
+
+                // 消费者：单协程批量落库（每 50 条一次），与解析并行
+                val consumer = launch(Dispatchers.IO) {
+                    val buffer = mutableListOf<ScannedFileEntity>()
+                    try {
+                        for (entity in channel) {
+                            buffer.add(entity)
+                            if (buffer.size >= 50) {
+                                app.repository.insertAll(buffer.toList())
+                                buffer.clear()
+                            }
+                        }
+                    } finally {
+                        if (buffer.isNotEmpty()) {
+                            app.repository.insertAll(buffer.toList())
+                            buffer.clear()
+                        }
                     }
+                }
+
+                var stopped = false
+                try {
+                    producerJobs.forEach { it.join() }
+                } catch (e: CancellationException) {
+                    // 协程被取消（如服务销毁）：取消生产者与消费者，向上传播
+                    producerJobs.forEach { it.cancel() }
+                    consumer.cancel()
+                    throw e
+                } catch (e: Exception) {
+                    // 某个生产者抛异常：取消其余生产者与消费者，统一交给外层异常处理
+                    producerJobs.forEach { it.cancel() }
+                    consumer.cancel()
+                    throw e
+                }
+
+                // 生产者全部结束：若解析数不足总数，说明是被「停止」打断（非异常）
+                stopped = done.get() < total
+                channel.close()
+                consumer.join()
+
+                if (stopped) {
+                    // 停止：保留已写入库的文件（消费者已 flush channel 中剩余记录），无需再写
+                    val dCount = done.get()
                     ScanStateManager.update(
                         ScanState(
                             isScanning = false, phase = "scanning",
-                            progress = if (total > 0) (done * 100) / total else 0,
-                            scannedFiles = done, totalFiles = total,
+                            progress = if (total > 0) (dCount * 100) / total else 0,
+                            scannedFiles = dCount, totalFiles = total,
                             finished = true, status = "stopped"
                         )
                     )
-                    updateNotificationNow(getString(R.string.scan_stopped, done))
-                    LogUtil.i("ScanService", "Scan stopped by user at $done/$total (run=$runId)")
+                    updateNotificationNow(getString(R.string.scan_stopped, dCount))
+                    LogUtil.i("ScanService", "Scan stopped by user at $dCount/$total (run=$runId)")
                 } else {
-                    if (buffer.isNotEmpty()) {
-                        app.repository.insertAll(buffer.toList())
-                        buffer.clear()
-                    }
                     ScanStateManager.update(
                         ScanState(
                             isScanning = false, phase = "scanning", progress = 100, scannedFiles = total,
@@ -237,17 +248,66 @@ class ScanService : Service() {
         }
     }
 
+    /**
+     * 单文件解析（CPU 密集）：扫描阶段规则清洗文件名 → 解析书名/作者/进度/来源 →
+     * 解析阶段规则清洗结果 → 组装实体。纯函数、无共享可变状态，可多线程安全调用。
+     */
+    private fun parseOne(
+        entry: FileEntry,
+        runId: Long,
+        scanRules: List<KeywordReplaceRuleEntity>,
+        parseRules: List<KeywordReplaceRuleEntity>,
+        hasScanRules: Boolean,
+        hasParseRules: Boolean
+    ): ScannedFileEntity {
+        val rawName = entry.name
+        val fileName = if (hasScanRules) (KeywordReplace.applyRules(rawName, scanRules) ?: rawName) else rawName
+        val parsed = Parser.parseFileName(fileName)
+        val title = if (hasParseRules) (KeywordReplace.applyRules(parsed.title, parseRules) ?: parsed.title) else parsed.title
+        val author = if (hasParseRules) (KeywordReplace.applyRules(parsed.author, parseRules) ?: parsed.author) else parsed.author
+        val progress = if (hasParseRules) (KeywordReplace.applyRules(parsed.progress, parseRules) ?: parsed.progress) else parsed.progress
+        val source = if (hasParseRules) (KeywordReplace.applyRules(parsed.source, parseRules) ?: parsed.source) else parsed.source
+        val ext = FileUtil.getFileExtension(fileName)
+        return ScannedFileEntity(
+            path = entry.uri.toString(),
+            fileName = fileName,
+            fileSize = entry.size,
+            title = title,
+            author = author,
+            progress = progress,
+            source = source,
+            contentHash = "",
+            ext = ext,
+            scanRunId = runId
+        )
+    }
+
+    /**
+     * 解析阶段进度上报（多生产者并发调用，靠共享 lastState 节流，避免 10w 级文件频繁发射 StateFlow）。
+     */
+    private fun reportParseProgress(done: Int, total: Int, fileName: String, lastState: AtomicLong) {
+        val now = System.currentTimeMillis()
+        if (now - lastState.get() >= STATE_THROTTLE_MS || done == total) {
+            lastState.set(now)
+            val progress = (done * 100) / total
+            ScanStateManager.update(
+                ScanState(
+                    isScanning = true, phase = "scanning", progress = progress,
+                    scannedFiles = done, totalFiles = total, currentFile = fileName
+                )
+            )
+        }
+    }
+
+    /**
+     * 处理停止扫描：仅置位停止标志。
+     * 解析生产者会在下一检查点退出，写库消费者会排空 channel 后落库，
+     * 再统一进入收尾逻辑（stopSelf）。直接 cancel 协程会导致已解析但尚未落库的记录丢失，
+     * 故此处不取消 scanJob、不在中途 stopSelf。
+     */
     private fun stopScanning() {
         // 置位进程内停止标志，确保协程（即便因后台限制未收到 stop 命令）也能在下一检查点退出
         ScanStateManager.requestStop()
-        scanJob?.cancel()
-        scanJob = null
-        val s = ScanStateManager.state.value
-        ScanStateManager.update(
-            s.copy(isScanning = false, finished = true, status = "stopped")
-        )
-        updateNotificationNow(getString(R.string.scan_stopped, s.scannedFiles))
-        stopSelf()
     }
 
     private fun updateNotificationThrottled(text: String) {

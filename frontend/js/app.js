@@ -252,8 +252,9 @@ async function loadResults() {
             state.expandedIds.clear();
             state.editingIds.clear();
             state.editData = {};
-            // 合集模式默认全部展开（折叠/展开仍只操作当前合集，不全表重绘）
-            state.expandedGroups = new Set((resp.groups || []).map(g => g.novel_name));
+            // 合集模式默认折叠：避免大库首屏一次性插入所有分组的全部文件行导致浏览器卡死；
+            // 用户点击分组头展开时再懒加载该分组的文件行。
+            state.expandedGroups = new Set();
         } else {
             state.results = resp.items || [];
             state.total = resp.total || 0;
@@ -274,7 +275,12 @@ async function loadResults() {
     }
 }
 
-async function updateStats() {
+let _lastStatsTime = 0;
+async function updateStats(force = false) {
+    // 节流：翻页/搜索/筛选会频繁触发 loadResults→updateStats，3 秒内不重复请求 /stats（三个 COUNT 查询）
+    const now = Date.now();
+    if (!force && now - _lastStatsTime < 3000) return;
+    _lastStatsTime = now;
     try {
         const stats = await apiGet('/stats');
         document.getElementById('statTotalFiles').textContent = stats.total_files;
@@ -480,7 +486,7 @@ async function runScan(configId) {
             const parseOk = await awaitParseTask(result.parse_task_id);
             showParseProgress(false);
             await loadResults();
-            await updateStats();
+            await updateStats(true);
             if (!parseOk) toast('工程类解析未正常完成，合集可能不完整', 'warning');
         }
         // 扫描完成后显式触发“重建合集”并在前端展示进度条（大库下可能耗时）
@@ -1677,7 +1683,7 @@ async function pollParseTask(taskId) {
             }
 
             await loadResults();
-            await updateStats();
+            await updateStats(true);
         }
     } catch (e) {
         clearTimeout(parseTaskTimer);
@@ -1948,7 +1954,7 @@ async function executeClearAll(withFiles) {
     renderResults();
     try {
         await loadResults();
-        await updateStats();
+        await updateStats(true);
     } catch (e) {
         toast('列表刷新失败，请手动刷新', 'warning');
     }
@@ -2000,7 +2006,7 @@ async function executeDelete(ids, withFiles) {
     renderResults();
     try {
         await loadResults();
-        await updateStats();
+        await updateStats(true);
     } catch (e) {
         // loadResults 内部已有 catch，这里的 catch 做兜底
         toast('列表刷新失败，请手动刷新', 'warning');
@@ -2153,7 +2159,7 @@ async function markDuplicates() {
 
         // 刷新表格显示
         renderGroupedTableBody();
-        updateStats();
+        updateStats(true);
 
         const sp = summary.groups_processed || 0;
         const sd = summary.subgroups_with_duplicates || 0;
@@ -2958,7 +2964,7 @@ async function init() {
         await Promise.all([
             loadConfigs(),
             loadColumnConfigs(),
-            updateStats(),
+            updateStats(true),
         ]);
 
         if (state.configs.length > 0 && !state.currentConfigId) {

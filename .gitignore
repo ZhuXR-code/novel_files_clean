@@ -19,6 +19,8 @@ venv/
 *.swo
 # Trae 等 IDE 生成的 HTML 报告共享包（本机临时导出，含 zip 缓存）
 .trae-html-share-packages/
+# playwright-cli 测试输出（每次跑测试会重新生成）
+.playwright-cli/
 
 # Logs
 logs/
@@ -33,9 +35,10 @@ _test_txt/
 _stress_out.txt
 _test_out.txt
 
-# 临时/调试产物（前缀 _ 开头的临时文件，如 _tmp.txt、_backup_xxx.json）
+# 临时/调试产物（前缀 _ 开头的临时文件，如 _tmp.txt、_backup_xxx.json、_dev_*）
 _tmp*
-_backup_*
+_backup*
+_dev_*
 
 # OS generated
 .DS_Store

@@ -20,12 +20,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -74,7 +77,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -248,6 +254,7 @@ private fun RunFilesScreen(
     val groupMode by viewModel.groupMode.collectAsStateWithLifecycle()
     val expandedGroups by viewModel.expandedGroups.collectAsStateWithLifecycle()
     val groupFiles by viewModel.groupFiles.collectAsStateWithLifecycle()
+    val groupCheckedCounts by viewModel.groupCheckedCounts.collectAsStateWithLifecycle()
     val minCount by viewModel.groupMinCount.collectAsStateWithLifecycle()
     val maxCount by viewModel.groupMaxCount.collectAsStateWithLifecycle()
     val excludeNames by viewModel.groupExcludeNames.collectAsStateWithLifecycle()
@@ -339,10 +346,12 @@ private fun RunFilesScreen(
             confirmButton = {
                 AppButton(onClick = {
                     showDeleteChoice = false
-                    // 把当前文库全部已勾选（checked）的 id 放入暂存单例，并标注是否删除源文件
-                    PendingDeleteHolder.ids = viewModel.takeSelectionForDelete()
-                    PendingDeleteHolder.deleteSource = delSource
-                    onNavigateToDeleteConfirm()
+                    // 异步取已勾选 id（避免主线程查库致 ANR）
+                    scope.launch {
+                        PendingDeleteHolder.ids = viewModel.takeSelectionForDelete()
+                        PendingDeleteHolder.deleteSource = delSource
+                        onNavigateToDeleteConfirm()
+                    }
                 }) { Text(stringResource(R.string.confirm)) }
             },
             dismissButton = {
@@ -369,6 +378,20 @@ private fun RunFilesScreen(
                     IconButton(onClick = { sortMenu = true }) {
                         Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.sort_time))
                     }
+                    // 方案 B：合集模式下，"标记重复"作为常驻主按钮（不再藏在 ⋮ 菜单里）
+                    if (groupMode) {
+                        IconButton(
+                            onClick = { viewModel.selectDuplicates() },
+                            enabled = duplicateProgress < 0
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.DoneAll,
+                                contentDescription = stringResource(R.string.mark_duplicates),
+                                tint = if (duplicateProgress < 0) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
                     IconButton(onClick = { moreMenu = true }) {
                         Icon(Icons.Filled.MoreVert, contentDescription = null)
                     }
@@ -382,8 +405,6 @@ private fun RunFilesScreen(
                     }
                     DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
                         if (groupMode) {
-                            DropdownMenuItem(text = { Text(stringResource(R.string.mark_duplicates)) },
-                                onClick = { viewModel.selectDuplicates(); moreMenu = false })
                             DropdownMenuItem(text = { Text(stringResource(R.string.group_settings)) },
                                 onClick = { showGroupSettings = true; moreMenu = false })
                         }
@@ -404,15 +425,28 @@ private fun RunFilesScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    AppOutlinedButton(onClick = { viewModel.clearChecked() }) {
-                        Text(stringResource(R.string.clear_checked))
+                    AppOutlinedButton(
+                        onClick = { viewModel.clearChecked() },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                    ) {
+                        Text(stringResource(R.string.clear_checked), fontSize = 11.sp)
                     }
                     Spacer(Modifier.weight(1f))
-                    Text(stringResource(R.string.selected_count, checkedCount))
-                    AppButton(onClick = { showDeleteChoice = true }) {
-                        Icon(Icons.Filled.Delete, contentDescription = null)
-                        Spacer(Modifier.padding(start = 6.dp))
-                        Text(stringResource(R.string.batch_delete_selected))
+                    Text(
+                        stringResource(R.string.selected_count, checkedCount),
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    // 批量删除按钮：只保留垃圾桶图标，避免文字在窄屏下被强制竖排换行
+                    // （之前 "批量删除选中" 6 个字在已勾选数字很大时被挤到 6 行竖排）
+                    AppButton(
+                        onClick = { showDeleteChoice = true },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.batch_delete_selected)
+                        )
                     }
                 }
             }
@@ -424,6 +458,15 @@ private fun RunFilesScreen(
                     .padding(padding)
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
+                // 清理步骤指示器：引导用户按 扫描→合集→标记重复→确认→删除 顺序操作
+                StepIndicator(
+                    groupMode = groupMode,
+                    checkedCount = checkedCount,
+                    duplicateRunning = duplicateProgress >= 0,
+                    onGoGroup = { viewModel.setGroupMode(true) },
+                    onMarkDuplicates = { viewModel.selectDuplicates() },
+                    onDelete = { showDeleteChoice = true },
+                )
                 // 顶部"列表/合集"分段切换（与 PC 端一致）
                 SingleChoiceSegmentedButtonRow(
                     modifier = Modifier
@@ -525,6 +568,7 @@ private fun RunFilesScreen(
                         checkedCount = checkedCount,
                         expandedGroups = expandedGroups,
                         groupFiles = groupFiles,
+                        groupCheckedCounts = groupCheckedCounts,
                         onToggleExpand = { viewModel.toggleGroupExpand(it) },
                         onToggleGroupSelectAll = { viewModel.toggleGroupSelectAll(it) },
                         onToggleSelect = { id, checked -> viewModel.toggleSelect(id, checked) },
@@ -655,6 +699,7 @@ private fun GroupList(
     checkedCount: Int,
     expandedGroups: Set<String>,
     groupFiles: Map<String, List<ScannedFileEntity>>,
+    groupCheckedCounts: Map<String, Int>,
     onToggleExpand: (String) -> Unit,
     onToggleGroupSelectAll: (String) -> Unit,
     onToggleSelect: (Long, Int) -> Unit,
@@ -673,6 +718,8 @@ private fun GroupList(
             }
         }
         else -> {
+            // 扁平化懒加载：合集头作为单个 item，展开的组内文件用 items 懒加载，
+            // 避免大合集（数千文件）用 forEach 一次性渲染全部 Composable 导致 OOM/ANR 闪退。
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -681,23 +728,24 @@ private fun GroupList(
                     top = 12.dp,
                     bottom = if (checkedCount > 0) 136.dp else 72.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(
-                    items = groups,
-                    key = { it.title.ifBlank { "__unparsed__" } },
-                ) { g ->
+                groups.forEach { g ->
+                    val titleKey = g.title.ifBlank { "__unparsed__" }
                     val expanded = expandedGroups.contains(g.title)
                     val files = groupFiles[g.title]
+                    // 合集已勾选数：优先用 ViewModel 乐观维护的计数（勾选即时刷新，避免 RawQuery 不观测导致陈旧），
+                    // 回退到数据库聚合的 checkedCount。据此判断三态复选框：0=未选、==总数=全选、其间=部分选中(-)。
+                    val gChecked = groupCheckedCounts[g.title] ?: g.checkedCount
                     val groupState = when {
-                        files == null -> ToggleableState.Off
-                        files.isNotEmpty() && files.all { it.checked == 1 } -> ToggleableState.On
-                        files.any { it.checked == 1 } -> ToggleableState.Indeterminate
-                        else -> ToggleableState.Off
+                        g.fileCount <= 0 -> ToggleableState.Off
+                        gChecked <= 0 -> ToggleableState.Off
+                        gChecked >= g.fileCount -> ToggleableState.On
+                        else -> ToggleableState.Indeterminate
                     }
-                    CardItem {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            // 合集头行
+                    // 合集头（卡片）
+                    item(key = "header::$titleKey", contentType = "groupHeader") {
+                        CardItem {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -730,27 +778,33 @@ private fun GroupList(
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            // 展开：组内文件行
-                            if (expanded) {
-                                if (files == null) {
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(stringResource(R.string.loading), fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                } else {
-                                    files.forEach { f ->
-                                        GroupFileRow(
-                                            f = f,
-                                            selected = f.checked == 1,
-                                            onToggleSelect = { onToggleSelect(f.id, f.checked) },
-                                            onToggleMark = { onToggleMark(f.id, f.marked) },
-                                            onOpen = { onOpenFile(f.id) }
-                                        )
-                                    }
+                        }
+                    }
+                    // 展开：组内文件扁平化懒加载（仅渲染可见行，大合集不再 OOM）
+                    if (expanded) {
+                        if (files == null) {
+                            item(key = "loading::$titleKey", contentType = "loading") {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(stringResource(R.string.loading), fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
+                            }
+                        } else {
+                            items(
+                                items = files,
+                                key = { "file::$titleKey::${it.id}" },
+                                contentType = { "groupFile" }
+                            ) { f ->
+                                GroupFileRow(
+                                    f = f,
+                                    selected = f.checked == 1,
+                                    onToggleSelect = { onToggleSelect(f.id, f.checked) },
+                                    onToggleMark = { onToggleMark(f.id, f.marked) },
+                                    onOpen = { onOpenFile(f.id) }
+                                )
                             }
                         }
                     }
@@ -991,7 +1045,8 @@ private fun PageNavBar(
 
     // 每页条数本地输入态：仅在“应用(✓)”时提交给 ViewModel（对齐 PC 端：填完再确认）
     var pageSizeText by remember(pageSize) { mutableStateOf((if (pageSize > 0) pageSize else 100).toString()) }
-    var jumpText by remember { mutableStateOf("") }
+    // 跳页输入框默认显示当前页（1 基），用户直接覆盖输入；当前页变化时也跟随刷新
+    var jumpText by remember(page) { mutableStateOf((page + 1).toString()) }
     val numKeyboard = KeyboardOptions(keyboardType = KeyboardType.Number)
     val tfShape = RoundedCornerShape(6.dp)
 
@@ -1005,6 +1060,8 @@ private fun PageNavBar(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         // 第一行：首页 / 上一页 / 页码 / 下一页 / 末页（居中）
+        // 用 Unicode 符号代替中文：« ‹ › »，避免文字按钮在窄屏挤占水平空间、与页码信息错位
+        // （contentDescription 仍用 stringResource 保留无障碍标签）
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1013,15 +1070,29 @@ private fun PageNavBar(
             AppOutlinedButton(
                 onClick = { onJumpToPage(0) },
                 enabled = page > 0,
-                modifier = Modifier.height(30.dp),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-            ) { Text(stringResource(R.string.page_first), fontSize = 12.sp) }
+                modifier = Modifier.height(30.dp).width(36.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "«",
+                    fontSize = 16.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             AppOutlinedButton(
                 onClick = { onJumpToPage((page - 1).coerceAtLeast(0)) },
                 enabled = page > 0,
-                modifier = Modifier.height(30.dp),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-            ) { Text(stringResource(R.string.page_prev), fontSize = 12.sp) }
+                modifier = Modifier.height(30.dp).width(36.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "‹",
+                    fontSize = 16.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             Text(
                 stringResource(R.string.page_info, page + 1, pageCount, totalCount),
                 fontSize = 11.sp,
@@ -1031,15 +1102,29 @@ private fun PageNavBar(
             AppOutlinedButton(
                 onClick = { onJumpToPage((page + 1).coerceAtMost(pageCount - 1)) },
                 enabled = page < pageCount - 1,
-                modifier = Modifier.height(30.dp),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-            ) { Text(stringResource(R.string.page_next), fontSize = 12.sp) }
+                modifier = Modifier.height(30.dp).width(36.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "›",
+                    fontSize = 16.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             AppOutlinedButton(
                 onClick = { onJumpToPage(pageCount - 1) },
                 enabled = page < pageCount - 1,
-                modifier = Modifier.height(30.dp),
-                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-            ) { Text(stringResource(R.string.page_last), fontSize = 12.sp) }
+                modifier = Modifier.height(30.dp).width(36.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "»",
+                    fontSize = 16.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
         // 第二行：每页条数 + 跳到指定页（居中）
         Row(
@@ -1054,7 +1139,8 @@ private fun PageNavBar(
                 singleLine = true,
                 keyboardOptions = numKeyboard,
                 shape = tfShape,
-                modifier = Modifier.width(64.dp)
+                textStyle = TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center),
+                modifier = Modifier.width(64.dp).height(30.dp)
             )
             AppButton(
                 onClick = {
@@ -1063,26 +1149,27 @@ private fun PageNavBar(
                     pageSizeText = clamped.toString()
                     onPageSizeChange(clamped)
                 },
-                modifier = Modifier.height(30.dp)
+                modifier = Modifier.height(30.dp),
+                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)
             ) { Text("✓", fontSize = 13.sp) }
-            Text(stringResource(R.string.page_jump_to), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("跳转", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(
                 value = jumpText,
                 onValueChange = { jumpText = it.filter { c -> c.isDigit() } },
-                placeholder = { Text(stringResource(R.string.page_goto), fontSize = 12.sp) },
                 singleLine = true,
                 keyboardOptions = numKeyboard,
                 shape = tfShape,
-                modifier = Modifier.width(64.dp)
+                textStyle = TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center),
+                modifier = Modifier.width(64.dp).height(30.dp)
             )
             AppButton(
                 onClick = {
                     val p = jumpText.toIntOrNull()
                     if (p != null && p >= 1 && p <= pageCount) onJumpToPage(p - 1)
-                    jumpText = ""
                 },
                 enabled = jumpText.isNotBlank(),
-                modifier = Modifier.height(30.dp)
+                modifier = Modifier.height(30.dp),
+                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)
             ) { Text("✓", fontSize = 13.sp) }
         }
     }
@@ -1093,6 +1180,157 @@ private fun formatDate(ts: Long): String {
         SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(ts))
     } catch (_: Exception) {
         ""
+    }
+}
+
+/**
+ * 清理步骤指示器（Stepper）：扫描 → 合集模式 → 标记重复 → 确认勾选 → 删除。
+ * 状态完全由现有 groupMode / checkedCount / duplicateProgress 推导，用于引导用户按顺序操作。
+ */
+private data class StepInfo(
+    val index: Int,
+    val label: String,
+    val done: Boolean,
+    val active: Boolean,
+    val clickable: Boolean,
+    val onClick: () -> Unit,
+)
+
+@Composable
+private fun StepIndicator(
+    groupMode: Boolean,
+    checkedCount: Int,
+    duplicateRunning: Boolean,
+    onGoGroup: () -> Unit,
+    onMarkDuplicates: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val steps = listOf(
+        StepInfo(
+            index = 1,
+            label = stringResource(R.string.step_scanned),
+            done = true,
+            active = false,
+            clickable = false,
+            onClick = {},
+        ),
+        StepInfo(
+            index = 2,
+            label = stringResource(R.string.group_mode),
+            done = groupMode,
+            active = !groupMode,
+            clickable = !groupMode,
+            onClick = onGoGroup,
+        ),
+        StepInfo(
+            index = 3,
+            label = stringResource(R.string.mark_duplicates),
+            done = checkedCount > 0,
+            active = groupMode && checkedCount == 0,
+            clickable = groupMode && !duplicateRunning,
+            onClick = onMarkDuplicates,
+        ),
+        StepInfo(
+            index = 4,
+            label = stringResource(R.string.step_confirm),
+            done = false,
+            active = checkedCount > 0,
+            clickable = false,
+            onClick = {},
+        ),
+        StepInfo(
+            index = 5,
+            label = stringResource(R.string.batch_delete_selected),
+            done = false,
+            active = checkedCount > 0,
+            clickable = checkedCount > 0,
+            onClick = onDelete,
+        ),
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        steps.forEachIndexed { idx, step ->
+            if (idx > 0) {
+                val prevDone = steps[idx - 1].done
+                Spacer(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(2.dp)
+                        .background(if (prevDone) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
+                )
+            }
+            StepNode(step = step)
+        }
+    }
+}
+
+@Composable
+private fun StepNode(step: StepInfo) {
+    val accent = MaterialTheme.colorScheme.primary
+    val onAccent = MaterialTheme.colorScheme.onPrimary
+    val outline = MaterialTheme.colorScheme.outline
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+
+    val circleColor = when {
+        step.done -> accent
+        step.active -> MaterialTheme.colorScheme.primaryContainer
+        else -> MaterialTheme.colorScheme.surface
+    }
+    val ringColor = when {
+        step.done || step.active -> accent
+        else -> outline
+    }
+    val contentColor = when {
+        step.done -> onAccent
+        step.active -> MaterialTheme.colorScheme.onPrimaryContainer
+        else -> onSurfaceVariant
+    }
+    val labelColor = when {
+        step.done || step.active -> accent
+        else -> onSurfaceVariant
+    }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .then(if (step.clickable) Modifier.clickable(onClick = step.onClick) else Modifier)
+            .padding(2.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(26.dp)
+                .background(circleColor, CircleShape)
+                .border(1.5.dp, ringColor, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            if (step.done) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(16.dp)
+                )
+            } else {
+                Text(
+                    text = step.index.toString(),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = contentColor
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = step.label,
+            fontSize = 10.sp,
+            color = labelColor,
+            maxLines = 1
+        )
     }
 }
 

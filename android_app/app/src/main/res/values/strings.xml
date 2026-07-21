@@ -70,6 +70,9 @@
 
     <!-- 文库 -->
     <string name="library">文库</string>
+    <!-- 清理步骤指示器（Stepper）：扫描 → 合集 → 标记重复 → 确认勾选 → 删除 -->
+    <string name="step_scanned">扫描</string>
+    <string name="step_confirm">确认</string>
     <string name="filter_all">全部</string>
     <string name="filter_marked">已标记</string>
     <string name="filter_unmarked">未标记</string>
@@ -197,7 +200,9 @@
     <string name="file_types">文件类型</string>
     <string name="custom_file_type">自定义类型</string>
     <string name="excluded_folders">排除的文件夹</string>
-    <string name="excluded_folders_hint">逗号分隔，如 node_modules, .git, __pycache__</string>
+    <string name="excluded_folders_hint">点击右上角 + 选择要排除的文件夹，可添加多个；点标签上的 × 可移除</string>
+    <string name="add_excluded_folder">添加</string>
+    <string name="remove_excluded_folder">移除该排除文件夹</string>
     <string name="save_config">保存配置</string>
     <string name="delete_config">删除配置</string>
     <string name="delete_config_confirm">确定删除该扫描配置吗？已扫描的文件记录不受影响。</string>

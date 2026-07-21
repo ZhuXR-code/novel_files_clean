@@ -12,19 +12,24 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.unit.sp
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Card
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,6 +50,7 @@ import com.filescanner.app.R
 import com.filescanner.app.data.database.entity.ScanConfigEntity
 import com.filescanner.app.ui.components.TopBar
 import com.filescanner.app.ui.components.AppButton
+import com.filescanner.app.ui.components.AppOutlinedButton
 import com.filescanner.app.util.FileUtil
 import kotlinx.coroutines.flow.first
 
@@ -66,7 +72,7 @@ fun ConfigEditScreen(
     var folderName by remember { mutableStateOf("") }
     var selectedTypes by remember { mutableStateOf(setOf("txt")) }
     var customType by remember { mutableStateOf("") }
-    var excludedFolders by remember { mutableStateOf("") }
+    var excludedNames by remember { mutableStateOf(listOf<String>()) }
     var minSize by remember { mutableStateOf("0") }
     var recursive by remember { mutableStateOf(true) }
 
@@ -79,7 +85,8 @@ fun ConfigEditScreen(
                 folderName = cfg.folderName
                 selectedTypes = cfg.fileTypes.split(",").map { it.trim() }
                     .filter { it.isNotEmpty() }.toSet()
-                excludedFolders = cfg.excludedFolders
+                excludedNames = cfg.excludedFolders.split(",").map { it.trim() }
+                    .filter { it.isNotEmpty() }
                 minSize = cfg.minSizeKb.toString()
                 recursive = cfg.recursive
             }
@@ -109,6 +116,17 @@ fun ConfigEditScreen(
         folderUri = uri.toString()
         // 反显为可阅读路径，例如 “内部存储/DCIM/Camera”
         folderName = FileUtil.getReadableTreePath(uri)
+    }
+
+    // 排除文件夹：点按打开系统选择器，选完后把该文件夹的名称加入排除列表（按名称匹配，与扫描逻辑一致）
+    val excludeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val pickedName = DocumentFile.fromTreeUri(context, uri)?.name?.trim()
+        if (!pickedName.isNullOrBlank() && !excludedNames.contains(pickedName)) {
+            excludedNames = excludedNames + pickedName
+        }
     }
 
     Scaffold(
@@ -205,15 +223,74 @@ fun ConfigEditScreen(
                 }
             }
 
-            // 排除的文件夹
-            OutlinedTextField(
-                value = excludedFolders,
-                onValueChange = { excludedFolders = it },
-                label = { Text(stringResource(R.string.excluded_folders)) },
-                placeholder = { Text(stringResource(R.string.excluded_folders_hint)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+            // 排除的文件夹：通过 + 选择多个，可逐个删除
+            Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            stringResource(R.string.excluded_folders),
+                            fontWeight = MaterialTheme.typography.titleSmall.fontWeight
+                        )
+                        AppOutlinedButton(onClick = { excludeLauncher.launch(null) }) {
+                            Icon(
+                                Icons.Filled.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                stringResource(R.string.add_excluded_folder),
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+                    }
+                    if (excludedNames.isEmpty()) {
+                        Text(
+                            stringResource(R.string.excluded_folders_hint),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    } else {
+                        FlowRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            excludedNames.forEach { name ->
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    shape = MaterialTheme.shapes.small,
+                                    tonalElevation = 0.dp
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(start = 10.dp, end = 2.dp)
+                                    ) {
+                                        Text(name, fontSize = 13.sp, maxLines = 1)
+                                        IconButton(
+                                            onClick = { excludedNames = excludedNames - name },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.Close,
+                                                contentDescription = stringResource(R.string.remove_excluded_folder),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // 最小体积
             OutlinedTextField(
@@ -253,7 +330,7 @@ fun ConfigEditScreen(
                         minSizeKb = minSize.toIntOrNull() ?: 0,
                         recursive = recursive,
                         exactHash = false,
-                        excludedFolders = excludedFolders.trim()
+                        excludedFolders = excludedNames.joinToString(",")
                     )
                     viewModel.upsert(cfg) { onBack() }
                 },

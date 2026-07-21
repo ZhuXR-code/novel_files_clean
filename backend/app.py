@@ -1766,12 +1766,13 @@ def list_results(
 
         if page_group_names:
             # 第 2 次查询：一次性获取当前页所有分组下的全部记录
+            # 加总量上限保护，避免单页分组数 × 每组文件数过大（如 100×500）时一次取数万行致内存/网络压力
             items_query = base_query.filter(
                 sa_func.coalesce(FileMetadata.novel_name, '').in_(page_group_names)
             ).order_by(
                 sa_func.coalesce(FileMetadata.novel_name, ''),
                 ScanResult.file_size.desc(),
-            )
+            ).limit(20000)
 
             name_lookup = {g.group_name: g for g in page_groups}
             raw_by_name = OrderedDict()
@@ -1853,7 +1854,7 @@ def list_groups(
     max_count: Optional[int] = Query(None, ge=0),
     exclude_names: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(500, ge=1, le=5000),
+    page_size: int = Query(100, ge=1, le=2000),
     db: Session = Depends(get_db),
 ):
     """获取文件分组（合集）列表，基于预计算的 file_groups 表"""
@@ -1925,7 +1926,7 @@ def list_groups(
             func.coalesce(FileMetadata.novel_name, '').in_(group_names),
         ).order_by(
             ScanResult.file_size.desc(),
-        )
+        ).limit(20000)
 
         for r in base_query.all():
             nname = r.novel_name or ''
@@ -1960,7 +1961,7 @@ def list_groups(
 def select_duplicates(
     config_id: int = Query(...),
     page: int = Query(1, ge=1),
-    page_size: int = Query(500, ge=1, le=5000),
+    page_size: int = Query(100, ge=1, le=2000),
     min_count: int = Query(0, ge=0),
     max_count: Optional[int] = Query(None, ge=0),
     exclude_names: Optional[str] = Query(None),
