@@ -35,6 +35,30 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
+    // 直接用 JUnit 控制台运行本地单测，绕开 AGP 测试 worker 的 classpath 装配怪象
+    // （该工程路径含中文，AGP 的 test worker 偶发 ClassNotFoundException，与代码无关）。
+    afterEvaluate {
+        tasks.register<JavaExec>("runParserTest") {
+            group = "verification"
+            description = "直接运行 ParserTest（绕过 AGP test worker）"
+            dependsOn("compileDebugUnitTestKotlin", "compileDebugKotlin", "kspDebugKotlin")
+            val buildDir = layout.buildDirectory.get().asFile
+            val ktTestDir = file("$buildDir/tmp/kotlin-classes/debugUnitTest")
+            val mainClasses = file("$buildDir/tmp/kotlin-classes/debug")
+            classpath(
+                ktTestDir,
+                mainClasses,
+                configurations.getByName("debugUnitTestRuntimeClasspath"),
+            )
+            mainClass.set("org.junit.runner.JUnitCore")
+            args("com.filescanner.app.util.ParserTest", "com.filescanner.app.util.LibraryLogicTest")
+        }
+    }
+
     lint {
         checkReleaseBuilds = false
         abortOnError = false
@@ -93,4 +117,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // ---- 单元测试依赖 ----
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.test:runner:1.6.2")
+    testImplementation("androidx.test.ext:junit:1.2.1")
 }

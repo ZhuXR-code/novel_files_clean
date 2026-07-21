@@ -95,6 +95,7 @@ import com.filescanner.app.ui.components.CardItem
 import com.filescanner.app.ui.components.TopBar
 import com.filescanner.app.ui.components.AppButton
 import com.filescanner.app.util.FormatUtil
+import com.filescanner.app.util.LogUtil
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -827,7 +828,7 @@ private fun FileRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onOpen() }
+                .clickable { LogUtil.i("FileRow", "row open id=${f.id}"); onOpen() }
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -874,7 +875,7 @@ private fun FileRow(
                     color = MaterialTheme.colorScheme.outline
                 )
             }
-            IconButton(onClick = onToggleMark) {
+            IconButton(onClick = { LogUtil.i("FileRow", "mark click id=${f.id}"); onToggleMark() }) {
                 Icon(
                     if (f.marked == 1) Icons.Filled.Star else Icons.Filled.StarBorder,
                     contentDescription = stringResource(R.string.mark),

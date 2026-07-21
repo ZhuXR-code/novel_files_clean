@@ -8,6 +8,7 @@ import com.filescanner.app.data.database.entity.ScannedFileEntity
 import com.filescanner.app.data.database.entity.ScanRunEntity
 import com.filescanner.app.data.database.entity.DuplicateRow
 import com.filescanner.app.data.model.NovelGroup
+import com.filescanner.app.util.LibraryLogic
 import com.filescanner.app.util.LogUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -156,13 +157,13 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 repo.filesCountFlow(f.name, q, runId),
                 repo.filesPageFlow(f.name, q, s.name, runId, ps, page)
             ) { total, items ->
-                val pageCount = ((total + ps - 1) / ps).coerceAtLeast(1)
+                val pageCount = LibraryLogic.computePageCount(total, ps)
                 // 当前页越界（如删除后总数变少）→ 自动回退到最后一页
                 if (page > pageCount - 1 && total > 0) _currentPage.value = pageCount - 1
                 ListPageState(
                     items = items,
                     total = total,
-                    page = page.coerceIn(0, pageCount - 1),
+                    page = LibraryLogic.adjustPage(page, pageCount),
                     pageSize = ps,
                     loading = false
                 )
@@ -182,7 +183,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             .flatMapLatest { (arr, runId, key) ->
                 val min = arr[0] as Int
                 val max = arr[1] as Int
-                val exclude = (arr[2] as String).split(Regex("[,\n]+")).map { it.trim() }.filter { it.isNotEmpty() }
+                val exclude = LibraryLogic.parseExcludeNames(arr[2] as String)
                 val q = arr[3] as String
                 val f = arr[4] as FilterMode
                 val filterName = f.name
@@ -192,12 +193,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                     repo.groupsCountFlow(min, max, exclude, q, runId, filterName),
                     repo.groupsPageFlow(min, max, exclude, q, runId, ps, page, filterName)
                 ) { total, groups ->
-                    val pageCount = ((total + ps - 1) / ps).coerceAtLeast(1)
+                    val pageCount = LibraryLogic.computePageCount(total, ps)
                     if (page > pageCount - 1 && total > 0) _currentPage.value = pageCount - 1
                     GroupPageState(
                         groups = groups,
                         total = total,
-                        page = page.coerceIn(0, pageCount - 1),
+                        page = LibraryLogic.adjustPage(page, pageCount),
                         pageSize = ps,
                         loading = false
                     )
@@ -223,7 +224,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun setFilter(f: FilterMode) { _filter.value = f; _currentPage.value = 0 }
-    fun setSort(s: SortMode) { _sort.value = s; _currentPage.value = 0 }
+    fun setSort(s: SortMode) { LogUtil.i("LibVM", "setSort $s"); _sort.value = s; _currentPage.value = 0 }
     fun setQuery(q: String) { _query.value = q; _currentPage.value = 0 }
     fun clearToast() { _toast.value = null }
 
@@ -367,6 +368,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun toggleMark(id: Long, current: Int) {
+        LogUtil.i("LibVM", "toggleMark id=$id current=$current")
         val newMarked = if (current != 1) 1 else 0
         viewModelScope.launch(Dispatchers.IO) {
             repo.setMarked(id, newMarked == 1)

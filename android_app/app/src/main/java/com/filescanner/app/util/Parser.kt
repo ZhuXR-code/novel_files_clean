@@ -49,8 +49,8 @@ object Parser {
     // 作者后缀清洗（对齐 PC 端 _name_worker 的两次正则替换）
     private val AUTHOR_TRAIL_BRACKET = Regex("""\s*[\[（][^\]）]*?(?:\d+|[更完结npv1V]+)[^\]）]*?[\]）]\s*$""")
     private val AUTHOR_TRAIL_DASH_NUM = Regex("""\s*-\d+\s*$""")
-    // 仅用于“书名 作者：xxx”场景的后缀（完结/番外/连载…）
-    private val AUTHOR_SUFFIX_STATUS = Regex("""\s+(?:完结|番外|全本|完本|连载|出版|实体书|定制书|定制|校对).*$""")
+    // 仅用于“书名 作者：xxx”场景的后缀（完结/番外/连载…），以及作者尾部残留的“精校/校对”等清洗
+    private val AUTHOR_SUFFIX_STATUS = Regex("""\s*(?:完结|番外|全本|完本|连载|出版|实体书|定制书|定制|校对|精校).*$""")
     // 合集/分类前缀里作者尾部残留的（数字）
     private val AUTHOR_TRAIL_PAREN_NUM = Regex("""\s*[（(]\d+[）)]\s*$""")
     private val AUTHOR_TRAIL_PAREN_ANY = Regex("""[\s（(]*[）)]\s*$""")
@@ -65,6 +65,10 @@ object Parser {
     private val RE_HAS_LATIN = Regex("""[a-zA-Z]""")
     private val RE_BRACKET_SQ = Regex("""\[([^\]]*)\]""")
     private val RE_BRACKET_CN = Regex("""【([^】]*)】""")
+    // 兼容圆括号（全角/半角）：常见文件名如「《书名》作者：xxx（更50）（d）」用圆括号标进度/标识。
+    // 对齐 PC 端 _extract_source_progress（memory 12890424 已修复 PC 端识别圆括号）。
+    private val RE_BRACKET_PAREN_CN = Regex("""（([^）]*)）""")
+    private val RE_BRACKET_PAREN = Regex("""\(([^)]*)\)""")
     private val RE_TAIL_NUM = Regex("""-(\d+)\s*$""")
     private val RE_PROGRESS_GENG = Regex("""更\s*(\d+)""")
     private val RE_PROGRESS_WAN = Regex("""完结[^\]\s]*""")
@@ -208,11 +212,18 @@ object Parser {
         return stripAuthor(a)
     }
 
-    /** 作者尾部清洗（对齐 PC 端 _name_worker 的两次正则替换）。 */
+    /** 作者尾部清洗（对齐 PC 端 _name_worker 的循环清洗：剥离末尾所有含数字/进度词/单字母标识的括号及状态后缀）。 */
     private fun stripAuthor(raw: String): String {
         var a = raw.trim()
-        a = AUTHOR_TRAIL_BRACKET.replace(a, "").trim()
-        a = AUTHOR_TRAIL_DASH_NUM.replace(a, "").trim()
+        // 反复清洗：先去状态后缀（如 精校/校对），再剥离末尾括号（含数字/进度词），
+        // 直到不再变化，确保「（更50）精校」这类“括号+后缀”组合被完全清掉。
+        repeat(6) {
+            val before = a
+            a = AUTHOR_TRAIL_BRACKET.replace(a, "").trim()
+            a = AUTHOR_SUFFIX_STATUS.replace(a, "").trim()
+            a = AUTHOR_TRAIL_DASH_NUM.replace(a, "").trim()
+            if (a == before) return@repeat
+        }
         return a
     }
 
@@ -225,6 +236,8 @@ object Parser {
         val brackets = mutableListOf<String>()
         RE_BRACKET_SQ.findAll(base).forEach { brackets.add(it.groupValues[1]) }
         RE_BRACKET_CN.findAll(base).forEach { brackets.add(it.groupValues[1]) }
+        RE_BRACKET_PAREN_CN.findAll(base).forEach { brackets.add(it.groupValues[1]) }
+        RE_BRACKET_PAREN.findAll(base).forEach { brackets.add(it.groupValues[1]) }
 
         if (brackets.isEmpty()) {
             val tail = RE_TAIL_NUM.find(base)
