@@ -105,9 +105,14 @@ fun LibraryScreen(
     onBack: () -> Unit,
     onNavigateToDeleteConfirm: () -> Unit,
     onOpenFile: (Long) -> Unit,
+    initialRunId: Long = -1L,
     viewModel: LibraryViewModel = viewModel()
 ) {
     val currentRunId by viewModel.currentRunId.collectAsStateWithLifecycle()
+    // 从扫描结果页进入时携带 runId，直达本次已扫描文件列表（停止/完成后保留结果）
+    LaunchedEffect(initialRunId) {
+        if (initialRunId > 0) viewModel.setCurrentRunId(initialRunId)
+    }
     val scanRuns by viewModel.scanRuns.collectAsStateWithLifecycle(initialValue = emptyList())
 
     if (currentRunId == null) {

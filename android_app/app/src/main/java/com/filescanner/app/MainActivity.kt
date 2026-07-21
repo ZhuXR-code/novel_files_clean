@@ -31,6 +31,7 @@ import com.filescanner.app.ui.screens.library.FileDetailScreen
 import com.filescanner.app.ui.screens.settings.SettingsScreen
 import com.filescanner.app.ui.screens.settings.KeywordReplaceScreen
 import com.filescanner.app.ui.screens.settings.LogViewerScreen
+import com.filescanner.app.data.model.ScanStateManager
 import com.filescanner.app.service.ScanService
 import com.filescanner.app.ui.theme.FileScannerTheme
 
@@ -105,14 +106,24 @@ fun AppNavigation() {
         composable(NavRoutes.SCAN_PROGRESS) {
             ScanProgressScreen(
                 onBack = { navController.popBackStack() },
-                onFinished = { navController.navigate(NavRoutes.LIBRARY) }
+                onFinished = {
+                    // 把本次扫描的文库 id 传给文库页，直接进入已扫描结果列表（停止/完成后均保留）
+                    navController.navigate("library?runId=${ScanStateManager.runId}") {
+                        popUpTo(NavRoutes.SCAN_PROGRESS) { inclusive = true }
+                    }
+                }
             )
         }
-        composable(NavRoutes.LIBRARY) {
+        composable(
+            route = "library?runId={runId}",
+            arguments = listOf(navArgument("runId") { type = NavType.LongType; defaultValue = -1L })
+        ) { backStack ->
+            val runIdArg = backStack.arguments?.getLong("runId") ?: -1L
             LibraryScreen(
                 onBack = { navController.popBackStack() },
                 onNavigateToDeleteConfirm = { navController.navigate(NavRoutes.DELETE_CONFIRM) },
-                onOpenFile = { id -> navController.navigate(NavRoutes.fileDetail(id)) }
+                onOpenFile = { id -> navController.navigate(NavRoutes.fileDetail(id)) },
+                initialRunId = runIdArg
             )
         }
         composable(

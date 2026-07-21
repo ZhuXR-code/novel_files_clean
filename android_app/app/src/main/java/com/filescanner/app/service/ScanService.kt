@@ -210,8 +210,9 @@ class ScanService : Service() {
                 consumer.join()
 
                 if (stopped) {
-                    // 停止：保留已写入库的文件（消费者已 flush channel 中剩余记录），无需再写
+                    // 停止：保留已写入库的文件（消费者已 flush channel 中剩余记录），并回写已落库文件数
                     val dCount = done.get()
+                    app.repository.setRunFileCount(runId, dCount)
                     ScanStateManager.update(
                         ScanState(
                             isScanning = false, phase = "scanning",
