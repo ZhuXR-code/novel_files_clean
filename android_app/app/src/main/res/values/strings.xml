@@ -269,4 +269,5 @@
     <string name="page_apply">应用</string>
     <string name="page_jump_to">跳到</string>
     <string name="computing_duplicates">正在计算合集重复…</string>
+    <string name="toggle_toolbar">展开/收起筛选工具栏</string>
 </resources>

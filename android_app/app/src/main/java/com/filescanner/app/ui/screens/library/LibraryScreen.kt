@@ -276,6 +276,8 @@ private fun RunFilesScreen(
     var showDeleteChoice by remember { mutableStateOf(false) }
     // 搜索框默认隐藏，顶部搜索图标点击后显示；再点切换回隐藏
     var searchVisible by remember { mutableStateOf(false) }
+    // 顶部"模式切换 + 筛选"工具栏可收起/展开（默认展开），收起按钮在搜索按钮旁
+    var toolbarExpanded by remember { mutableStateOf(true) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -381,6 +383,13 @@ private fun RunFilesScreen(
                             else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    // 收起/展开"模式切换 + 筛选"工具栏（放在搜索按钮旁）
+                    IconButton(onClick = { toolbarExpanded = !toolbarExpanded }) {
+                        Icon(
+                            if (toolbarExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = stringResource(R.string.toggle_toolbar)
+                        )
+                    }
                     IconButton(onClick = { sortMenu = true }) {
                         Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.sort_time))
                     }
@@ -473,7 +482,8 @@ private fun RunFilesScreen(
                     onMarkDuplicates = { viewModel.selectDuplicates() },
                     onDelete = { showDeleteChoice = true },
                 )
-                // 顶部"列表/合集"分段切换（与 PC 端一致）
+                // 顶部"列表/合集"分段切换（与 PC 端一致），可整体收起
+                if (toolbarExpanded) {
                 SingleChoiceSegmentedButtonRow(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -530,6 +540,7 @@ private fun RunFilesScreen(
                         onClick = { viewModel.setFilter(FilterMode.UNMARKED) },
                         label = stringResource(R.string.filter_unmarked)
                     )
+                }
                 }
             // 搜索框：仅在用户点击顶部搜索图标后才显示
             if (searchVisible) {
@@ -871,14 +882,6 @@ private fun FileRow(
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    f.path,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.outline
-                )
             }
             IconButton(onClick = { LogUtil.i("FileRow", "mark click id=${f.id}"); onToggleMark() }) {
                 Icon(
@@ -943,14 +946,6 @@ private fun GroupFileRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Spacer(Modifier.height(2.dp))
-            Text(
-                f.path,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.outline
-            )
         }
         IconButton(onClick = onToggleMark) {
             Icon(

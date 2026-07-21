@@ -108,7 +108,7 @@ fun FileDetailScreen(
                 DetailRow(stringResource(R.string.detail_marked), if (f.marked == 1) stringResource(R.string.mark) else stringResource(R.string.unmark))
                 DetailRow(stringResource(R.string.detail_checked), if (f.checked == 1) stringResource(R.string.state_checked) else stringResource(R.string.state_unchecked))
                 DetailRow(stringResource(R.string.detail_content_hash), f.contentHash.ifBlank { "—" })
-                DetailRow(stringResource(R.string.detail_path), f.path, isPath = true)
+                DetailRow(stringResource(R.string.detail_path), FormatUtil.toHumanReadablePath(f.path), isPath = true)
 
                 Spacer(Modifier.height(20.dp))
                 AppButton(
