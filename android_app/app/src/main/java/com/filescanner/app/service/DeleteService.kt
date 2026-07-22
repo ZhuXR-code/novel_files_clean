@@ -66,6 +66,8 @@ class DeleteService : Service() {
                 var success = 0
                 var failed = 0
                 var processed = 0
+                // 受影响的文库 id 集合：删除成功后需重算其文件数，使文库列表的 fileCount 与实际一致
+                val affectedRuns = mutableSetOf<Long>()
                 // 分批加载实体并删除，避免一次性 SELECT * 全部实体导致 OOM（上万文件时）
                 val batchSize = 200
                 for (batchStart in ids.indices step batchSize) {
@@ -80,6 +82,7 @@ class DeleteService : Service() {
                             val ok = FileUtil.deleteViaUri(app, Uri.parse(f.path))
                             if (ok) {
                                 successIds.add(f.id)
+                                affectedRuns.add(f.scanRunId)
                                 success++
                                 DeleteStateManager.log("✓ ${f.fileName}（${FormatUtil.formatSize(f.fileSize)}）", true)
                             } else {
@@ -89,6 +92,7 @@ class DeleteService : Service() {
                         } else {
                             // 仅删除记录：不碰源文件，直接删库
                             successIds.add(f.id)
+                            affectedRuns.add(f.scanRunId)
                             success++
                             DeleteStateManager.log("✓ ${f.fileName}（仅删除记录，保留源文件）", true)
                         }
@@ -108,6 +112,13 @@ class DeleteService : Service() {
                         DeleteStateManager.flushLogs()
                         updateNotificationNow("已处理 $processed/$total（成功 $success，失败 $failed）")
                     }
+                }
+                // 删除完成后，重算所有受影响文库的文件数（回写 scan_run.file_count），
+                // 否则文库列表（外部文库列表）仍显示删除前的旧文件数。
+                if (affectedRuns.isNotEmpty()) {
+                    val t0 = System.currentTimeMillis()
+                    affectedRuns.forEach { app.repository.recomputeRunFileCount(it) }
+                    LogUtil.i("DeleteService", "重算 ${affectedRuns.size} 个文库文件数，耗时 ${System.currentTimeMillis() - t0}ms")
                 }
                 DeleteStateManager.update(
                     DeleteState(isDeleting = false, done = processed, total = total,

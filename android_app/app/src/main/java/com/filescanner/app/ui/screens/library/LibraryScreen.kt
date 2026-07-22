@@ -56,6 +56,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -1134,15 +1135,25 @@ private fun PageNavBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
         ) {
             Text(stringResource(R.string.page_size), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(
-                value = pageSizeText,
-                onValueChange = { pageSizeText = it.filter { c -> c.isDigit() } },
-                singleLine = true,
-                keyboardOptions = numKeyboard,
-                shape = tfShape,
-                textStyle = TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center),
-                modifier = Modifier.width(64.dp).height(30.dp)
-            )
+            // 用 BasicTextField 替代 OutlinedTextField：Material3 OutlinedTextField 有默认最小高度
+            // (~56dp)，强制 height(30.dp) 会把内部输入区域压到几乎消失，导致点击没反应/软键盘弹不出。
+            Box(
+                modifier = Modifier
+                    .width(64.dp)
+                    .height(32.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, tfShape)
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                BasicTextField(
+                    value = pageSizeText,
+                    onValueChange = { pageSizeText = it.filter { c -> c.isDigit() } },
+                    singleLine = true,
+                    keyboardOptions = numKeyboard,
+                    textStyle = TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             AppButton(
                 onClick = {
                     val v = pageSizeText.toIntOrNull() ?: 100
@@ -1154,15 +1165,23 @@ private fun PageNavBar(
                 contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)
             ) { Text("✓", fontSize = 13.sp) }
             Text("跳转", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedTextField(
-                value = jumpText,
-                onValueChange = { jumpText = it.filter { c -> c.isDigit() } },
-                singleLine = true,
-                keyboardOptions = numKeyboard,
-                shape = tfShape,
-                textStyle = TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center),
-                modifier = Modifier.width(64.dp).height(30.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .width(64.dp)
+                    .height(32.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, tfShape)
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                BasicTextField(
+                    value = jumpText,
+                    onValueChange = { jumpText = it.filter { c -> c.isDigit() } },
+                    singleLine = true,
+                    keyboardOptions = numKeyboard,
+                    textStyle = TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             AppButton(
                 onClick = {
                     val p = jumpText.toIntOrNull()

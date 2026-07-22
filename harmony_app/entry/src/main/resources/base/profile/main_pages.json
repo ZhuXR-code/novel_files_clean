@@ -1,0 +1,18 @@
+{
+  "src": [
+    "pages/Index",
+    "pages/ScanConfigList",
+    "pages/ConfigEdit",
+    "pages/LibraryList",
+    "pages/LibraryScreen",
+    "pages/FileDetail",
+    "pages/ScanProgress",
+    "pages/OneClickCleanup",
+    "pages/DeleteConfirm",
+    "pages/DeleteProgress",
+    "pages/Settings",
+    "pages/KeywordReplace",
+    "pages/LogViewer",
+    "pages/Help"
+  ]
+}

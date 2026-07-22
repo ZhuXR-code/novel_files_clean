@@ -22,3 +22,48 @@ def apply_rules(text: Optional[str], rules: List[KeywordReplaceRule]) -> Optiona
         if p:
             text = text.replace(p, r.replacement or '')
     return text
+
+
+# 预置关键词替换规则（去文件名水印），随启动补齐进数据库，用户可见、可增删改查。
+# 与 Android 端 DEFAULT_KEYWORD_RULES 保持同步：作用域均为 scan（扫描阶段作用于文件名），
+# replacement 为空串表示删除。若用户不想要某条，建议在界面"禁用"而非"删除"，否则下次启动会被重新补齐。
+DEFAULT_KEYWORD_RULES = [
+    {'scope': 'scan', 'pattern': '[草2莓]', 'replacement': '', 'sort_order': 1},
+    {'scope': 'scan', 'pattern': '【草2莓', 'replacement': '', 'sort_order': 2},
+    {'scope': 'scan', 'pattern': '【草2莓】', 'replacement': '', 'sort_order': 3},
+    {'scope': 'scan', 'pattern': '[草 莓]', 'replacement': '', 'sort_order': 4},
+    {'scope': 'scan', 'pattern': '[草 莓', 'replacement': '', 'sort_order': 5},
+    {'scope': 'scan', 'pattern': '【lili】', 'replacement': '', 'sort_order': 6},
+    {'scope': 'scan', 'pattern': '（l.i.）', 'replacement': '', 'sort_order': 7},
+    {'scope': 'scan', 'pattern': '(l.i.）', 'replacement': '', 'sort_order': 8},
+    {'scope': 'scan', 'pattern': '（l.i.)', 'replacement': '', 'sort_order': 9},
+    {'scope': 'scan', 'pattern': '(l.i.)', 'replacement': '', 'sort_order': 10},
+]
+
+
+def seed_default_rules(db: Session) -> int:
+    """补齐缺失的预置关键词替换规则（幂等）：按 (scope, pattern) 判断，仅插入库中没有的项。
+
+    - 首次为空时整批写入；
+    - 后续新增预置项也会自动补进已安装实例，无需清数据；
+    - 只动数据库记录，不触碰磁盘上的源文件。
+    返回本次新增的条数。
+    """
+    added = 0
+    for rule in DEFAULT_KEYWORD_RULES:
+        exists = db.query(KeywordReplaceRule).filter(
+            KeywordReplaceRule.scope == rule['scope'],
+            KeywordReplaceRule.pattern == rule['pattern'],
+        ).first()
+        if not exists:
+            db.add(KeywordReplaceRule(
+                scope=rule['scope'],
+                pattern=rule['pattern'],
+                replacement=rule['replacement'],
+                sort_order=rule['sort_order'],
+                enabled=True,
+            ))
+            added += 1
+    if added:
+        db.commit()
+    return added

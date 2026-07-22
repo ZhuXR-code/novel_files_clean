@@ -310,16 +310,42 @@ def _detect_encoding(file_path: str) -> str:
 
 # 常见小说来源站点（用于从文件名标签提取"来源"列）
 SOURCE_SITES = [
-    '废文', '海棠', '晋江', '长佩', '刺猬猫', '豆腐', '老福特', '息壤',
+    '废文', '海棠',  'fw', 'ht', '米国度', '晋江', '长佩', '刺猬猫', '豆腐', '老福特', '息壤',
     '粉笔', '鲜网', '绿茶', '寒武纪', '不可能的世界', '豆瓣阅读', '掌阅',
-    '番茄', '起点', '飞卢', '纵横', '17K', '黑岩', '云起', '红袖', '潇湘书院',
+    '番茄', '起点', '飞卢', '纵横', '17K', '黑岩', '云起', '红袖', '潇湘书院', '米国',
     '阅文', 'LOFTER', 'lofter', 'Po18', 'po18', 'FW', 'HT',
 ]
 
 
+# ===== 与 APP 端 Parser.kt 对齐的补充识别规则 =====
+RE_PROGRESS_FANWAI = re.compile(r'番外[^\]\s]*')                 # 番外合集 / 番外4 等
+RE_PROGRESS_UPDATE = re.compile(r'更新至?\s*(\d+)')             # 作者后缀“更新至89”兜底提取进度
+AUTHOR_TRAIL_UPDATE = re.compile(r'\s*[-—~]*更新至?\s*\d+\s*$')  # 清洗作者尾部 --更新至89
+AUTHOR_TRAIL_BUFAN = re.compile(r'\s*[-—~]?补番\s*$')           # 清洗作者尾部 ~补番
+LEAD_TAG = re.compile(r'^[【\[（(][^】\]）)]*[】\]）)]\s*')      # 书名开头残留的标签括号
+
+_EXT_RE = re.compile(r'\.(txt|epub|pdf|docx?|md|text|rtf|mobi|azw3|html?|log)$', re.IGNORECASE)
+
+
+def _strip_ext(name: str) -> str:
+    """仅剥离真正的尾部扩展名，避免 os.path.splitext 因文件名内含的点（如 l.ili / 24.3.27）误截断。"""
+    return _EXT_RE.sub('', name)
+
+
+def clean_title(raw: str) -> str:
+    """书名清洗：去掉开头残留的单个标签括号（如 【西幻】），避免混进书名。"""
+    t = raw.strip()
+    while True:
+        m = LEAD_TAG.search(t)
+        if not m:
+            break
+        t = t[m.end():]
+    return t.strip()
+
+
 def _extract_source_progress(file_name: str):
     """从文件名方括号标签中提取 来源站点 与 更新进度。"""
-    name = os.path.splitext(file_name)[0]
+    name = _strip_ext(file_name)
     source = ''
     progress = ''
 
@@ -350,30 +376,40 @@ def _extract_source_progress(file_name: str):
             if wm:
                 progress = wm.group(0)
         if not progress:
-            tail = re.search(r'-(\d+)\s*$', name)
-            if tail:
-                progress = tail.group(1)
+            fm = re.search(RE_PROGRESS_FANWAI, content)
+            if fm:
+                progress = fm.group(0)
         if not progress:
+            # 状态词（连载/断更…）优先级高于整名尾部“-数字”，避免“音清纯-603”抢走“连载”
             om = re.search(r'(?:连载|断更|暂停|烂尾|坑|锁文|锁)', content)
             if om:
                 progress = om.group(0)
+        if not progress:
+            tail = re.search(r'-(\d+)\s*$', name)
+            if tail:
+                progress = tail.group(1)
 
     if not progress:
         tail = re.search(r'-(\d+)\s*$', name)
         if tail:
             progress = tail.group(1)
+    if not progress:
+        # 兜底：从作者后缀“更新至N”提取进度（如 宁不语--更新至89）
+        um = re.search(RE_PROGRESS_UPDATE, name)
+        if um:
+            progress = um.group(1)
 
     return source, progress
 
 
 def _parse_filename_by_regex(file_name: str) -> Optional[dict]:
     """使用正则表达式解析常见文件名格式，返回 {title, author} 或 None"""
-    name = os.path.splitext(file_name)[0]
+    name = _strip_ext(file_name)
     # 防止超长文件名触发正则灾难性回溯
     if len(name) > 300:
         return None
 
-    m = re.search(r'《([^》]+)》.*?作者[：:]\s*(.+)$', name)
+    m = re.search(r'《([^》]+)》.*?(?:作家|作者)[：:]\s*(.+)$', name)
     if m:
         title = m.group(1).strip()
         author = m.group(2).strip()
@@ -386,14 +422,14 @@ def _parse_filename_by_regex(file_name: str) -> Optional[dict]:
         if title and author:
             return {'title': title, 'author': author}
 
-    m = re.search(r'《(.+?)》\s*作者[：:]\s*(.+)', name)
+    m = re.search(r'《(.+?)》\s*(?:作家|作者)[：:]\s*(.+)', name)
     if m:
         title = m.group(1).strip()
         author = m.group(2).strip()
         if title and author:
             return {'title': title, 'author': author}
 
-    m = re.search(r'【[^】]+】\s*《(.+?)》\s*作者[：:]\s*(.+)', name)
+    m = re.search(r'【[^】]+】\s*《(.+?)》\s*(?:作家|作者)[：:]\s*(.+)', name)
     if m:
         title = m.group(1).strip()
         author = m.group(2).strip()
@@ -414,7 +450,7 @@ def _parse_filename_by_regex(file_name: str) -> Optional[dict]:
         if title and author:
             return {'title': title, 'author': author}
 
-    m = re.search(r'^(.+?)[_\-—]\s*作者[：:]?\s*(.+)$', name)
+    m = re.search(r'^(.+?)[_\-—]\s*(?:作家|作者)[：:]?\s*(.+)$', name)
     if m:
         title = m.group(1).strip()
         author = m.group(2).strip()
@@ -428,7 +464,7 @@ def _parse_filename_by_regex(file_name: str) -> Optional[dict]:
         if title and author:
             return {'title': title, 'author': author}
 
-    m = re.search(r'^[【\[(][^】\])\n]+[】\])]\s*(.+?)\s*作者[：:]\s*(.+)$', name)
+    m = re.search(r'^[【\[(][^】\])\n]+[】\])]\s*(.+?)\s*(?:作家|作者)[：:]\s*(.+)$', name)
     if m:
         title = m.group(1).strip()
         author = m.group(2).strip()
@@ -448,14 +484,14 @@ def _parse_filename_by_regex(file_name: str) -> Optional[dict]:
         if title and author and not re.match(r'^[【\[(]', title):
             return {'title': title, 'author': author}
 
-    m = re.search(r'\[[^\]]+\]\s*(.+?)\s*作者[：:]\s*(.+)', name)
+    m = re.search(r'\[[^\]]+\]\s*(.+?)\s*(?:作家|作者)[：:]\s*(.+)', name)
     if m:
         title = m.group(1).strip()
         author = m.group(2).strip()
         if title and author:
             return {'title': title, 'author': author}
 
-    m = re.search(r'^(.+?)\s*作者[：:]\s*(.+)', name)
+    m = re.search(r'^(.+?)\s*(?:作家|作者)[：:]\s*(.+)', name)
     if m:
         title = m.group(1).strip()
         author = m.group(2).strip()
@@ -463,7 +499,7 @@ def _parse_filename_by_regex(file_name: str) -> Optional[dict]:
         if title and author:
             return {'title': title, 'author': author}
 
-    m = re.search(r'^(?:\[.*?\])?\s*《(.+?)》\s*作者\s*(.+?)$', name)
+    m = re.search(r'^(?:\[.*?\])?\s*《(.+?)》\s*(?:作家|作者)\s*(.+?)$', name)
     if m:
         title = m.group(1).strip()
         author = m.group(2).strip()
@@ -554,6 +590,7 @@ def _parse_file_content_for_metadata(file_path: str, file_name: str) -> Optional
 
     author_patterns = [
         r'作者[：:]\s*(.+)',
+        r'作家[：:]\s*(.+)',
         r'著者[：:]\s*(.+)',
         r'作\s*者[：:]\s*(.+)',
         r'By\s*(.+)$',
@@ -616,6 +653,8 @@ def _name_worker(args: tuple) -> dict:
     regex_res = _parse_filename_by_regex(file_name)
     parsed_title = regex_res['title'] if regex_res else ''
     parsed_author = regex_res['author'] if regex_res else ''
+    if parsed_title:
+        parsed_title = clean_title(parsed_title)
     if parsed_author:
         # 循环清洗末尾的"进度/标识"括号后缀，如（更50）（完结）（d）等，避免只洗一个导致残留
         for _ in range(5):
@@ -624,11 +663,14 @@ def _name_worker(args: tuple) -> dict:
                 break
             inner = m.group(1)
             # 仅清洗含"数字/进度词/单字母标识"的括号，保留合法括号（如作者笔名）
-            if re.search(r'\d|更|完结|完本|全本|连载|番外|出版|实体|校对|定制|断更|暂停|烂尾|坑|锁', inner) or re.fullmatch(r'[a-zA-Z]', inner):
+            if re.search(r'\d|更|完结|完本|全本|连载|番外|补番|修|np|出版|实体|校对|定制|断更|暂停|烂尾|坑|锁', inner) or re.fullmatch(r'[a-zA-Z]', inner):
                 parsed_author = parsed_author[:m.start()].strip()
             else:
                 break
         parsed_author = re.sub(r'\s*-\d+\s*$', '', parsed_author).strip()
+        # 清洗作者尾部的“更新至N”（如 --更新至89）与“补番”（如 ~补番）
+        parsed_author = AUTHOR_TRAIL_UPDATE.sub('', parsed_author).strip()
+        parsed_author = AUTHOR_TRAIL_BUFAN.sub('', parsed_author).strip()
     parsed_progress = src_progress[1]
     parsed_source = src_progress[0]
 

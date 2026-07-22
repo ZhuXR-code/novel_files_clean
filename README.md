@@ -17,6 +17,7 @@
 | PC 网页版 | 浏览器访问，前后端分离 | MySQL（外部） | `python start.py` |
 | PC 本地软件版 | 独立窗口应用（pywebview + WebView2），不打开浏览器、不联网 | 内置 SQLite | `python launcher.py` / 打包后的 `FileScanner.exe` |
 | Android APP | 原生移动端 | Room（SQLite） | `android_app/`（Android Studio 构建） |
+| HarmonyOS NEXT | 纯血鸿蒙原生端 | relationalStore（SQLite） | `harmony_app/`（DevEco Studio 构建） |
 
 > 形态切换靠环境变量 `DB_BACKEND`：不设置走 MySQL；`launcher.py` 在导入后端前设置 `DB_BACKEND=sqlite` 走本地 SQLite 分支。网页版的 MySQL 代码路径在本地模式下完全不被触碰。
 
@@ -41,6 +42,7 @@ txt文件清理-单工程清理/
 │  ├─ js/app.js
 │  └─ css/
 ├─ android_app/            # Android APP（Kotlin + Jetpack Compose + Room）
+├─ harmony_app/            # HarmonyOS NEXT 原生 APP（ArkTS + ArkUI + relationalStore）
 ├─ 安装部署/               # 各端安装/使用/运维手册
 │  ├─ PC网页版/
 │  ├─ PC桌面软件版/
@@ -130,3 +132,17 @@ cd android_app
 - `安装部署/PC网页版/`：安装部署手册、用户使用手册、产品功能操作介绍、运维手册
 - `安装部署/PC桌面软件版/`：安装部署手册、用户使用手册、产品功能操作介绍、运维手册（本地 EXE / SQLite）
 - `安装部署/APP端/`：安装部署手册、用户使用手册、产品功能操作介绍、运维手册
+
+---
+
+## 八、致谢
+
+感谢以下老师在测试与优化方面的帮助：
+
+- **Tetteyterettey**
+- **星尘**
+
+---
+
+欢迎大家试用，也欢迎提出更多优化意见，ღ( ´･ᴗ･` ) 比心！
+

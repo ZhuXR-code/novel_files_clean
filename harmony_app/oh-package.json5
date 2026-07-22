@@ -1,0 +1,13 @@
+{
+  "name": "file-scanner-harmony",
+  "version": "1.0.0",
+  "description": "TXT文件清理与内容识别系统 - 纯血鸿蒙版",
+  "main": "",
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.19",
+    "@ohos/hamock": "1.0.0"
+  }
+}

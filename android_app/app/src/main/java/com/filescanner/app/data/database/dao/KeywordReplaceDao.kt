@@ -27,6 +27,14 @@ interface KeywordReplaceDao {
     @Query("UPDATE keyword_replace_rules SET enabled = :enabled WHERE id = :id")
     suspend fun setEnabled(id: Long, enabled: Boolean)
 
+    /** 规则总数（跨作用域），用于判断是否需要写入预置默认规则。 */
+    @Query("SELECT COUNT(*) FROM keyword_replace_rules")
+    suspend fun countAll(): Int
+
+    /** 某作用域下某 pattern 是否已存在，用于补齐缺失的预置默认规则（幂等）。 */
+    @Query("SELECT COUNT(*) FROM keyword_replace_rules WHERE scope = :scope AND pattern = :pattern")
+    suspend fun countByScopeAndPattern(scope: String, pattern: String): Int
+
     /** 某作用域当前最大 sort_order，新规则默认追加到末尾。 */
     @Query("SELECT COALESCE(MAX(sort_order), 0) FROM keyword_replace_rules WHERE scope = :scope")
     suspend fun maxSortOrder(scope: String): Int

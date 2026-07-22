@@ -36,6 +36,10 @@ interface ScannedFileDao {
     @Query("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id = :runId")
     fun countByRunFlow(runId: Long): Flow<Int>
 
+    /** 同步版：删除文件后重算文库文件数用，避免在 suspend 协程里再 .first()。 */
+    @Query("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id = :runId")
+    suspend fun countByRunSync(runId: Long): Int
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(files: List<ScannedFileEntity>)
 
