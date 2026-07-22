@@ -16,9 +16,9 @@ data class ParsedName(
 object Parser {
     // 常见小说来源站点（用于从文件名方括号标签提取“来源”列），对齐 PC 端 SOURCE_SITES
     private val SOURCE_SITES = listOf(
-        "废文", "海棠", "晋江", "长佩", "刺猬猫", "豆腐", "老福特", "息壤",
+        "废文", "海棠", "fw", "ht", "米国度", "晋江", "长佩", "刺猬猫", "豆腐", "老福特", "息壤",
         "粉笔", "鲜网", "绿茶", "寒武纪", "不可能的世界", "豆瓣阅读", "掌阅",
-        "番茄", "起点", "飞卢", "纵横", "17K", "黑岩", "云起", "红袖", "潇湘书院",
+        "番茄", "起点", "飞卢", "纵横", "17K", "黑岩", "云起", "红袖", "潇湘书院", "米国",
         "阅文", "LOFTER", "lofter", "Po18", "po18", "FW", "HT"
     )
 
@@ -26,20 +26,20 @@ object Parser {
     private val CN_REGEX = Regex("[一-龥]")
 
     // ============ 书名/作者 正则（对齐 PC 端 _parse_filename_by_regex，按顺序命中即返回） ============
-    private val RE_BOOK_AUTHOR = Regex("""《([^》]+)》.*?作者[：:]\s*(.+)""")
+    private val RE_BOOK_AUTHOR = Regex("""《([^》]+)》.*?(?:作家|作者)[：:]\s*(.+)""")
     private val RE_BOOK_BY = Regex("""《([^》]+)》.*?[bB][yY]\s*(.+)""")
-    private val RE_BOOK_AUTHOR2 = Regex("""《(.+?)》\s*作者[：:]\s*(.+)""")
-    private val RE_TAG_BOOK_AUTHOR = Regex("""【[^】]+】\s*《(.+?)》\s*作者[：:]\s*(.+)""")
+    private val RE_BOOK_AUTHOR2 = Regex("""《(.+?)》\s*(?:作家|作者)[：:]\s*(.+)""")
+    private val RE_TAG_BOOK_AUTHOR = Regex("""【[^】]+】\s*《(.+?)》\s*(?:作家|作者)[：:]\s*(.+)""")
     private val RE_BOOK_BY2 = Regex("""《(.+?)》\s*[bB][yY]\s*(.+)""")
     private val RE_NAME_BY = Regex("""^(.+?)\s+[bB][yY]\s+(.+)""")
-    private val RE_NAME_AUTHOR = Regex("""^(.+?)[_\-—]\s*作者[：:]?\s*(.+)""")
-    private val RE_TAG_NAME_BY = Regex("""^[【\[(][^】\])\n]+[】\])]\s*(.+?)\s*[bB][yY]\s*(.+)""")
-    private val RE_TAG_NAME_AUTHOR = Regex("""^[【\[(][^】\])\n]+[】\])]\s*(.+?)\s*作者[：:]\s*(.+)""")
-    private val RE_TAG_NAME_ONLY = Regex("""^[【\[(][^】\])\n]+[】\])]\s*(.+)""")
+    private val RE_NAME_AUTHOR = Regex("""^(.+?)[_\-—]\s*(?:作家|作者)[：:]?\s*(.+)""")
+    private val RE_TAG_NAME_BY = Regex("""^[【\[（(][^】\]）)\n]+[】\]）)]\s*(.+?)\s*[bB][yY]\s*(.+)""")
+    private val RE_TAG_NAME_AUTHOR = Regex("""^[【\[（(][^】\]）)\n]+[】\]）)]\s*(.+?)\s*(?:作家|作者)[：:]\s*(.+)""")
+    private val RE_TAG_NAME_ONLY = Regex("""^[【\[（(][^】\]）)\n]+[】\]）)]\s*(.+)""")
     private val RE_NAME_BY2 = Regex("""^(.+?)\s*[bB][yY]\s*(.+)""")
-    private val RE_BRACKET_NAME_AUTHOR = Regex("""\[[^\]]+\]\s*(.+?)\s*作者[：:]\s*(.+)""")
-    private val RE_NAME_AUTHOR2 = Regex("""^(.+?)\s*作者[：:]\s*(.+)""")
-    private val RE_OPT_TAG_BOOK_AUTHOR = Regex("""^(?:\[.*?\])?\s*《(.+?)》\s*作者\s*(.+?)""")
+    private val RE_BRACKET_NAME_AUTHOR = Regex("""\[[^\]]+\]\s*(.+?)\s*(?:作家|作者)[：:]\s*(.+)""")
+    private val RE_NAME_AUTHOR2 = Regex("""^(.+?)\s*(?:作家|作者)[：:]\s*(.+)""")
+    private val RE_OPT_TAG_BOOK_AUTHOR = Regex("""^(?:\[.*?\])?\s*《(.+?)》\s*(?:作家|作者)\s*(.+?)""")
     private val RE_BOOK_ONLY = Regex("""《(.+?)》""")
     private val RE_TITLE_PAREN_VER = Regex("""^(.+?)\s*[（(]\s*[\w\-]+(?:\.[\w\-]+)+\s*[）)]\s*$""")
     private val RE_CATEGORY = Regex("""^(?:BG|BL|GL|GB|DM|言情|耽美|百合|同人|原创|武侠|玄幻|古言|现言|仙侠|科幻|悬疑|惊悚|轻小说|海棠|popo|废文|po18|SF)\s*(.+?)[_\-—](.+)""")
@@ -47,8 +47,14 @@ object Parser {
     private val RE_TITLE_BRACKET_END = Regex("""^(.+?)\s*\[([^\]]+)\]\s*$""")
 
     // 作者后缀清洗（对齐 PC 端 _name_worker 的两次正则替换）
-    private val AUTHOR_TRAIL_BRACKET = Regex("""\s*[\[（][^\]）]*?(?:\d+|[更完结npv1V]+)[^\]）]*?[\]）]\s*$""")
+    private val AUTHOR_TRAIL_BRACKET = Regex("""\s*[\[（(【][^\]）)】]*?(?:\d+|[更完结番外npv1V]+)[^\]）)】]*?[\]）)】]\s*$""")
     private val AUTHOR_TRAIL_DASH_NUM = Regex("""\s*-\d+\s*$""")
+    // 作者尾部“更新至N / --更新至N / -更新至N”清洗，进度交由 extractSourceProgress 提取
+    private val AUTHOR_TRAIL_UPDATE = Regex("""\s*[-—~]*更新至?\s*\d+\s*$""")
+    // 作者尾部“补番 / ~补番”等补缺番标记清洗
+    private val AUTHOR_TRAIL_BUFAN = Regex("""\s*[-—~]?补番\s*$""")
+    // 作者尾部“【修】/（修）”修订标记清洗
+    private val AUTHOR_TRAIL_REVISE = Regex("""\s*[【\[（(]修[】\]）)]\s*$""")
     // 仅用于“书名 作者：xxx”场景的后缀（完结/番外/连载…），以及作者尾部残留的“精校/校对”等清洗
     private val AUTHOR_SUFFIX_STATUS = Regex("""\s*(?:完结|番外|全本|完本|连载|出版|实体书|定制书|定制|校对|精校).*$""")
     // 合集/分类前缀里作者尾部残留的（数字）
@@ -73,6 +79,10 @@ object Parser {
     private val RE_PROGRESS_GENG = Regex("""更\s*(\d+)""")
     private val RE_PROGRESS_WAN = Regex("""完结[^\]\s]*""")
     private val RE_PROGRESS_STATUS = Regex("""(?:连载|断更|暂停|烂尾|坑|锁文|锁)""")
+    // 番外标记（如【番外合集】、（番外）），用于从方括号标签提取进度
+    private val RE_PROGRESS_FANWAI = Regex("""番外[^\]\s]*""")
+    // “更新至N”形式的进度（常出现在作者名后缀，如 宁不语--更新至89），作为进度兜底提取
+    private val RE_PROGRESS_UPDATE = Regex("""更新至?\s*(\d+)""")
 
     /**
      * 从文件名（不含扩展名）解析出 书名 / 作者 / 进度 / 来源。
@@ -86,7 +96,18 @@ object Parser {
 
         val (title, author) = parseTitleAuthor(name)
         val (source, progress) = extractSourceProgress(name)
-        return ParsedName(title, author, progress, source)
+        return ParsedName(cleanTitle(title), author, progress, source)
+    }
+
+    /** 书名清洗：去掉开头残留的单个标签括号（如 【西幻】、【分类】），避免混进书名。 */
+    private val LEAD_TAG = Regex("""^[【\[（(][^】\]）)]*[】\]）)]\s*""")
+    private fun cleanTitle(raw: String): String {
+        var t = raw.trim()
+        while (true) {
+            val m = LEAD_TAG.find(t) ?: break
+            t = t.removePrefix(m.value)
+        }
+        return t.trim()
     }
 
     /**
@@ -207,7 +228,7 @@ object Parser {
     /** 作者清洗：去掉“著/作者/：/：”前缀，并清掉尾部的（数字）/ -数字 等残留。 */
     private fun cleanAuthor(raw: String): String {
         var a = raw.trim()
-        a = a.removePrefix("著").removePrefix("作者").trim()
+        a = a.removePrefix("著").removePrefix("作者").removePrefix("作家").trim()
         a = a.removePrefix("：").removePrefix(":").trim()
         return stripAuthor(a)
     }
@@ -222,6 +243,9 @@ object Parser {
             a = AUTHOR_TRAIL_BRACKET.replace(a, "").trim()
             a = AUTHOR_SUFFIX_STATUS.replace(a, "").trim()
             a = AUTHOR_TRAIL_DASH_NUM.replace(a, "").trim()
+            a = AUTHOR_TRAIL_UPDATE.replace(a, "").trim()
+            a = AUTHOR_TRAIL_BUFAN.replace(a, "").trim()
+            a = AUTHOR_TRAIL_REVISE.replace(a, "").trim()
             if (a == before) return@repeat
         }
         return a
@@ -264,17 +288,25 @@ object Parser {
                 if (wm != null) progress = wm.value
             }
             if (progress.isEmpty()) {
-                val tail = RE_TAIL_NUM.find(base)
-                if (tail != null) progress = tail.groupValues[1]
+                val fw = RE_PROGRESS_FANWAI.find(content)
+                if (fw != null) progress = fw.value
             }
             if (progress.isEmpty()) {
                 val om = RE_PROGRESS_STATUS.find(content)
                 if (om != null) progress = om.value
             }
+            if (progress.isEmpty()) {
+                val tail = RE_TAIL_NUM.find(base)
+                if (tail != null) progress = tail.groupValues[1]
+            }
         }
         if (progress.isEmpty()) {
             val tail = RE_TAIL_NUM.find(base)
             if (tail != null) progress = tail.groupValues[1]
+        }
+        if (progress.isEmpty()) {
+            val um = RE_PROGRESS_UPDATE.find(base)
+            if (um != null) progress = um.groupValues[1]
         }
         return source to progress
     }

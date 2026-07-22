@@ -6,6 +6,7 @@ import com.filescanner.app.data.database.dao.KeywordReplaceDao
 import com.filescanner.app.data.database.entity.ScannedFileEntity
 import com.filescanner.app.data.database.entity.ScanRunEntity
 import com.filescanner.app.data.database.entity.KeywordReplaceRuleEntity
+import com.filescanner.app.util.KeywordReplace
 import com.filescanner.app.data.database.entity.DuplicateRow
 import com.filescanner.app.data.model.NovelGroup
 import com.filescanner.app.util.ExportService
@@ -52,7 +53,21 @@ class FileRepository(
     /** 扫描完成后回写该文库的文件数。 */
     suspend fun setRunFileCount(runId: Long, count: Int) = runDao.setFileCount(runId, count)
 
-    /** 删除整个文库及其全部文件。 */
+    /**
+     * 删除文件后，按 [runId] 重算文库文件数并回写 scan_run.file_count，
+     * 使文库列表展示的文件数与实际剩余记录数一致（修复“文件已删、文库列表数不变”）。
+     */
+    suspend fun recomputeRunFileCount(runId: Long) {
+        val n = dao.countByRunSync(runId)
+        runDao.setFileCount(runId, n)
+        LogUtil.i("Repo", "recomputeRunFileCount run=$runId -> $n")
+    }
+
+    /**
+     * 删除文库：删除文库（scan_run）记录，并一并删除其下属书籍的数据库记录（scanned_file），
+     * 即“文库 + 书籍记录”整体从库中清除。注意这里只删数据库记录，
+     * 不删除手机上的真实源文件（txt 等物理文件由用户另行管理），避免误删用户文件。
+     */
     suspend fun deleteScanRun(runId: Long) {
         dao.deleteByRunId(runId)
         runDao.deleteById(runId)
@@ -117,6 +132,22 @@ class FileRepository(
     suspend fun upsertRule(rule: KeywordReplaceRuleEntity) = keywordDao.upsert(rule)
     suspend fun deleteRule(rule: KeywordReplaceRuleEntity) = keywordDao.deleteById(rule.id)
     suspend fun setRuleEnabled(id: Long, enabled: Boolean) = keywordDao.setEnabled(id, enabled)
+
+    /**
+     * 补齐缺失的预置关键词替换规则（幂等）：按 pattern 判断，仅插入库中尚不存在的默认项。
+     * 首次为空时整批写入；后续新增预置项也会自动补进已安装实例，无需清数据。
+     * 只动数据库记录，不触碰手机上的源文件。返回本次新增的条数。
+     */
+    suspend fun seedDefaultKeywordRules(): Int {
+        var added = 0
+        for (rule in KeywordReplace.DEFAULT_KEYWORD_RULES) {
+            if (keywordDao.countByScopeAndPattern(rule.scope, rule.pattern) == 0) {
+                keywordDao.upsert(rule)
+                added++
+            }
+        }
+        return added
+    }
 
     /**
      * 按“书名 + 作者”相同标记重复（文件名解析结果），每组保留首个，其余标记。

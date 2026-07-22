@@ -25,4 +25,23 @@ object KeywordReplace {
         }
         return result
     }
+
+    /**
+     * 预置的默认关键词替换规则（作用域=扫描阶段，作用于文件名）。
+     * 用于去除网文 txt 文件名上常见的平台水印/标记（如 [草2莓]、[草 莓]、【lili】 等），
+     * 减少用户手动配置工作量。仅在规则表为空时由 FileScannerApp 启动时写入一次，
+     * 之后用户可在设置里正常查看 / 新增 / 编辑 / 删除 / 启用禁用。
+     */
+    val DEFAULT_KEYWORD_RULES: List<KeywordReplaceRuleEntity> = listOf(
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "[草2莓]", replacement = "", sortOrder = 1),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【草2莓", replacement = "", sortOrder = 2),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【草2莓】", replacement = "", sortOrder = 3),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "[草 莓]", replacement = "", sortOrder = 4),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "[草 莓", replacement = "", sortOrder = 5),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【lili】", replacement = "", sortOrder = 6),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "（l.i.）", replacement = "", sortOrder = 7),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "(l.i.）", replacement = "", sortOrder = 8),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "（l.i.)", replacement = "", sortOrder = 9),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "(l.i.)", replacement = "", sortOrder = 10)
+    )
 }

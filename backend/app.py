@@ -25,6 +25,7 @@ from backend.models import Base, ScanConfig, ScanResult, FileMetadata, ColumnCon
 from backend.scanner import scan_files
 from backend.regex_parser import parse_file_names_regex_only, parse_file_summary_regex_only
 from backend import pipeline as pipeline_manager
+from backend.keyword_replace import seed_default_rules
 
 # 扫描进度追踪
 scanning_progress = {}
@@ -646,6 +647,9 @@ def _init_default_data():
 
         # 同步帮助手册默认文档（以代码内置内容为准，已存在的按 doc_key 覆盖更新）
         _seed_help_docs(db)
+
+        # 补齐缺失的预置关键词替换规则（去水印等），幂等，不影响用户自定义规则
+        seed_default_rules(db)
 
         # 启动时重建所有已有配置的文件分组
         config_ids = [c.id for c in db.query(ScanConfig.id).all()]

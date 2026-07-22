@@ -123,6 +123,11 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _groupFiles = MutableStateFlow<Map<String, List<ScannedFileEntity>>>(emptyMap())
     val groupFiles: StateFlow<Map<String, List<ScannedFileEntity>>> = _groupFiles
 
+    // 各合集已展开文件列表对应的筛选条件：书名 -> FilterMode。
+    // 用于判断缓存是否过期——筛选变化时已展开合集需重载，否则停留在旧筛选结果
+    // （例如 CHECKED 下展开只加载了 2 个已勾选文件，切到 ALL 后若不重载仍只显示这 2 个）。
+    private val _groupFilesFilter = MutableStateFlow<Map<String, FilterMode>>(emptyMap())
+
     // 各合集已勾选文件数（书名 -> 已勾选数），供合集头部三态复选框显示「部分勾选(-)」状态。
     // 初始从 groupPageState 的聚合字段 seeded，勾选/取消时乐观更新，避免 RawQuery 不观测导致的状态陈旧。
     private val _groupCheckedCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -223,7 +228,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _currentPage.value = 0
     }
 
-    fun setFilter(f: FilterMode) { _filter.value = f; _currentPage.value = 0 }
+    fun setFilter(f: FilterMode) { _filter.value = f; _currentPage.value = 0; reloadExpandedGroups() }
     fun setSort(s: SortMode) { LogUtil.i("LibVM", "setSort $s"); _sort.value = s; _currentPage.value = 0 }
     fun setQuery(q: String) { _query.value = q; _currentPage.value = 0 }
     fun clearToast() { _toast.value = null }
@@ -238,6 +243,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _groupMode.value = enabled
         _expandedGroups.value = emptySet()
         _groupFiles.value = emptyMap()
+        _groupFilesFilter.value = emptyMap()
         _currentPage.value = 0
     }
 
@@ -250,13 +256,51 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _groupExcludeNames.value = excludeNames
         _expandedGroups.value = emptySet()
         _groupFiles.value = emptyMap()
+        _groupFilesFilter.value = emptyMap()
         _currentPage.value = 0
         viewModelScope.launch(Dispatchers.IO) {
             prefs.setGroupFilter(minCount.coerceAtLeast(0), maxCount, excludeNames)
         }
     }
 
-    /** 展开/折叠某合集；展开时懒加载其文件列表。 */
+    /** 当前筛选条件对应的 marked/checked 查询参数（与展开合集加载文件时一致）。 */
+    private fun currentFilterArgs(): Pair<Int?, Int?> {
+        val markedArg = when (_filter.value) {
+            FilterMode.MARKED -> 1
+            FilterMode.UNMARKED -> 0
+            else -> null
+        }
+        val checkedArg = when (_filter.value) {
+            FilterMode.CHECKED -> 1
+            FilterMode.UNCHECKED -> 0
+            else -> null
+        }
+        return markedArg to checkedArg
+    }
+
+    /**
+     * 筛选条件变化时，重新加载所有已展开合集的文件列表。
+     * 否则缓存会停留在旧筛选结果（例如 CHECKED 下展开只加载了已勾选文件，
+     * 切到 ALL 后仍只显示那些已勾选文件，而合集头部总数却显示全部）。
+     */
+    private fun reloadExpandedGroups() {
+        val runId = _currentRunId.value ?: return
+        val titles = _expandedGroups.value
+        if (titles.isEmpty()) return
+        val (markedArg, checkedArg) = currentFilterArgs()
+        viewModelScope.launch(Dispatchers.IO) {
+            val loaded = titles.associateWith { title ->
+                repo.getFilesByTitle(runId, title, markedArg, checkedArg)
+            }
+            val newFilterMap = _groupFilesFilter.value.toMutableMap().apply {
+                titles.forEach { this[it] = _filter.value }
+            }
+            _groupFiles.value = _groupFiles.value.toMutableMap().apply { putAll(loaded) }
+            _groupFilesFilter.value = newFilterMap
+        }
+    }
+
+    /** 展开/折叠某合集；展开时懒加载其文件列表（按当前筛选条件）。 */
     fun toggleGroupExpand(title: String) {
         val cur = _expandedGroups.value.toMutableSet()
         if (cur.contains(title)) {
@@ -265,22 +309,14 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         } else {
             cur.add(title)
             _expandedGroups.value = cur
-            if (!_groupFiles.value.containsKey(title)) {
+            // 未加载过，或加载时使用的筛选条件与当前不一致，均重新查询（避免停留在旧筛选结果）
+            if (!_groupFiles.value.containsKey(title) || _groupFilesFilter.value[title] != _filter.value) {
                 val runId = _currentRunId.value ?: return@toggleGroupExpand
-                val markedArg = when (_filter.value) {
-                    FilterMode.ALL -> null
-                    FilterMode.MARKED -> 1
-                    FilterMode.UNMARKED -> 0
-                    else -> null
-                }
-                val checkedArg = when (_filter.value) {
-                    FilterMode.CHECKED -> 1
-                    FilterMode.UNCHECKED -> 0
-                    else -> null
-                }
+                val (markedArg, checkedArg) = currentFilterArgs()
                 viewModelScope.launch(Dispatchers.IO) {
                     val files = repo.getFilesByTitle(runId, title, markedArg, checkedArg)
                     _groupFiles.value = _groupFiles.value + (title to files)
+                    _groupFilesFilter.value = _groupFilesFilter.value + (title to _filter.value)
                 }
             }
         }
@@ -417,6 +453,16 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 // 计算重复并直接持久化写入 checked=1（标记重复=勾选），仅新增、不清空其它已勾选
                 val ids = repo.selectDuplicateIds(runId)
                 LogUtil.i("LibVM", "selectDuplicates 合集计算完成，已勾选 ${ids.size} 个")
+
+                // 同步更新内存快照并触发分页流重查，使列表/合集模式立即显示勾选
+                if (ids.isNotEmpty()) {
+                    val idSet = ids.toSet()
+                    _groupFiles.value = _groupFiles.value.mapValues { (_, list) ->
+                        list.map { if (it.id in idSet) it.copy(checked = 1) else it }
+                    }
+                    _reloadSignal.value += 1
+                }
+
                 if (ids.isEmpty()) {
                     _toast.value = "未找到符合条件的重复文件"
                     return@launch
@@ -431,12 +477,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** 删除整个文库（及其全部文件）。 */
+    /** 删除文库：删除文库及其书籍的数据库记录，但保留手机上的真实源文件。 */
     fun deleteRun(runId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
             repo.deleteScanRun(runId)
             if (_currentRunId.value == runId) _currentRunId.value = null
-            _toast.value = "已删除文库"
+            _toast.value = "已删除文库及其书籍记录（源文件已保留）"
         }
     }
 }

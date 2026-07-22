@@ -71,3 +71,8 @@ parse_b.log
 
 # 截图（如需展示可单独放 docs/ 并确认无隐私）
 screen1.png
+
+# 独立测试编译产物
+app_standalone_test/jout/
+app_standalone_test/jout2/
+app_standalone_test/khome/

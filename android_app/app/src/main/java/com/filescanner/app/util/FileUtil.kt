@@ -15,6 +15,19 @@ import androidx.documentfile.provider.DocumentFile
 data class FileEntry(val name: String, val uri: Uri, val size: Long)
 
 object FileUtil {
+    /**
+     * MediaStore 能可靠索引的“媒体类型”扩展名。
+     * 分区存储（Android 10+）下，MediaStore 只完整覆盖 图片/视频/音频；
+     * txt/md/pdf/epub/doc/docx 等“非媒体文件”若由文件管理器或电脑拷入（非本 App 创建），
+     * MediaStore 往往查不到或只返回部分，且不抛异常——这正是内部存储“伪权限/静默空/漏扫”的根源。
+     * 因此仅当目标类型全部属于媒体类型时才启用 MediaStore 快路径，其余一律走可靠的 SAF。
+     */
+    private val MEDIA_EXTENSIONS = setOf(
+        "jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "heif", "dng", "svg",
+        "mp4", "mkv", "avi", "mov", "wmv", "flv", "3gp", "webm", "m4v", "ts",
+        "mp3", "wav", "flac", "aac", "ogg", "m4a", "wma", "amr", "opus"
+    )
+
     fun getFileExtension(fileName: String): String {
         val dot = fileName.lastIndexOf('.')
         return if (dot >= 0) fileName.substring(dot + 1).lowercase() else ""
@@ -74,15 +87,20 @@ object FileUtil {
         val minSize = minSizeKb * 1024L
         val excludeSet = excludedFolders.split(",").map { it.trim() }
             .filter { it.isNotEmpty() }.toSet()
-        // 优先用 MediaStore 一次性查询（仅 primary 卷、API 29+），避免 DocumentFile 逐文件 IPC 遍历，
-        // 10w 级文件从数十分钟降到秒级。非 primary 卷 / 低版本 / 查询异常时回退 SAF 递归。
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        // MediaStore 快路径：仅当【所有目标类型都是媒体类型(图片/视频/音频)】且是 primary 卷时启用。
+        // 原因：分区存储下 MediaStore 对 txt/md/pdf 等“非媒体文件”查不全（华为/荣耀/OPPO/vivo/小米上
+        // 表现为静默返回空或部分结果 → 漏扫/“未找到匹配文件”），而本 App 已通过 SAF 树权限拿到该目录的
+        // 完整读权限，SAF 才是所有卷、所有 ROM、所有文件类型都可靠的正解。故非纯媒体扫描直接走 SAF。
+        val allMedia = typeSet.all { it in MEDIA_EXTENSIONS }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && allMedia) {
             val fast = collectViaMediaStore(context, folderUri, recursive, minSize, typeSet, excludeSet, onFound)
-            if (fast != null) return fast
+            if (fast != null && fast.isNotEmpty()) return fast
+            LogUtil.i("FileUtil", "MediaStore fast-path unavailable/empty, fallback to SAF")
         }
 
-        // SAF 卷（含 MuMuShared 等非 primary 卷）走 DocumentsContract children 批量查询，
-        // 每目录 1 次 IPC 取回全部子项，把“每文件多次 IPC”降为“每目录 1 次 IPC”。
+        // 主力路径：SAF DocumentsContract children 批量查询 + 多线程并行遍历。
+        // 每个目录只 1 次 IPC 取回全部子项，并用线程池并发处理多个目录，
+        // 让 SAF 跨进程 IPC 的阻塞等待相互重叠，10w 级文件从单线程数十秒进一步降到数秒级。
         val t0 = System.currentTimeMillis()
         val results = collectViaDocContract(context, folderUri, recursive, minSize, typeSet, excludeSet, shouldStop, onFound)
         LogUtil.i("FileUtil", "DocContract collect done: ${results.size} files in ${System.currentTimeMillis() - t0} ms")
@@ -108,7 +126,6 @@ object FileUtil {
         shouldStop: (() -> Boolean)?,
         onFound: ((collected: Int) -> Unit)?
     ): List<FileEntry> {
-        val results = mutableListOf<FileEntry>()
         val cr = context.contentResolver
         // 注意：SAF DocumentsContract 的显示名列是 "_display_name"（带下划线），不是 "display_name"
         val colId = DocumentsContract.Document.COLUMN_DOCUMENT_ID
@@ -120,58 +137,99 @@ object FileUtil {
         val mimeDir = DocumentsContract.Document.MIME_TYPE_DIR
         val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
         LogUtil.i("FileUtil", "rootDocId=$rootDocId treeUri=$treeUri")
-        val stack = java.util.ArrayDeque<String>()
-        stack.addLast(rootDocId)
-        var dirCount = 0
-        while (stack.isNotEmpty()) {
-            if (shouldStop?.invoke() == true) break
-            val parentDocId = stack.removeLast()
-            dirCount++
+
+        // 线程安全的收集容器与计数
+        val results = java.util.concurrent.ConcurrentLinkedQueue<FileEntry>()
+        val foundCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val dirCount = java.util.concurrent.atomic.AtomicInteger(0)
+        val stopped = java.util.concurrent.atomic.AtomicBoolean(false)
+        // 未完成任务数（含已提交未执行 + 执行中）；归零即遍历结束
+        val pending = java.util.concurrent.atomic.AtomicInteger(0)
+        val doneLock = Object()
+
+        // SAF 每次 children 查询都是跨进程 IPC 阻塞调用，用线程池并发多目录以重叠等待。
+        val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(4, 8)
+        val executor = java.util.concurrent.Executors.newFixedThreadPool(nThreads)
+
+        // 处理单个目录：查询其直接子项，命中文件入队、子目录再提交任务
+        lateinit var submit: (String) -> Unit
+        val processDir: (String) -> Unit = processDir@{ parentDocId ->
+            if (stopped.get()) return@processDir
+            if (shouldStop?.invoke() == true) { stopped.set(true); return@processDir }
+            val myIndex = dirCount.incrementAndGet()
             val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
             try {
-                val c = cr.query(childrenUri, projection, null, null, null)
-                if (c == null) {
-                    LogUtil.e("FileUtil", "children query null for $parentDocId uri=$childrenUri")
-                    continue
-                }
-                c.use { cur ->
-                    if (dirCount == 1) {
+                cr.query(childrenUri, projection, null, null, null)?.use { cur ->
+                    if (myIndex == 1) {
                         LogUtil.i("FileUtil", "root children count=${cur.count} uri=$childrenUri")
                     }
                     val idCol = cur.getColumnIndexOrThrow(colId)
                     val nameCol = cur.getColumnIndexOrThrow(colName)
                     val sizeCol = cur.getColumnIndexOrThrow(colSize)
                     val mimeCol = cur.getColumnIndexOrThrow(colMime)
-                    var firstLogged = false
                     while (cur.moveToNext()) {
-                        val docId = cur.getString(idCol)
+                        if (stopped.get()) break
+                        val docId = cur.getString(idCol) ?: continue
                         val name = cur.getString(nameCol) ?: continue
                         val mime = cur.getString(mimeCol) ?: ""
-                        if (dirCount == 1 && !firstLogged) {
-                            LogUtil.i("FileUtil", "first child: docId=$docId name=$name mime=$mime")
-                            firstLogged = true
-                        }
                         val isDir = mime == mimeDir
                         if (isDir) {
                             // 排除列表按目录名匹配：命中的子文件夹整体跳过
                             if (excludeSet.isNotEmpty() && name in excludeSet) continue
-                            if (recursive) stack.addLast(docId)
+                            if (recursive) submit(docId)
                         } else {
                             val len = if (cur.isNull(sizeCol)) 0L else cur.getLong(sizeCol)
                             if (isSupportedFile(name, typeSet) && len >= minSize) {
                                 val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
                                 results.add(FileEntry(name, docUri, len))
-                                onFound?.invoke(results.size)
+                                val n = foundCount.incrementAndGet()
+                                // 节流上报进度，避免 10w 次回调压垮 UI
+                                if (n % 64 == 0) onFound?.invoke(n)
                             }
                         }
                     }
-                }
+                } ?: LogUtil.e("FileUtil", "children query null for $parentDocId uri=$childrenUri")
             } catch (e: Exception) {
                 LogUtil.e("FileUtil", "DocContract children query failed for $parentDocId: ${e.message}")
             }
         }
-        LogUtil.i("FileUtil", "DocContract traversed $dirCount dirs")
-        return results
+
+        submit = { docId ->
+            pending.incrementAndGet()
+            executor.execute {
+                try {
+                    processDir(docId)
+                } finally {
+                    if (pending.decrementAndGet() == 0) {
+                        synchronized(doneLock) { doneLock.notifyAll() }
+                    }
+                }
+            }
+        }
+
+        submit(rootDocId)
+        // 等待所有目录任务完成（wait 带超时轮询，兜底防丢失 notify）
+        synchronized(doneLock) {
+            while (pending.get() > 0) {
+                try {
+                    doneLock.wait(200)
+                } catch (e: InterruptedException) {
+                    stopped.set(true)
+                    Thread.currentThread().interrupt()
+                    break
+                }
+            }
+        }
+        executor.shutdown()
+        try {
+            executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+            executor.shutdownNow()
+        }
+        // 收尾补报一次最终数量
+        onFound?.invoke(foundCount.get())
+        LogUtil.i("FileUtil", "DocContract(parallel x$nThreads) traversed ${dirCount.get()} dirs, ${results.size} files")
+        return results.toList()
     }
 
     /**
