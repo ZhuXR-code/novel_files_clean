@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -220,7 +221,7 @@ private fun RuleCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Switch(checked = rule.enabled, onCheckedChange = onToggle)
@@ -240,11 +241,11 @@ private fun RuleCard(
                     maxLines = 1
                 )
             }
-            IconButton(onClick = onEdit) {
+            IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.edit_rule),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton(onClick = onDelete) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.delete_rule),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }

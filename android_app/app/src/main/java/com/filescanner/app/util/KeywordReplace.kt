@@ -42,6 +42,32 @@ object KeywordReplace {
         KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "（l.i.）", replacement = "", sortOrder = 7),
         KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "(l.i.）", replacement = "", sortOrder = 8),
         KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "（l.i.)", replacement = "", sortOrder = 9),
-        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "(l.i.)", replacement = "", sortOrder = 10)
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "(l.i.)", replacement = "", sortOrder = 10),
+        // —— 以下为 caomei / 3167 937770 水印系列及扩展名修正（与 PC/鸿蒙端同步）——
+        // 顺序约定：① 含「の企鹅3167 937770」的完整变体须先于裸「の企鹅3167 937770」；
+        // ② 成对括号变体须先于只去开头括号的变体，避免残留孤立前缀/括号。
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "..txt", replacement = ".txt", sortOrder = 11),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【草莓】", replacement = "", sortOrder = 12),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【草 莓", replacement = "", sortOrder = 13),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【＋V信kxee6699】", replacement = "", sortOrder = 14),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = ".3167 937770", replacement = "", sortOrder = 15),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【颜3167 937770", replacement = "", sortOrder = 16),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【Q主caomeiの企鹅3167 937770】", replacement = "", sortOrder = 17),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【Q主caomei】", replacement = "", sortOrder = 18),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "_caomeiの企鹅3167 937770_", replacement = "", sortOrder = 19),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "（caomeiの企鹅3167 937770", replacement = "", sortOrder = 20),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "(caomeiの企鹅3167 937770", replacement = "", sortOrder = 21),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【qzcaomeiの企鹅3167 937770", replacement = "", sortOrder = 22),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = ".QZcaomeiの企鹅3167 937770", replacement = "", sortOrder = 23),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "_caomeiの企鹅3167 937770", replacement = "", sortOrder = 24),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = ".caomeiの企鹅3167 937770", replacement = "", sortOrder = 25),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "の企鹅3167 937770", replacement = "", sortOrder = 26),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "[3167 937770]", replacement = "", sortOrder = 27),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "[3167 937770", replacement = "", sortOrder = 28),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "3167937770", replacement = "", sortOrder = 29),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "_3167 937770", replacement = "", sortOrder = 30),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "（颜3167 937770", replacement = "", sortOrder = 31),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【3167 937770]", replacement = "", sortOrder = 32),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "_.txt", replacement = ".txt", sortOrder = 33)
     )
 }

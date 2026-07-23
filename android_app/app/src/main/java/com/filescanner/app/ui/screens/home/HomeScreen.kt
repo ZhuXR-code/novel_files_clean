@@ -86,7 +86,7 @@ fun HomeScreen(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "方法二-一键清理：配置扫描路径→一键清理→确认要删除的文件",
+                        "方法二-一键清理：选择文件夹 → 一键清理（自动扫描标记，删除前可查看清单确认）",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp
                     )

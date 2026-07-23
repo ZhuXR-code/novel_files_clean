@@ -273,6 +273,8 @@ class FileRepository(
         val having = mutableListOf<String>()
         if (minCount > 0) having += "COUNT(*) >= $minCount"
         if (maxCount >= 0) having += "COUNT(*) <= $maxCount"
+        // 「含已勾选」：仅保留组内至少有一个已勾选文件的合集（整组仍显示，便于查看勾选情况）
+        if (filter == "HAS_CHECKED") having += "SUM(checked) > 0"
         if (excludeNames.isNotEmpty()) {
             val inList = excludeNames.joinToString(",") { "'${it.replace("'", "''")}'" }
             having += "title NOT IN ($inList)"
@@ -376,10 +378,10 @@ class FileRepository(
      * 复刻并增强 PC 端 /api/groups/select-duplicates 的“标记重复”逻辑，只计算应勾选（待删）的 id。
      * 所有判定在【同一文库】内、按 (作者 + 书名) 子分组进行五则规则（与 backend/dup_logic.py 完全一致）：
      *
-     * 规则 1（完全相等去重）：(文件名 + 大小 + 书名 + 作者 + 进度) 五字段完全一致，
+     * 规则 1（完全相等去重）：(书名 + 作者 + 大小 + 进度) 四字段完全一致（不再比较文件名），
      *     且同组 >= 2 本时，最新(createdAt 最晚，并列取 id 最大)的不勾选，其余全部勾选。
-     * 规则 2（纯数字进度对比）：同 (作者+书名) 内，若【所有】进度均为纯数字，则
-     *     进度数字最大的不勾选，其余纯数字文件全部勾选。
+             * 规则 2（纯数字进度对比）：同 (作者+书名) 内，对【有纯数字进度】的文件做比较
+             *     （空白进度文件不参与，既不勾选也不保护），进度数字最大的不勾选，其余数字进度文件全部勾选。
      * 规则 3（含中文进度 / 完结特例）：
      *     - 进度含中文(如“完结/连载/断更”)的，不勾选（保护状态文件）；
      *     - 若同组存在文件名带『完结』等关键词、且“进度数字最大文件”的大小
@@ -405,8 +407,8 @@ class FileRepository(
             val nc = mutableSetOf<Long>()  // 永不勾选（保护）
             val fc = mutableSetOf<Long>()  // 强制勾选（覆盖保护）
 
-            // 规则 1：五字段完全相等的精确重复组
-            val exact = S.groupBy { Triple(it.fileName, it.fileSize, it.progress.trim()) }
+            // 规则 1：书名+作者(子分组已保证相同)+大小+进度 完全相等的精确重复组（不再比较文件名）
+            val exact = S.groupBy { it.fileSize to it.progress.trim() }
             for ((_, g) in exact) {
                 if (g.size < 2) continue
                 val newest = g.maxWithOrNull(compareBy<DuplicateRow> { it.createdAt }.thenBy { it.id })!!
@@ -422,27 +424,32 @@ class FileRepository(
             // 进度分类
             val numericFiles = S.filter { progressValue(it.progress) != null }
             val chineseFiles = S.filter { hasCjk(it.progress) }
-            val allNumeric = numericFiles.size == S.size
 
-            if (allNumeric) {
-                // 规则 2：纯数字进度，最大者不勾选，其余纯数字全部勾选
-                val maxVal = S.maxOf { progressValue(it.progress)!! }
-                val maxFiles = S.filter { progressValue(it.progress) == maxVal }
-                val maxIds = maxFiles.map { it.id }.toSet()
-                maxFiles.forEach { nc.add(it.id) }
-                S.forEach { if (it.id !in maxIds) c.add(it.id) }
-            } else {
-                // 规则 3A：含中文进度者不勾选
-                chineseFiles.forEach { nc.add(it.id) }
-                // 规则 3B：完结特例——进度数字最大文件更小则强制勾选
-                if (chineseFiles.isNotEmpty() && numericFiles.isNotEmpty()) {
-                    val maxNumVal = numericFiles.maxOf { progressValue(it.progress)!! }
-                    val maxNumFiles = numericFiles.filter { progressValue(it.progress) == maxNumVal }
-                    val hasCompletion = S.any { cf -> COMPLETION_KW.any { kw -> (cf.fileName).contains(kw) } }
-                    val minChineseSize = chineseFiles.minOf { it.fileSize }
-                    if (hasCompletion && maxNumFiles.all { mn -> mn.fileSize < minChineseSize }) {
-                        maxNumFiles.forEach { fc.add(it.id) }
+            // 规则 2（纯数字进度对比）：始终对“有纯数字进度”的文件子集做比较，
+            // 不要求整组全数字；空白进度文件不参与（既不勾选也不保护）。
+            // 进度数字最大的不勾选（优先保留），其余数字进度文件全部勾选（强制，覆盖规则1对精确重复“最新本不勾”的保护）。
+            if (numericFiles.size >= 2) {
+                val maxVal = numericFiles.maxOf { progressValue(it.progress)!! }
+                val maxFiles = numericFiles.filter { progressValue(it.progress) == maxVal }
+                maxFiles.forEach { nc.add(it.id) }                       // 进度最高者不勾选（优先保留）
+                for (f in numericFiles) {
+                    if (progressValue(f.progress) != maxVal) {
+                        c.add(f.id)                                      // 低进度数字文件勾选
+                        fc.add(f.id)                                     // 强制勾选，避免被规则1精确重复“最新本”保护而漏标
                     }
+                }
+            }
+
+            // 规则 3A：含中文进度者不勾选（保护状态文件）
+            chineseFiles.forEach { nc.add(it.id) }
+            // 规则 3B：完结特例——进度数字最大文件更小则强制勾选
+            if (chineseFiles.isNotEmpty() && numericFiles.isNotEmpty()) {
+                val maxNumVal = numericFiles.maxOf { progressValue(it.progress)!! }
+                val maxNumFiles = numericFiles.filter { progressValue(it.progress) == maxNumVal }
+                val hasCompletion = S.any { cf -> COMPLETION_KW.any { kw -> (cf.fileName).contains(kw) } }
+                val minChineseSize = chineseFiles.minOf { it.fileSize }
+                if (hasCompletion && maxNumFiles.all { mn -> mn.fileSize < minChineseSize }) {
+                    maxNumFiles.forEach { fc.add(it.id) }
                 }
             }
 

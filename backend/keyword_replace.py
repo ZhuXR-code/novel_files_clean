@@ -38,6 +38,33 @@ DEFAULT_KEYWORD_RULES = [
     {'scope': 'scan', 'pattern': '(l.i.）', 'replacement': '', 'sort_order': 8},
     {'scope': 'scan', 'pattern': '（l.i.)', 'replacement': '', 'sort_order': 9},
     {'scope': 'scan', 'pattern': '(l.i.)', 'replacement': '', 'sort_order': 10},
+    # —— 以下为 caomei / 3167 937770 水印系列及扩展名修正（与 APP/鸿蒙端同步）——
+    # 顺序约定：① 含「の企鹅3167 937770」的完整变体须先于裸「の企鹅3167 937770」，
+    # 否则裸规则先吃掉尾部、残留孤立前缀；② 成对括号变体须先于只去开头括号的变体，
+    # 否则残留孤立括号。
+    {'scope': 'scan', 'pattern': '..txt', 'replacement': '.txt', 'sort_order': 11},
+    {'scope': 'scan', 'pattern': '【草莓】', 'replacement': '', 'sort_order': 12},
+    {'scope': 'scan', 'pattern': '【草 莓', 'replacement': '', 'sort_order': 13},
+    {'scope': 'scan', 'pattern': '【＋V信kxee6699】', 'replacement': '', 'sort_order': 14},
+    {'scope': 'scan', 'pattern': '.3167 937770', 'replacement': '', 'sort_order': 15},
+    {'scope': 'scan', 'pattern': '【颜3167 937770', 'replacement': '', 'sort_order': 16},
+    {'scope': 'scan', 'pattern': '【Q主caomeiの企鹅3167 937770】', 'replacement': '', 'sort_order': 17},
+    {'scope': 'scan', 'pattern': '【Q主caomei】', 'replacement': '', 'sort_order': 18},
+    {'scope': 'scan', 'pattern': '_caomeiの企鹅3167 937770_', 'replacement': '', 'sort_order': 19},
+    {'scope': 'scan', 'pattern': '（caomeiの企鹅3167 937770', 'replacement': '', 'sort_order': 20},
+    {'scope': 'scan', 'pattern': '(caomeiの企鹅3167 937770', 'replacement': '', 'sort_order': 21},
+    {'scope': 'scan', 'pattern': '【qzcaomeiの企鹅3167 937770', 'replacement': '', 'sort_order': 22},
+    {'scope': 'scan', 'pattern': '.QZcaomeiの企鹅3167 937770', 'replacement': '', 'sort_order': 23},
+    {'scope': 'scan', 'pattern': '_caomeiの企鹅3167 937770', 'replacement': '', 'sort_order': 24},
+    {'scope': 'scan', 'pattern': '.caomeiの企鹅3167 937770', 'replacement': '', 'sort_order': 25},
+    {'scope': 'scan', 'pattern': 'の企鹅3167 937770', 'replacement': '', 'sort_order': 26},
+    {'scope': 'scan', 'pattern': '[3167 937770]', 'replacement': '', 'sort_order': 27},
+    {'scope': 'scan', 'pattern': '[3167 937770', 'replacement': '', 'sort_order': 28},
+    {'scope': 'scan', 'pattern': '3167937770', 'replacement': '', 'sort_order': 29},
+    {'scope': 'scan', 'pattern': '_3167 937770', 'replacement': '', 'sort_order': 30},
+    {'scope': 'scan', 'pattern': '（颜3167 937770', 'replacement': '', 'sort_order': 31},
+    {'scope': 'scan', 'pattern': '【3167 937770]', 'replacement': '', 'sort_order': 32},
+    {'scope': 'scan', 'pattern': '_.txt', 'replacement': '.txt', 'sort_order': 33},
 ]
 
 

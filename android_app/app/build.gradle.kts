@@ -115,6 +115,8 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // 繁体转简体（解析结果统一入库为简体）。纯 Java 实现，字典以 classpath 资源打包进 APK。
+    implementation("com.github.houbb:opencc4j:1.8.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

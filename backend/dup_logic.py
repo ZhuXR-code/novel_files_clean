@@ -3,12 +3,12 @@
 算法在【同一合集】内、按 (作者 + 小说名) 子分组进行五则规则判定：
 
 规则 1（完全相等去重）：
-    (文件名 + 大小 + 小说名 + 作者 + 进度) 五字段完全一致，且同组 >= 2 本时，
+    (小说名 + 作者 + 进度 + 文件大小) 四要素完全一致（不含文件名），且同 (作者+小说名) 子组 >= 2 本时，
     最新(创建时间最晚，并列取 id 最大)的不勾选，其余全部勾选(待删)。
 
 规则 2（纯数字进度对比）：
-    同 (作者+小说名) 内，若【所有】进度均为纯数字，则进度数字最大的不勾选，
-    其余纯数字文件全部勾选。
+    同 (作者+小说名) 内，对【有纯数字进度】的文件做比较（空白进度文件不参与），
+    进度数字最大的不勾选，其余数字进度文件全部勾选。
 
 规则 3（含中文进度 / 完结特例）：
     - 进度含中文(如“完结/连载/断更”)的，不勾选（保护状态文件）；
@@ -88,10 +88,11 @@ def compute_duplicate_ids(rows):
         nc = set()  # 永不勾选（保护）
         fc = set()  # 强制勾选（覆盖保护）
 
-        # 规则 1：五字段完全相等的精确重复组
+        # 规则 1：(小说名+作者+进度+文件大小) 完全相等的精确重复组（不含文件名）。
+        #   子分组已保证 小说名+作者 相同，这里只比 (文件大小, 进度)。
         exact = defaultdict(list)
         for f in S:
-            ek = (f['file_name'] or '', f['file_size'] or 0, (f['progress'] or '').strip())
+            ek = (f['file_size'] or 0, (f['progress'] or '').strip())
             exact[ek].append(f)
             for _ek, g in exact.items():
                 if len(g) < 2:
@@ -108,35 +109,37 @@ def compute_duplicate_ids(rows):
         # 进度分类
         numeric_files = [f for f in S if _dup_progress_value(f['progress']) is not None]
         chinese_files = [f for f in S if _dup_has_cjk(f['progress'] or '')]
-        all_numeric = (len(numeric_files) == len(S))
 
-        if all_numeric:
-            # 规则 2：纯数字进度，最大者不勾选，其余纯数字全部勾选
-            max_val = max(_dup_progress_value(f['progress']) for f in S)
-            max_files = [f for f in S if _dup_progress_value(f['progress']) == max_val]
-            max_ids = {m['id'] for m in max_files}
+        # 规则 2（纯数字进度对比）：始终对“有纯数字进度”的文件子集做比较，
+        # 不要求整组全数字；空白进度文件不参与（既不勾选也不保护）。
+        # 进度数字最大的不勾选（优先保留），其余数字进度文件全部勾选（强制，覆盖规则1对精确重复“最新本不勾”的保护）。
+        if len(numeric_files) >= 2:
+            max_val = max(_dup_progress_value(f['progress']) for f in numeric_files)
+            max_files = [f for f in numeric_files
+                         if _dup_progress_value(f['progress']) == max_val]
             for f in max_files:
-                nc.add(f['id'])
-            for f in S:
-                if f['id'] not in max_ids:
-                    c.add(f['id'])
-        else:
-            # 规则 3A：含中文进度者不勾选
-            for f in chinese_files:
-                nc.add(f['id'])
-            # 规则 3B：完结特例——进度数字最大文件更小则强制勾选
-            if chinese_files and numeric_files:
-                max_num_val = max(_dup_progress_value(f['progress']) for f in numeric_files)
-                max_num_files = [f for f in numeric_files
-                                 if _dup_progress_value(f['progress']) == max_num_val]
-                has_completion = any(
-                    any(kw in (f['file_name'] or '') for kw in _DUP_COMPLETION_KW)
-                    for f in S
-                )
-                min_chinese_size = min(f['file_size'] for f in chinese_files)
-                if has_completion and all(mn['file_size'] < min_chinese_size for mn in max_num_files):
-                    for mn in max_num_files:
-                        fc.add(mn['id'])
+                nc.add(f['id'])                       # 进度最高者不勾选（优先保留）
+            for f in numeric_files:
+                if _dup_progress_value(f['progress']) != max_val:
+                    c.add(f['id'])                     # 低进度数字文件勾选
+                    fc.add(f['id'])                    # 强制勾选，避免被规则1精确重复“最新本”保护而漏标
+
+        # 规则 3A：含中文进度者不勾选
+        for f in chinese_files:
+            nc.add(f['id'])
+        # 规则 3B：完结特例——进度数字最大文件更小则强制勾选
+        if chinese_files and numeric_files:
+            max_num_val = max(_dup_progress_value(f['progress']) for f in numeric_files)
+            max_num_files = [f for f in numeric_files
+                             if _dup_progress_value(f['progress']) == max_num_val]
+            has_completion = any(
+                any(kw in (f['file_name'] or '') for kw in _DUP_COMPLETION_KW)
+                for f in S
+            )
+            min_chinese_size = min(f['file_size'] for f in chinese_files)
+            if has_completion and all(mn['file_size'] < min_chinese_size for mn in max_num_files):
+                for mn in max_num_files:
+                    fc.add(mn['id'])
 
         # 规则 4：本组内【唯一】文件大小最大者，不勾选（最大文件不勾选原则）。
         #   若多本并列最大，则按大小无法区分，不据此保护，以免同大小重复组被整体保留。
