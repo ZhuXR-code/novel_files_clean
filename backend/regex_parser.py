@@ -293,6 +293,22 @@ def _pymysql_execute_with_retry(conn, sql, values, retries: int = 3):
     raise last_err
 
 
+# ===================== 繁体 → 简体（与 APP 端 opencc4j 对齐）=====================
+# 文件名可能为繁体（如港台下载的小说），解析前先整体转简体，
+# 确保书名/作者/进度/来源均以简体入库，避免同一本书因繁简写法不同而无法去重/检索。
+# zhconv 基于 opencc 映射表、纯 Python、转换表内联，PyInstaller 打包无需额外数据文件。
+def _to_simplified(text: str) -> str:
+    """将可能含繁体的文本转为简体；空串/库缺失/异常时安全回退原文。"""
+    if not text:
+        return text
+    try:
+        import zhconv
+        return zhconv.convert(text, 'zh-cn')
+    except Exception as e:
+        logger.debug(f'繁简转换失败，回退原文: {e}')
+        return text
+
+
 def _detect_encoding(file_path: str) -> str:
     """检测文件编码"""
     import chardet
@@ -648,6 +664,10 @@ def _parse_file_content_for_metadata(file_path: str, file_name: str) -> Optional
 def _name_worker(args: tuple) -> dict:
     """进程 worker：解析文件名提取 小说名/作者/进度/来源。"""
     rec_id, file_name, existing_data = args
+
+    # 繁体 → 简体：解析前先整名转简体（与 APP 端一致），
+    # 使书名/作者/进度/来源的提取与入库都在简体下进行。
+    file_name = _to_simplified(file_name)
 
     src_progress = _extract_source_progress(file_name)
     regex_res = _parse_filename_by_regex(file_name)

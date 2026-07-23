@@ -70,6 +70,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
@@ -283,9 +284,20 @@ private fun RunFilesScreen(
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
-    // 翻页 / 切筛选 / 换模式 / 改每页条数 / 搜索 后，把列表滚回顶部（每页是独立数据集）
-    LaunchedEffect(currentPage, filter, groupMode, pageSize, query) {
-        listState.scrollToItem(0)
+    // 翻页 / 切筛选 / 换模式 / 改每页条数 / 搜索 后，把列表滚回顶部（每页是独立数据集）。
+    // 用 rememberSaveable 记录上次触发回顶的参数组合：仅当这些参数真正变化时才回顶。
+    // 从小说明细页返回时（本组件被重建、LaunchedEffect 重新执行，但参数未变），不再强制回顶，
+    // 从而让 rememberLazyListState 恢复原滚动位置，自动定位到点进去的那本小说。
+    var lastTopKey by rememberSaveable { mutableStateOf("") }
+    val topKey = "$currentPage|$filter|$groupMode|$pageSize|$query"
+    LaunchedEffect(topKey) {
+        when {
+            lastTopKey.isEmpty() -> lastTopKey = topKey // 首次进入：记录基线，不滚动
+            lastTopKey != topKey -> {
+                listState.scrollToItem(0)
+                lastTopKey = topKey
+            }
+        }
     }
 
 
@@ -508,7 +520,8 @@ private fun RunFilesScreen(
                         Text(stringResource(R.string.group_mode), fontSize = 13.sp)
                     }
                 }
-                // 筛选 chips：两种模式都显示（全部 / 已勾选 / 未勾选 / 已标记 / 未标记），与搜索框叠加使用
+                // 筛选 chips：列表模式显示（全部 / 已勾选 / 未勾选 / 已标记 / 未标记）；
+                // 合集模式额外显示「含已勾选」（仅保留组内有已勾选文件的合集），与搜索框叠加使用
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -541,6 +554,14 @@ private fun RunFilesScreen(
                         onClick = { viewModel.setFilter(FilterMode.UNMARKED) },
                         label = stringResource(R.string.filter_unmarked)
                     )
+                    // 「含已勾选」仅合集模式有意义：只显示组内有已勾选文件的合集
+                    if (groupMode) {
+                        CompactChip(
+                            selected = filter == FilterMode.HAS_CHECKED,
+                            onClick = { viewModel.setFilter(FilterMode.HAS_CHECKED) },
+                            label = stringResource(R.string.filter_has_checked)
+                        )
+                    }
                 }
                 }
             // 搜索框：仅在用户点击顶部搜索图标后才显示
@@ -846,7 +867,7 @@ private fun FileRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { LogUtil.i("FileRow", "row open id=${f.id}"); onOpen() }
-                .padding(12.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Checkbox(checked = selected, onCheckedChange = { onToggleSelect() })

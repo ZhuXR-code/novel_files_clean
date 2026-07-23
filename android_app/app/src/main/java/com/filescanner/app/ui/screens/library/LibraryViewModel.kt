@@ -27,7 +27,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-enum class FilterMode { ALL, CHECKED, UNCHECKED, MARKED, UNMARKED }
+enum class FilterMode { ALL, CHECKED, UNCHECKED, MARKED, UNMARKED, HAS_CHECKED }
 enum class SortMode { TIME, NAME, SIZE }
 
 /** 列表模式「当前页」的完整状态：本页数据 + 满足条件的总数 + 页码信息。 */
@@ -241,6 +241,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     fun setGroupMode(enabled: Boolean) {
         _groupMode.value = enabled
+        // 「含已勾选」是合集级筛选，切回列表模式时无意义，回落到全部
+        if (!enabled && _filter.value == FilterMode.HAS_CHECKED) _filter.value = FilterMode.ALL
         _expandedGroups.value = emptySet()
         _groupFiles.value = emptyMap()
         _groupFilesFilter.value = emptyMap()

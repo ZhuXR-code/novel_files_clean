@@ -7,8 +7,8 @@ import { LogUtil } from './LogUtil';
  * 完整对齐安卓端 FileRepository.selectDuplicateIds（五则规则）。
  *
  * 所有判定在【同一文库】内、按 (作者 + 书名) 子分组进行：
- *  规则1 完全相等去重：(文件名 + 大小 + 进度) 三元组完全一致，同组>=2本时最新(createdAt 最晚，并列取 id 最大)不勾选，其余全部勾选。
- *  规则2 纯数字进度对比：同组所有进度均为纯数字时，数字最大者不勾选，其余全部勾选。
+ *  规则1 完全相等去重：(小说名 + 作者 + 进度 + 文件大小) 四要素完全一致（不含文件名），同组>=2本时最新(createdAt 最晚，并列取 id 最大)不勾选，其余全部勾选。
+ *  规则2 纯数字进度对比：对「有纯数字进度」的文件做比较（空白进度不参与），数字最大者不勾选，其余全部勾选。
  *  规则3 含中文进度/完结特例：含中文进度者不勾选；若同组存在文件名带完结关键词且其“进度数字最大文件”更小，则该数字最大文件强制勾选。
  *  规则4 最大文件不勾选：本组内唯一文件大小最大者不勾选（并列最大则不作保护）。
  *  规则5 完结+N番外：进度严格匹配「完结+数字番外」者按 N 排序，N 最大不勾选，其余强制勾选（覆盖规则3A），但恰为本组文件大小最大者也不勾选。
@@ -43,10 +43,11 @@ export class DupLogic {
       const nc: Set<number> = new Set<number>(); // 永不勾选（保护）
       const fc: Set<number> = new Set<number>(); // 强制勾选（覆盖保护）
 
-      // 规则1：五字段完全相等的精确重复组
+      // 规则1：(小说名+作者+进度+文件大小) 完全相等的精确重复组（不含文件名）。
+      //   子分组已保证 小说名+作者 相同，这里只比 (文件大小, 进度)。
       const exact: Map<string, DuplicateRow[]> = new Map<string, DuplicateRow[]>();
       for (const f of S) {
-        const key: string = `${f.fileName}\u0000${f.fileSize}\u0000${f.progress.trim()}`;
+        const key: string = `${f.fileSize}\u0000${f.progress.trim()}`;
         if (!exact.has(key)) {
           exact.set(key, []);
         }
@@ -69,43 +70,46 @@ export class DupLogic {
       // 进度分类
       const numericFiles: DuplicateRow[] = S.filter((f) => DupLogic.progressValue(f.progress) !== null);
       const chineseFiles: DuplicateRow[] = S.filter((f) => DupLogic.hasCjk(f.progress));
-      const allNumeric: boolean = numericFiles.length === S.length;
 
-      if (allNumeric) {
+      // 规则2（纯数字进度对比）：始终对“有纯数字进度”的文件子集做比较，
+      // 不要求整组全数字；空白进度文件不参与（既不勾选也不保护）。
+      // 进度数字最大的不勾选（优先保留），其余数字进度文件全部勾选（强制，覆盖规则1对精确重复“最新本不勾”的保护）。
+      if (numericFiles.length >= 2) {
         let maxVal: number = -Infinity;
-        for (const f of S) {
+        for (const f of numericFiles) {
           maxVal = Math.max(maxVal, DupLogic.progressValue(f.progress)!);
         }
-        const maxIds: Set<number> = new Set<number>(
-          S.filter((f) => DupLogic.progressValue(f.progress)! === maxVal).map((f) => f.id)
-        );
-        for (const f of S) {
-          if (!maxIds.has(f.id)) {
-            c.add(f.id);
+        const maxFiles: DuplicateRow[] = numericFiles.filter((f) => DupLogic.progressValue(f.progress)! === maxVal);
+        for (const f of maxFiles) {
+          nc.add(f.id);                         // 进度最高者不勾选（优先保留）
+        }
+        for (const f of numericFiles) {
+          if (DupLogic.progressValue(f.progress)! !== maxVal) {
+            c.add(f.id);                         // 低进度数字文件勾选
+            fc.add(f.id);                        // 强制勾选，避免被规则1精确重复“最新本”保护而漏标
           }
         }
-        for (const id of maxIds) {
-          nc.add(id);
+      }
+
+      // 规则3A：含中文进度者不勾选（保护状态文件）
+      for (const f of chineseFiles) {
+        nc.add(f.id);
+      }
+      // 规则3B：完结特例——进度数字最大文件更小则强制勾选
+      if (chineseFiles.length > 0 && numericFiles.length > 0) {
+        let maxNumVal: number = -Infinity;
+        for (const f of numericFiles) {
+          maxNumVal = Math.max(maxNumVal, DupLogic.progressValue(f.progress)!);
         }
-      } else {
+        const maxNumFiles: DuplicateRow[] = numericFiles.filter((f) => DupLogic.progressValue(f.progress)! === maxNumVal);
+        const hasCompletion: boolean = S.some((cf) => DupLogic.COMPLETION_KW.some((kw) => cf.fileName.includes(kw)));
+        let minChineseSize: number = Infinity;
         for (const f of chineseFiles) {
-          nc.add(f.id);
+          minChineseSize = Math.min(minChineseSize, f.fileSize);
         }
-        if (chineseFiles.length > 0 && numericFiles.length > 0) {
-          let maxNumVal: number = -Infinity;
-          for (const f of numericFiles) {
-            maxNumVal = Math.max(maxNumVal, DupLogic.progressValue(f.progress)!);
-          }
-          const maxNumFiles: DuplicateRow[] = numericFiles.filter((f) => DupLogic.progressValue(f.progress)! === maxNumVal);
-          const hasCompletion: boolean = S.some((cf) => DupLogic.COMPLETION_KW.some((kw) => cf.fileName.includes(kw)));
-          let minChineseSize: number = Infinity;
-          for (const f of chineseFiles) {
-            minChineseSize = Math.min(minChineseSize, f.fileSize);
-          }
-          if (hasCompletion && maxNumFiles.every((mn) => mn.fileSize < minChineseSize)) {
-            for (const f of maxNumFiles) {
-              fc.add(f.id);
-            }
+        if (hasCompletion && maxNumFiles.every((mn) => mn.fileSize < minChineseSize)) {
+          for (const f of maxNumFiles) {
+            fc.add(f.id);
           }
         }
       }

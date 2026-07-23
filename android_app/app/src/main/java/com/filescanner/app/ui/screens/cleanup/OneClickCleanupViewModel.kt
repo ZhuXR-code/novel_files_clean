@@ -12,6 +12,7 @@ import com.filescanner.app.data.model.DeleteStateManager
 import com.filescanner.app.data.model.ScanStateManager
 import com.filescanner.app.service.DeleteService
 import com.filescanner.app.service.ScanService
+import com.filescanner.app.data.database.entity.ScannedFileEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +56,15 @@ class OneClickCleanupViewModel(application: android.app.Application) :
     private var scanHandled = false
     private var deleteHandled = false
     private var pendingIds: List<Long> = emptyList()
+    // 用户在“清单”页勾选的待删除集合（默认全选，可取消部分）；确认删除时以此为准
+    private val _selectedIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedIds: StateFlow<Set<Long>> = _selectedIds.asStateFlow()
+    // 清单页展示的文件实体列表
+    private val _reviewItems = MutableStateFlow<List<ScannedFileEntity>>(emptyList())
+    val reviewItems: StateFlow<List<ScannedFileEntity>> = _reviewItems.asStateFlow()
+    // 清单页草稿勾选集合（review 期间实时维护，返回/保存时落地到 selectedIds）
+    private val _draftIds = MutableStateFlow<Set<Long>>(emptySet())
+    val draftIds: StateFlow<Set<Long>> = _draftIds.asStateFlow()
 
     fun startCleanup(
         context: Context,
@@ -98,7 +108,7 @@ class OneClickCleanupViewModel(application: android.app.Application) :
         context.startForegroundService(intent)
     }
 
-    /** 扫描完成后由界面调用：读取本次文库，计算重复文件 */
+    /** 扫描完成后由界面调用：读取本次文库，计算重复文件，进入确认页（展示数量/清单，用户确认后删除） */
     fun onScanFinished() {
         if (scanHandled) return
         scanHandled = true
@@ -118,12 +128,14 @@ class OneClickCleanupViewModel(application: android.app.Application) :
                 return@launch
             }
             pendingIds = ids
+            _selectedIds.value = ids.toSet()
             _phase.value = "confirm"
         }
     }
 
     fun confirmDelete() {
-        if (pendingIds.isEmpty()) {
+        val ids = _selectedIds.value.toList()
+        if (ids.isEmpty()) {
             _phase.value = "done"
             return
         }
@@ -133,9 +145,40 @@ class OneClickCleanupViewModel(application: android.app.Application) :
         val ctx = getApplication<FileScannerApp>()
         val intent = Intent(ctx, DeleteService::class.java).apply {
             action = DeleteService.ACTION_START_DELETE
-            putExtra("ids", pendingIds.toLongArray())
+            putExtra("ids", ids.toLongArray())
         }
         ctx.startForegroundService(intent)
+    }
+
+    /** 打开“将要删除的文件清单”页，供用户取消勾选不想删除的文件 */
+    fun openReview() {
+        viewModelScope.launch {
+            _draftIds.value = _selectedIds.value
+            _reviewItems.value = repository().getByIds(pendingIds)
+            _phase.value = "review"
+        }
+    }
+
+    /** 保存清单勾选结果并回到确认页（selectedIds 即为最终待删除集合） */
+    fun saveReview() {
+        _selectedIds.value = _draftIds.value
+        _phase.value = "confirm"
+    }
+
+    /** 返回确认页：同样应用清单草稿，使确认页数量与用户在清单中的勾选一致 */
+    fun backToConfirm() {
+        _selectedIds.value = _draftIds.value
+        _phase.value = "confirm"
+    }
+
+    /** 清单页勾选实时切换（草稿） */
+    fun toggleDraft(id: Long) {
+        _draftIds.value = if (id in _draftIds.value) _draftIds.value - id else _draftIds.value + id
+    }
+
+    /** 清单页批量设置草稿勾选（全选 / 取消全选） */
+    fun updateDraft(ids: Set<Long>) {
+        _draftIds.value = ids
     }
 
     fun cancelCleanup() {

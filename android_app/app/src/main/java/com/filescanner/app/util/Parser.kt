@@ -93,6 +93,9 @@ object Parser {
         if (dot > 0) name = name.substring(0, dot)
         name = name.trim()
         if (name.isEmpty()) return ParsedName(rawName, "", "", "")
+        // 繁体 → 简体：文件名可能为繁体，解析前先整体转简体，
+        // 确保书名/作者/进度/来源均以简体入库（需求：解析结果若为繁体则转简体）。
+        name = ChineseConverter.toSimplified(name)
 
         val (title, author) = parseTitleAuthor(name)
         val (source, progress) = extractSourceProgress(name)

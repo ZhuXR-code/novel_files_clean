@@ -42,7 +42,33 @@ export class KeywordReplace {
     KeywordReplace.rule('scan', '（l.i.）', '', 7),
     KeywordReplace.rule('scan', '(l.i.）', '', 8),
     KeywordReplace.rule('scan', '（l.i.)', '', 9),
-    KeywordReplace.rule('scan', '(l.i.)', '', 10)
+    KeywordReplace.rule('scan', '(l.i.)', '', 10),
+    // —— 以下为 caomei / 3167 937770 水印系列及扩展名修正（与 PC/安卓端同步）——
+    // 顺序约定：① 含「の企鹅3167 937770」的完整变体须先于裸「の企鹅3167 937770」；
+    // ② 成对括号变体须先于只去开头括号的变体，避免残留孤立前缀/括号。
+    KeywordReplace.rule('scan', '..txt', '.txt', 11),
+    KeywordReplace.rule('scan', '【草莓】', '', 12),
+    KeywordReplace.rule('scan', '【草 莓', '', 13),
+    KeywordReplace.rule('scan', '【＋V信kxee6699】', '', 14),
+    KeywordReplace.rule('scan', '.3167 937770', '', 15),
+    KeywordReplace.rule('scan', '【颜3167 937770', '', 16),
+    KeywordReplace.rule('scan', '【Q主caomeiの企鹅3167 937770】', '', 17),
+    KeywordReplace.rule('scan', '【Q主caomei】', '', 18),
+    KeywordReplace.rule('scan', '_caomeiの企鹅3167 937770_', '', 19),
+    KeywordReplace.rule('scan', '（caomeiの企鹅3167 937770', '', 20),
+    KeywordReplace.rule('scan', '(caomeiの企鹅3167 937770', '', 21),
+    KeywordReplace.rule('scan', '【qzcaomeiの企鹅3167 937770', '', 22),
+    KeywordReplace.rule('scan', '.QZcaomeiの企鹅3167 937770', '', 23),
+    KeywordReplace.rule('scan', '_caomeiの企鹅3167 937770', '', 24),
+    KeywordReplace.rule('scan', '.caomeiの企鹅3167 937770', '', 25),
+    KeywordReplace.rule('scan', 'の企鹅3167 937770', '', 26),
+    KeywordReplace.rule('scan', '[3167 937770]', '', 27),
+    KeywordReplace.rule('scan', '[3167 937770', '', 28),
+    KeywordReplace.rule('scan', '3167937770', '', 29),
+    KeywordReplace.rule('scan', '_3167 937770', '', 30),
+    KeywordReplace.rule('scan', '（颜3167 937770', '', 31),
+    KeywordReplace.rule('scan', '【3167 937770]', '', 32),
+    KeywordReplace.rule('scan', '_.txt', '.txt', 33)
   ];
 
   private static rule(scope: string, pattern: string, replacement: string, sortOrder: number): KeywordReplaceRule {
