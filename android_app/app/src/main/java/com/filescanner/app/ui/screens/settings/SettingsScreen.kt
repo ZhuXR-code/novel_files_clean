@@ -41,6 +41,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onNavigateToKeywordReplace: () -> Unit = {},
     onNavigateToLog: () -> Unit = {},
+    onNavigateToDupRuleConfig: () -> Unit = {},
     viewModel: SettingsViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -118,6 +119,30 @@ fun SettingsScreen(
                         )
                         Text(
                             stringResource(R.string.keyword_replace_desc),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            // 勾选重复规则
+            CardItem(onClick = onNavigateToDupRuleConfig) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "勾选重复规则",
+                            fontWeight = MaterialTheme.typography.titleSmall.fontWeight,
+                            fontSize = MaterialTheme.typography.titleSmall.fontSize
+                        )
+                        Text(
+                            "选择勾选重复时应用的检测规则",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 2.dp)

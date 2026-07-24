@@ -36,6 +36,7 @@ let state = {
     showFilterDropdown: false,  // 筛选面板是否显示
     activeNovelNames: new Set(),// 当前生效的筛选（已应用的）
     filterPage: 1,              // 筛选面板当前页码
+    checkedFilter: 'all',       // 勾选状态筛选: 'all' | 'checked' | 'unchecked'
     filterTotalPages: 1,       // 筛选面板总页数
     filterTotalItems: 0,       // 筛选面板总条数
     filterPageSize: 100,       // 筛选面板每页条数
@@ -232,6 +233,9 @@ async function loadResults() {
         if (state.searchText) {
             params.set('search', state.searchText);
         }
+        if (state.checkedFilter !== 'all') {
+            params.set('checked_filter', state.checkedFilter);
+        }
         if (state.activeNovelNames.size > 0) {
             params.set('novel_names', Array.from(state.activeNovelNames).join(','));
         }
@@ -255,13 +259,21 @@ async function loadResults() {
             // 合集模式默认折叠：避免大库首屏一次性插入所有分组的全部文件行导致浏览器卡死；
             // 用户点击分组头展开时再懒加载该分组的文件行。
             state.expandedGroups = new Set();
+            // 从后端同步 checked 状态到客户端 selectedIds
+            (resp.groups || []).forEach(g => (g.items || []).forEach(item => {
+                if (item.checked) state.selectedIds.add(item.id);
+            }));
         } else {
             state.results = resp.items || [];
             state.total = resp.total || 0;
             state.totalPages = resp.total_pages || 1;
             state.groups = [];
             state.totalGroups = 0;
+            // 从后端同步 checked 状态（不再直接清空，保留跨扫描配置的勾选）
             state.selectedIds.clear();
+            (resp.items || []).forEach(item => {
+                if (item.checked) state.selectedIds.add(item.id);
+            });
             state.expandedIds.clear();
             state.editingIds.clear();
             state.editData = {};
@@ -478,7 +490,7 @@ async function runScan(configId) {
         const cfg3 = state.configs.find(c => c.id === configId);
         if (cfg3) cfg3._progress = 100;
         renderConfigs();
-        // 扫描时同步工程类解析：等待解析完成后再重建合集，使合集/标记重复立即可用
+        // 扫描时同步工程类解析：等待解析完成后再重建合集，使合集/勾选重复立即可用
         if (result.parse_task_id) {
             currentParseTaskId = result.parse_task_id;
             sessionStorage.setItem('parseTaskId', result.parse_task_id);
@@ -874,7 +886,8 @@ function renderGroupedTableBody() {
             <td colspan="${columns.length + 2}" style="padding:6px 12px">
                 <div class="group-info">
                     <span class="file-name" title="${escapeHtml(groupKey)}">${escapeHtml(groupKey)}</span>
-                    <span class="group-count">${(group.file_count != null ? group.file_count : (group.items ? group.items.length : 0))}个文件</span>
+                    <span class="group-count">${(group.count != null ? group.count : (group.items ? group.items.length : 0))}个文件</span>
+                    <span class="group-checked" style="color:var(--accent,#4a90d9);font-weight:500">${group.checked_count ?? 0}个已勾选</span>
                     <span class="group-size">${formatFileSize(group.total_size)}</span>
                 </div>
             </td>
@@ -2097,10 +2110,14 @@ async function confirmGroupMode() {
     state.expandedGroups.clear();
     closeModal('groupModeModal');
 
-    // 切换"标记重复"按钮的可见性
+    // 切换"勾选重复"/"取消勾选"按钮的可见性
     const markDupBtn = document.getElementById('markDupBtn');
+    const clearChecksBtn = document.getElementById('clearChecksBtn');
     if (markDupBtn) {
         markDupBtn.style.display = state.groupByFileName ? '' : 'none';
+    }
+    if (clearChecksBtn) {
+        clearChecksBtn.style.display = state.groupByFileName ? '' : 'none';
     }
 
     // 进入合集模式时自动重建分组（按小说名聚合），确保从任意入口进入都能看到最新合集，
@@ -2113,7 +2130,7 @@ async function confirmGroupMode() {
     loadResults();
 }
 
-// ===================== 标记重复 =====================
+// ===================== 勾选重复 =====================
 async function markDuplicates() {
     if (!state.groupByFileName || !state.currentConfigId) {
         toast('请在合集模式下使用此功能', 'error');
@@ -2144,7 +2161,7 @@ async function markDuplicates() {
         const summary = resp.summary || {};
 
         if (ids.length === 0) {
-            toast('未找到符合条件的重复文件（标记重复）', 'info');
+            toast('未找到符合条件的重复文件（勾选重复）', 'info');
             return;
         }
 
@@ -2169,11 +2186,59 @@ async function markDuplicates() {
             'success'
         );
     } catch (e) {
-        toast('标记重复失败: ' + (e.message || e), 'error');
+        toast('勾选重复失败: ' + (e.message || e), 'error');
     } finally {
         btn.textContent = originalText;
         btn.disabled = false;
     }
+}
+
+// ===================== 清除勾选 =====================
+async function clearChecks() {
+    if (!state.currentConfigId) {
+        toast('请先选择配置', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('clearChecksBtn');
+    const originalText = btn.textContent;
+    btn.textContent = '取消中...';
+    btn.disabled = true;
+
+    try {
+        const resp = await apiPost('/results/clear-checks?config_id=' + state.currentConfigId);
+        const cleared = resp.cleared || 0;
+
+        // 清除前端 selectedIds
+        state.selectedIds.clear();
+
+        // 刷新表格
+        if (state.groupByFileName) {
+            renderGroupedTableBody();
+        } else {
+            renderTableBody();
+        }
+        updateStats(true);
+
+        toast(`已清除 ${cleared} 条勾选`, 'success');
+    } catch (e) {
+        toast('清除勾选失败: ' + (e.message || e), 'error');
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+// ===================== 勾选状态筛选 =====================
+function setCheckedFilter(filter) {
+    if (state.checkedFilter === filter) return;
+    state.checkedFilter = filter;
+    state.page = 1;  // 重置到第一页
+    // 更新按钮 active 样式
+    document.querySelectorAll('.checked-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filter);
+    });
+    loadResults();
 }
 
 // ===================== 侧栏折叠 =====================
@@ -2837,6 +2902,290 @@ function stopLogPagePoll() {
     if (logPageTimer) { clearInterval(logPageTimer); logPageTimer = null; }
 }
 
+// ===================== 勾选重复规则配置（内置 + 用户自定义 CRUD） =====================
+async function loadDupRuleConfigs() {
+    try {
+        const rules = await apiGet('/dup-rule-configs');
+        renderDupRuleConfigs(rules || []);
+    } catch (e) {
+        toast('加载勾选重复规则失败: ' + (e.message || e), 'error');
+    }
+}
+
+function escAttr(s) { return ('' + s).replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function renderDupRuleConfigs(rules) {
+    const container = document.getElementById('dupRuleConfigs');
+    if (!container) return;
+    // 分离内置和用户规则
+    const builtins = rules.filter(r => r.is_builtin);
+    const userRules = rules.filter(r => !r.is_builtin);
+    let html = '';
+    // 内置规则区块
+    if (builtins.length) {
+        html += '<div style="font-size:11px;color:var(--text-secondary);margin:4px 0 2px;font-weight:500">内置规则（不可删除）</div>';
+        builtins.forEach(r => {
+            html += renderDupRuleRow(r);
+        });
+    }
+    // 用户规则区块
+    if (userRules.length) {
+        html += '<div style="font-size:11px;color:var(--text-secondary);margin:10px 0 2px;font-weight:500">自定义规则</div>';
+        userRules.forEach(r => {
+            html += renderDupRuleRow(r);
+        });
+    }
+    if (!rules.length) {
+        html = '<div style="font-size:12px;color:var(--text-secondary);padding:12px;text-align:center">暂无规则，点击下方「添加自定义规则」创建</div>';
+    }
+    container.innerHTML = html;
+}
+
+function renderDupRuleRow(r) {
+    const checked = r.enabled ? 'checked' : '';
+    const badge = r.is_builtin
+        ? '<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--accent);color:#fff;margin-left:6px;white-space:nowrap">内置</span>'
+        : '<span style="font-size:10px;padding:1px 5px;border-radius:3px;background:var(--warning);color:#333;margin-left:6px;white-space:nowrap">自定义</span>';
+    const actionLabel = r.action === 'protect' ? '🛡️' : '✓';
+    const actionText = r.action === 'protect' ? '保护' : '勾选';
+    const deleteBtn = r.is_builtin
+        ? ''
+        : `<button onclick="deleteUserRule(${r.id})" style="border:none;background:none;color:var(--danger,#e74c3c);cursor:pointer;font-size:14px;padding:2px 4px" title="删除该自定义规则">✕</button>`;
+    const editBtn = r.is_builtin
+        ? ''
+        : `<button onclick="editUserRule(${r.id})" style="border:none;background:none;color:var(--accent);cursor:pointer;font-size:12px;padding:2px 4px" title="编辑该自定义规则">✎</button>`;
+    const descHtml = r.is_builtin
+        ? escHtml(r.description)
+        : `${actionText} - ${escHtml(r.description || '')}`;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:var(--bg-secondary)">
+        <input type="checkbox" class="dup-rule-toggle" data-rule-id="${r.id}" ${checked} style="width:18px;height:18px;cursor:pointer">
+        <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:500">${escHtml(r.rule_name)}${badge}</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">${descHtml}</div>
+        </div>
+        ${editBtn}${deleteBtn}
+    </div>`;
+}
+
+async function saveDupRuleConfigs() {
+    const toggles = document.querySelectorAll('.dup-rule-toggle');
+    const payload = [];
+    toggles.forEach(cb => {
+        payload.push({ id: parseInt(cb.dataset.ruleId), enabled: cb.checked });
+    });
+    try {
+        await apiPut('/dup-rule-configs', payload);
+        toast('勾选重复规则已保存', 'success');
+        loadDupRuleConfigs(); // 刷新显示
+    } catch (e) {
+        toast('保存失败: ' + (e.message || e), 'error');
+    }
+}
+
+// ===================== 用户自定义规则 CRUD =====================
+
+// 当前编辑条件列表
+let _userRuleConditions = [];
+
+function showAddUserRuleDialog() {
+    document.getElementById('userRuleDialogTitle').textContent = '添加自定义去重规则';
+    document.getElementById('userRuleEditId').value = '';
+    document.getElementById('userRuleName').value = '';
+    document.getElementById('userRuleAction').value = 'check';
+    document.getElementById('userRuleDesc').value = '';
+    _userRuleConditions = [{ field: 'file_name', op: 'contains', value: '' }];
+    renderUserRuleConditions();
+    document.getElementById('userRuleDialog').style.display = 'flex';
+}
+
+function closeUserRuleDialog() {
+    document.getElementById('userRuleDialog').style.display = 'none';
+}
+
+function addUserRuleConditionRow() {
+    _userRuleConditions.push({ field: 'file_name', op: 'contains', value: '' });
+    renderUserRuleConditions();
+}
+
+function removeUserRuleConditionRow(index) {
+    _userRuleConditions.splice(index, 1);
+    renderUserRuleConditions();
+}
+
+function onUserRuleFieldChange(index) {
+    const fieldSelect = document.getElementById('condField_' + index);
+    const opSelect = document.getElementById('condOp_' + index);
+    if (!fieldSelect || !opSelect) return;
+    const field = fieldSelect.value;
+    const isNumeric = field === 'file_size';
+    const isText = !isNumeric && field !== 'created_date';
+    // 更新运算符选项
+    let ops;
+    if (isNumeric) {
+        ops = [
+            { v: 'eq', l: '等于' },
+            { v: 'neq', l: '不等于' },
+            { v: 'gt', l: '大于' },
+            { v: 'gte', l: '大于等于' },
+            { v: 'lt', l: '小于' },
+            { v: 'lte', l: '小于等于' },
+            { v: 'between', l: '在区间内' },
+        ];
+    } else if (field === 'created_date') {
+        ops = [
+            { v: 'before', l: '早于' },
+            { v: 'after', l: '晚于' },
+            { v: 'within_days', l: 'X天内' },
+        ];
+    } else {
+        ops = [
+            { v: 'eq', l: '等于' },
+            { v: 'neq', l: '不等于' },
+            { v: 'contains', l: '包含' },
+            { v: 'not_contains', l: '不包含' },
+            { v: 'starts_with', l: '开头是' },
+            { v: 'ends_with', l: '结尾是' },
+            { v: 'regex', l: '匹配正则' },
+        ];
+    }
+    opSelect.innerHTML = ops.map(o => `<option value="${o.v}">${o.l}</option>`).join('');
+    // 如果当前值不在新选项里，重置
+    const currentVal = _userRuleConditions[index]?.op || 'contains';
+    if (ops.find(o => o.v === currentVal)) {
+        opSelect.value = currentVal;
+    }
+    _userRuleConditions[index].op = opSelect.value;
+    // 更新值输入框类型
+    const valueInput = document.getElementById('condValue_' + index);
+    if (valueInput) {
+        valueInput.type = isNumeric ? 'number' : 'text';
+        valueInput.placeholder = isNumeric ? '字节数，如 1048576' : '值';
+    }
+}
+
+function renderUserRuleConditions() {
+    const container = document.getElementById('userRuleConditions');
+    if (!container) return;
+    container.innerHTML = _userRuleConditions.map((c, i) => {
+        const fields = [
+            { v: 'file_name', l: '文件名' },
+            { v: 'novel_name', l: '小说名' },
+            { v: 'author', l: '作者' },
+            { v: 'progress', l: '进度' },
+            { v: 'source', l: '来源' },
+            { v: 'file_size', l: '文件大小（字节）' },
+            { v: 'created_date', l: '创建日期' },
+        ];
+        const fieldOptions = fields.map(f =>
+            `<option value="${f.v}" ${f.v === c.field ? 'selected' : ''}>${f.l}</option>`
+        ).join('');
+        const isNumeric = c.field === 'file_size';
+        const isDate = c.field === 'created_date';
+        let ops;
+        if (isNumeric) {
+            ops = [
+                ['eq', '等于'], ['neq', '不等于'], ['gt', '大于'],
+                ['gte', '大于等于'], ['lt', '小于'], ['lte', '小于等于'],
+                ['between', '在区间内'],
+            ];
+        } else if (isDate) {
+            ops = [['before', '早于'], ['after', '晚于'], ['within_days', 'X天内']];
+        } else {
+            ops = [
+                ['eq', '等于'], ['neq', '不等于'], ['contains', '包含'],
+                ['not_contains', '不包含'], ['starts_with', '开头是'],
+                ['ends_with', '结尾是'], ['regex', '匹配正则'],
+            ];
+        }
+        const opOptions = ops.map(o =>
+            `<option value="${o[0]}" ${o[0] === c.op ? 'selected' : ''}>${o[1]}</option>`
+        ).join('');
+        const inputType = isNumeric ? 'number' : 'text';
+        const placeholder = isNumeric ? '字节数' : isDate ? '2024-01-01' : '值';
+        return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--text-secondary);font-weight:500">如果</span>
+            <select id="condField_${i}" onchange="onUserRuleFieldChange(${i})" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg-primary);color:var(--text-primary);flex:1">${fieldOptions}</select>
+            <select id="condOp_${i}" onchange="_userRuleConditions[${i}].op=this.value" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg-primary);color:var(--text-primary);flex:0 0 auto">${opOptions}</select>
+            <input id="condValue_${i}" type="${inputType}" placeholder="${placeholder}" value="${escAttr(c.value || '')}"
+                   oninput="_userRuleConditions[${i}].value=this.value"
+                   style="padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;background:var(--bg-primary);color:var(--text-primary);flex:1;min-width:80px">
+            <button onclick="removeUserRuleConditionRow(${i})" style="border:none;background:none;color:var(--danger,#e74c3c);cursor:pointer;font-size:14px;padding:2px">✕</button>
+        </div>`;
+    }).join('');
+}
+
+async function saveUserRule() {
+    const editId = document.getElementById('userRuleEditId').value;
+    const name = document.getElementById('userRuleName').value.trim();
+    const action = document.getElementById('userRuleAction').value;
+    const desc = document.getElementById('userRuleDesc').value.trim();
+
+    if (!name) { toast('请输入规则名称', 'error'); return; }
+
+    // 收集条件
+    const conditions = _userRuleConditions.filter(c => c.field && c.value !== undefined && c.value !== '');
+    if (!conditions.length) { toast('请至少添加一个有效的条件', 'error'); return; }
+
+    try {
+        if (editId) {
+            // 更新
+            await apiPut('/dup-rule-configs', [{
+                id: parseInt(editId),
+                rule_name: name,
+                description: desc,
+                action: action,
+                conditions: conditions,
+            }]);
+            toast('自定义规则已更新', 'success');
+        } else {
+            // 新建
+            await apiPost('/dup-rule-configs', {
+                rule_name: name,
+                description: desc,
+                action: action,
+                conditions: conditions,
+                enabled: true,
+            });
+            toast('自定义规则已创建', 'success');
+        }
+        closeUserRuleDialog();
+        loadDupRuleConfigs();
+    } catch (e) {
+        toast('保存自定义规则失败: ' + (e.message || e), 'error');
+    }
+}
+
+async function deleteUserRule(id) {
+    if (!confirm('确认删除这条自定义规则？')) return;
+    try {
+        await apiDelete('/dup-rule-configs/' + id);
+        toast('自定义规则已删除', 'success');
+        loadDupRuleConfigs();
+    } catch (e) {
+        toast('删除失败: ' + (e.message || e), 'error');
+    }
+}
+
+async function editUserRule(id) {
+    try {
+        const rules = await apiGet('/dup-rule-configs');
+        const rule = rules.find(r => r.id === id);
+        if (!rule) { toast('规则不存在', 'error'); return; }
+        document.getElementById('userRuleDialogTitle').textContent = '编辑自定义去重规则';
+        document.getElementById('userRuleEditId').value = id;
+        document.getElementById('userRuleName').value = rule.rule_name || '';
+        document.getElementById('userRuleAction').value = rule.action || 'check';
+        document.getElementById('userRuleDesc').value = rule.description || '';
+        _userRuleConditions = (rule.conditions && rule.conditions.length)
+            ? JSON.parse(JSON.stringify(rule.conditions))
+            : [{ field: 'file_name', op: 'contains', value: '' }];
+        renderUserRuleConditions();
+        document.getElementById('userRuleDialog').style.display = 'flex';
+    } catch (e) {
+        toast('加载规则失败: ' + (e.message || e), 'error');
+    }
+}
+
 // ===================== 关键词替换设置 =====================
 async function loadKeywordRules() {
     try {
@@ -2948,7 +3297,7 @@ function switchPageTab(tab) {
     document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
     document.getElementById('page' + tab.charAt(0).toUpperCase() + tab.slice(1)).style.display = '';
     if (tab === 'help') loadHelpDocs();
-    if (tab === 'settings') loadKeywordRules();
+    if (tab === 'settings') { loadKeywordRules(); loadDupRuleConfigs(); }
     if (tab === 'pipeline') { loadPipelinePage(); startDebugLogPoll(); }
     else { stopDebugLogPoll(); }
     if (tab === 'logs') { switchLogView(logViewMode); startLogPagePoll(); }

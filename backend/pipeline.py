@@ -6,7 +6,7 @@
       1. scan  扫描
       2. parse 工程文件名解析（全部，正则，多进程）
       3. group 生成合集（rebuild_file_groups）
-      4. mark  标记重复，计算待删除 id 集合
+      4. mark  勾选重复，计算待删除 id 集合
       5. clean 清理删除 —— 需用户「二次确认」后才真正执行
   - 打断语义：取消后「已完成节点保留、不回滚」，后续节点跳过。
   - 二次确认：节点 5 在真正删除前进入 awaiting_confirm 状态，前端展示
@@ -45,7 +45,7 @@ NODE_DEFS = [
     ('scan',  '扫描'),
     ('parse', '工程文件名解析'),
     ('group', '生成合集'),
-    ('mark',  '标记重复'),
+    ('mark',  '勾选重复'),
     ('clean', '清理删除'),
 ]
 
@@ -86,12 +86,12 @@ def _is_under_root(root, path):
         return False
 
 
-# ===================== 核心计算：标记重复 =====================
+# ===================== 核心计算：勾选重复 =====================
 def compute_duplicate_ids(db, config_id):
     """计算某配置下「应删除」的 ScanResult id 集合。
 
     直接复用 dup_logic.compute_duplicate_ids 的五则规则，与
-    /api/groups/select-duplicates 端点完全一致，避免一键清理与手动标记重复结果不一致。
+    /api/groups/select-duplicates 端点完全一致，避免一键清理与手动勾选重复结果不一致。
     """
     # 取出该 config 下全部条目（含 novel_name 为空者，由 dup_logic 按 (作者+小说名) 分组处理）
     items = db.query(
@@ -101,6 +101,7 @@ def compute_duplicate_ids(db, config_id):
         func.coalesce(FileMetadata.novel_name, '').label('novel_name'),
         FileMetadata.author,
         FileMetadata.progress,
+        func.coalesce(FileMetadata.source, '').label('source'),
         ScanResult.created_date,
     ).outerjoin(
         FileMetadata, ScanResult.id == FileMetadata.scan_result_id
@@ -115,6 +116,7 @@ def compute_duplicate_ids(db, config_id):
         'novel_name': it.novel_name or '',
         'author': it.author or '',
         'progress': it.progress or '',
+        'source': it.source or '',
         'created_date': it.created_date,
     } for it in items]
 
@@ -122,7 +124,21 @@ def compute_duplicate_ids(db, config_id):
         return []
 
     from backend.dup_logic import compute_duplicate_ids as _dup_compute
-    all_ids, _subgroups, _detail = _dup_compute(rows)
+    from backend.models import DupRuleConfig
+    import json
+    # 读取用户配置的勾选重复规则开关
+    dup_rule_configs = db.query(DupRuleConfig).filter(DupRuleConfig.enabled == True).all()
+    enabled_rules = {r.rule_key for r in dup_rule_configs if r.is_builtin}
+    user_rules = [
+        {
+            'id': r.id,
+            'action': r.action or 'check',
+            'conditions': json.loads(r.conditions) if r.conditions else [],
+        }
+        for r in dup_rule_configs if not r.is_builtin and r.conditions
+    ]
+    all_ids, _subgroups, _detail = _dup_compute(rows, enabled_rules=enabled_rules, user_rules=user_rules or None)
+    _log(f'勾选重复规则已启用: {",".join(r.rule_name for r in dup_rule_configs)}')
     return list(all_ids)
 
 
@@ -281,15 +297,15 @@ def _run(config_id, delete_mode):
         if cancel():
             raise _Cancel()
 
-        # ---------- 节点4：标记重复 ----------
+        # ---------- 节点4：勾选重复 ----------
         current = 'mark'
         _set_node('mark', status='running', started_at=_now())
-        _log('开始标记重复，计算待删除项...')
+        _log('开始勾选重复，计算待删除项...')
         del_ids = compute_duplicate_ids(db, config_id)
         state['deletion_ids'] = del_ids
         _set_node('mark', status='done', processed=len(del_ids), total=len(del_ids),
                    ended_at=_now(), message=f'待删除 {len(del_ids)} 项')
-        _log(f'标记重复完成：待删除 {len(del_ids)} 项')
+        _log(f'勾选重复完成：待删除 {len(del_ids)} 项')
         if cancel():
             raise _Cancel()
 

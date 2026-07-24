@@ -99,7 +99,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _toast = MutableStateFlow<String?>(null)
     val toast: StateFlow<String?> = _toast
 
-    // 合集计算（标记重复）进度：-1=空闲/完成，0~100=进行中
+    // 合集计算（勾选重复）进度：-1=空闲/完成，0~100=进行中
     private val _duplicateProgress = MutableStateFlow(-1)
     val duplicateProgress: StateFlow<Int> = _duplicateProgress
 
@@ -437,7 +437,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * 合集模式“标记重复”：复用 PC 端 /api/groups/select-duplicates 的五则判定
+     * 合集模式“勾选重复”：复用 PC 端 /api/groups/select-duplicates 的五则判定
      * （算法在 FileRepository.selectDuplicateIds，与 backend/dup_logic.py 完全一致）。
      * 计算符合要求的重复文件 id，直接持久化写入 checked=1（即“勾选”），由底部
      * “批量删除选中”执行删除。与 marked（星标）完全无关。
@@ -452,7 +452,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             _duplicateProgress.value = 0
             LogUtil.i("LibVM", "selectDuplicates 开始合集计算 run=$runId")
             try {
-                // 计算重复并直接持久化写入 checked=1（标记重复=勾选），仅新增、不清空其它已勾选
+                // 计算重复并直接持久化写入 checked=1（勾选重复=勾选），仅新增、不清空其它已勾选
                 val ids = repo.selectDuplicateIds(runId)
                 LogUtil.i("LibVM", "selectDuplicates 合集计算完成，已勾选 ${ids.size} 个")
 
@@ -469,7 +469,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                     _toast.value = "未找到符合条件的重复文件"
                     return@launch
                 }
-                _toast.value = "已标记重复 ${ids.size} 个文件（已勾选），可在筛选“已勾选”后批量删除选中"
+                _toast.value = "已勾选重复 ${ids.size} 个文件（已勾选），可在筛选“已勾选”后批量删除选中"
             } catch (e: Exception) {
                 LogUtil.e("LibVM", "selectDuplicates 失败: ${e.message}")
                 _toast.value = "合集计算失败：${e.message}"

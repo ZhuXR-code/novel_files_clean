@@ -54,6 +54,26 @@ def _upsert_metadata_sqlalchemy(session_factory, rows, columns):
     finally:
         session.close()
 
+# —————————— 拼音搜索 ——————————
+def _to_pinyin_search(text: str) -> str:
+    """将中文文本转为拼音搜索字段，格式 "全拼|首字母"。
+
+    例："斗破苍穹" → "dou po cang qiong|dpcq"
+    用于入库后支持拼音搜索——用户输入拼音或首字母即可搜到中文书名/作者。
+    非中文文本或空文本返回空串。
+    """
+    if not text:
+        return ''
+    try:
+        from pypinyin import pinyin, Style
+        full = ' '.join([item[0] for item in pinyin(text, style=Style.NORMAL)])
+        if not full.strip():
+            return ''
+        initials = ''.join([item[0][0] if item[0] else '' for item in pinyin(text, style=Style.NORMAL)])
+        return f"{full}|{initials}" if initials else ''
+    except Exception:
+        return ''
+
 # 默认读取行数（用于摘要提取时的头部读取）
 HEAD_LINES = 40
 TAIL_LINES = 25
@@ -724,6 +744,8 @@ def _name_worker(args: tuple) -> dict:
         'author': new_author,
         'progress': new_progress,
         'source': new_source,
+        'title_pinyin': _to_pinyin_search(new_title or ''),
+        'author_pinyin': _to_pinyin_search(new_author or ''),
         'success': True,
     }
 
@@ -887,6 +909,8 @@ def parse_file_names_regex_only(
                     'author': apply_rules(result['author'] or '', parse_rules),
                     'progress': apply_rules(result['progress'] or '', parse_rules),
                     'source': apply_rules(result['source'] or '', parse_rules),
+                    'title_pinyin': result.get('title_pinyin', ''),
+                    'author_pinyin': result.get('author_pinyin', ''),
                 })
                 success_count += 1
                 n = result.get('novel_name', '') or ''
@@ -912,7 +936,7 @@ def parse_file_names_regex_only(
             try:
                 _upsert_metadata_sqlalchemy(
                     db_session_factory, insert_batch,
-                    ['novel_name', 'author', 'progress', 'source'],
+                    ['novel_name', 'author', 'progress', 'source', 'title_pinyin', 'author_pinyin'],
                 )
                 logger.info(f'[工程文件名解析] 增量写入本页结果: {len(insert_batch)}条')
             except Exception as e:
@@ -943,20 +967,23 @@ def parse_file_names_regex_only(
                         placeholders = []
                         values = []
                         for row in chunk:
-                            placeholders.append('(%s, %s, %s, %s, %s)')
+                            placeholders.append('(%s, %s, %s, %s, %s, %s, %s)')
                             values.extend([
                                 row['scan_result_id'], row['novel_name'],
                                 row['author'], row['progress'], row['source'],
+                                row.get('title_pinyin', ''), row.get('author_pinyin', ''),
                             ])
                         sql = (
                             "INSERT INTO file_metadata "
-                            "(scan_result_id, novel_name, author, progress, source) VALUES "
+                            "(scan_result_id, novel_name, author, progress, source, title_pinyin, author_pinyin) VALUES "
                             + ", ".join(placeholders) +
                             " ON DUPLICATE KEY UPDATE "
                             "novel_name = VALUES(novel_name), "
                             "author = VALUES(author), "
                             "progress = VALUES(progress), "
-                            "source = VALUES(source)"
+                            "source = VALUES(source), "
+                            "title_pinyin = VALUES(title_pinyin), "
+                            "author_pinyin = VALUES(author_pinyin)"
                         )
                         b_t0 = time.time()
                         try:

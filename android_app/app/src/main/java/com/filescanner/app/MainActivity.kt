@@ -31,6 +31,7 @@ import com.filescanner.app.ui.screens.library.FileDetailScreen
 import com.filescanner.app.ui.screens.settings.SettingsScreen
 import com.filescanner.app.ui.screens.settings.KeywordReplaceScreen
 import com.filescanner.app.ui.screens.settings.LogViewerScreen
+import com.filescanner.app.ui.screens.settings.DupRuleConfigScreen
 import com.filescanner.app.data.model.ScanStateManager
 import com.filescanner.app.service.ScanService
 import com.filescanner.app.ui.theme.FileScannerTheme
@@ -156,7 +157,13 @@ fun AppNavigation() {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
                 onNavigateToKeywordReplace = { navController.navigate(NavRoutes.KEYWORD_REPLACE) },
-                onNavigateToLog = { navController.navigate(NavRoutes.LOG_VIEWER) }
+                onNavigateToLog = { navController.navigate(NavRoutes.LOG_VIEWER) },
+                onNavigateToDupRuleConfig = { navController.navigate(NavRoutes.DUP_RULE_CONFIG) }
+            )
+        }
+        composable(NavRoutes.DUP_RULE_CONFIG) {
+            DupRuleConfigScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable(NavRoutes.KEYWORD_REPLACE) {

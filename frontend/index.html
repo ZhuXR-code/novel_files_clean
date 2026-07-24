@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文件扫描管理系统</title>
     <link rel="icon" href="/static/favicon.ico?v=20260718">
-    <link rel="stylesheet" href="/static/css/style.css?v=20260719g">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260723g">
 </head>
 <body>
     <div id="app">
@@ -13,7 +13,7 @@
         <header class="header">
             <h1>文件扫描管理系统</h1>
             <div class="usage-tip" style="flex:1;min-width:0;margin:0 24px;font-size:12px;line-height:1.6;color:var(--text-secondary)">
-                <div><b style="color:var(--primary)">方法一：</b>配置扫描路径 → 扫描 → 工程类全部解析 → 合集模式 → 标记重复 → 批量删除选中</div>
+                <div><b style="color:var(--primary)">方法一：</b>配置扫描路径 → 扫描 → 工程类全部解析 → 合集模式 → 勾选重复 → 批量删除选中</div>
                 <div><b style="color:var(--primary)">方法二：</b>配置扫描路径 → 一键清理 → 确认要删除的文件</div>
             </div>
             <div class="header-stats">
@@ -72,6 +72,12 @@
                     <div class="toolbar-left">
                         <div class="search-filter-group">
                             <input type="text" id="searchInput" placeholder="模糊搜索文件名/路径/小说名/作者..." style="width:260px" oninput="debouncedSearch()">
+                            <span class="toolbar-sep"></span>
+                            <div class="checked-filter-group">
+                                <button class="checked-filter-btn active" data-filter="all" onclick="setCheckedFilter('all')">全部</button>
+                                <button class="checked-filter-btn" data-filter="checked" onclick="setCheckedFilter('checked')">已勾选</button>
+                                <button class="checked-filter-btn" data-filter="unchecked" onclick="setCheckedFilter('unchecked')">未勾选</button>
+                            </div>
                             <div class="filter-wrapper">
                                 <button class="btn" id="filterBtn" onclick="toggleFilterDropdown()" title="小说名筛选">
                                     小说筛选 <span class="filter-badge" id="filterBadge" style="display:none">0</span>
@@ -132,7 +138,8 @@
                         <span class="toolbar-sep"></span>
                         <span class="toolbar-sep"></span>
                         <button class="btn" id="groupModeBtn" onclick="toggleGroupMode()" title="切换到合集模式，按小说名聚合显示">合集模式</button>
-                        <button class="btn btn-warning" id="markDupBtn" onclick="markDuplicates()" title="将每个合集里相同作者中进度数字较低的行自动勾选" style="display:none">标记重复</button>
+                        <button class="btn btn-warning" id="markDupBtn" onclick="markDuplicates()" title="将每个合集里相同作者中进度数字较低的行自动勾选" style="display:none">勾选重复</button>
+                        <button class="btn btn-warning-outline" id="clearChecksBtn" onclick="clearChecks()" title="清除当前配置下所有文件的勾选状态" style="display:none">取消勾选</button>
                         <span class="toolbar-sep"></span>
                         <button class="btn btn-danger" onclick="confirmDelete()">删除选中</button>
                         <button class="btn btn-danger-outline" onclick="confirmClearAll()">清空全部</button>
@@ -257,6 +264,52 @@
                         </div>
                     </section>
 
+                    <!-- 勾选重复规则 -->
+                    <section class="panel" style="margin-bottom:20px">
+                        <h2 class="panel-title">勾选重复规则</h2>
+                        <p style="font-size:12px;color:var(--text-secondary);margin:0 0 12px">
+                            选择「勾选重复」时应用的重复检测规则。勾选的规则才会生效，默认全部启用。<br>
+                            内置规则不可删除；自定义规则可增删改，按「条件-动作」模式配置。
+                        </p>
+                        <div id="dupRuleConfigs" class="config-list" style="display:flex;flex-direction:column;gap:6px"></div>
+                        <div style="display:flex;gap:8px;margin-top:10px">
+                            <button onclick="saveDupRuleConfigs()" style="padding:6px 20px;font-size:13px;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer">保存规则配置</button>
+                            <button onclick="showAddUserRuleDialog()" style="padding:6px 16px;font-size:13px;border:1px solid var(--accent);border-radius:6px;background:transparent;color:var(--accent);cursor:pointer">＋ 添加自定义规则</button>
+                        </div>
+                    </section>
+
+                    <!-- 自定义规则编辑弹窗 -->
+                    <div id="userRuleDialog" class="modal-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+                        <div style="background:var(--bg-primary);border-radius:12px;padding:24px;max-width:520px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+                            <h3 id="userRuleDialogTitle" style="margin:0 0 16px;font-size:16px">添加自定义去重规则</h3>
+                            <input id="userRuleEditId" type="hidden" value="">
+                            <div style="margin-bottom:12px">
+                                <label style="font-size:12px;font-weight:500;display:block;margin-bottom:4px">规则名称</label>
+                                <input id="userRuleName" type="text" placeholder="例如：去掉带水印的文件" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;background:var(--bg-primary);color:var(--text-primary)">
+                            </div>
+                            <div style="margin-bottom:12px">
+                                <label style="font-size:12px;font-weight:500;display:block;margin-bottom:4px">动作</label>
+                                <select id="userRuleAction" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--bg-primary);color:var(--text-primary)">
+                                    <option value="check">勾选该行（条件满足时标记为待删）</option>
+                                    <option value="protect">保护该行（条件满足时取消勾选）</option>
+                                </select>
+                            </div>
+                            <div style="margin-bottom:12px">
+                                <label style="font-size:12px;font-weight:500;display:block;margin-bottom:4px">条件列表（所有条件需同时满足）</label>
+                                <div id="userRuleConditions" style="display:flex;flex-direction:column;gap:8px"></div>
+                                <button onclick="addUserRuleConditionRow()" style="margin-top:6px;padding:4px 12px;font-size:12px;border:1px dashed var(--border);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer">＋ 添加条件</button>
+                            </div>
+                            <div style="margin-bottom:12px">
+                                <label style="font-size:12px;font-weight:500;display:block;margin-bottom:4px">备注说明（可选）</label>
+                                <input id="userRuleDesc" type="text" placeholder="简短描述这条规则的作用" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;background:var(--bg-primary);color:var(--text-primary)">
+                            </div>
+                            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+                                <button onclick="closeUserRuleDialog()" style="padding:6px 16px;font-size:13px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer">取消</button>
+                                <button onclick="saveUserRule()" style="padding:6px 20px;font-size:13px;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer">保存</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px">
                         配置关键词替换规则。规则按「作用域」分别生效：
                         <strong>扫描阶段</strong>作用于扫描得到的文件名（含后缀）；
@@ -312,7 +365,7 @@
                     <h2 style="font-size:15px;font-weight:500;margin:8px 0 16px">一键清理（工程全流程）</h2>
                     <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px">
                         选定一个扫描配置，点击「开始一键清理」后，后台将串行、自动完成
-                        <strong>扫描 → 工程文件名解析（全部）→ 生成合集 → 标记重复 → 清理删除</strong> 全流程。
+                        <strong>扫描 → 工程文件名解析（全部）→ 生成合集 → 勾选重复 → 清理删除</strong> 全流程。
                         全程单实例运行，可随时取消（已完成步骤保留、不回滚）；删除前会二次确认清单。
                     </p>
 
@@ -394,7 +447,7 @@
                     <input type="text" id="cfgExcludedFolders" placeholder="如: node_modules, .git, __pycache__">
                 </div>
                 <div class="form-group">
-                    <label><input type="checkbox" id="cfgParseOnScan" checked> 扫描时同步进行工程类解析 <small>(勾选后扫描完成会自动解析文件名提取书名/作者，合集与标记重复立即可用；默认开启)</small></label>
+                    <label><input type="checkbox" id="cfgParseOnScan" checked> 扫描时同步进行工程类解析 <small>(勾选后扫描完成会自动解析文件名提取书名/作者，合集与勾选重复立即可用；默认开启)</small></label>
                 </div>
             </div>
             <div class="modal-footer">
@@ -496,6 +549,6 @@
         <button class="back-nav-btn" id="backToBottomBtn" title="回到底部" onclick="scrollToBottom()">↓</button>
     </div>
 
-    <script src="/static/js/app.js?v=20260720a"></script>
+    <script src="/static/js/app.js?v=20260723g"></script>
 </body>
 </html>

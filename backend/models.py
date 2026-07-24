@@ -11,6 +11,36 @@ Base = declarative_base()
 _IS_SQLITE = os.environ.get('DB_BACKEND', 'mysql').lower() == 'sqlite'
 
 
+def _safe_add_columns(engine, table_name, columns: dict):
+    """安全的 ALTER TABLE ADD COLUMN 封装，列已存在时静默跳过。"""
+    import logging
+    logger = logging.getLogger(__name__)
+    if _IS_SQLITE:
+        # SQLite: 查询 PRAGMA table_info 获取已有列
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            existing = {row[1] for row in conn.execute(
+                text(f'PRAGMA table_info({table_name})')).fetchall()}
+    else:
+        # MySQL: 查询 information_schema.COLUMNS
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                f"SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                f"WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{table_name}'"
+            )).fetchall()
+            existing = {row[0] for row in rows}
+    for col_name, col_def in columns.items():
+        if col_name not in existing:
+            try:
+                with engine.connect() as conn:
+                    conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {col_def}'))
+                    conn.commit()
+                logger.info(f'迁移: {table_name} 新增列 {col_name}')
+            except Exception as e:
+                logger.warning(f'迁移: {table_name} 新增列 {col_name} 失败: {e}')
+
+
 class ScanConfig(Base):
     """扫描配置表"""
     __tablename__ = 'scan_configs'
@@ -77,6 +107,7 @@ class ScanResult(Base):
     created_date = Column(DateTime, nullable=True, comment='文件创建日期')
     scan_config_id = Column(Integer, ForeignKey('scan_configs.id', ondelete='CASCADE'), nullable=False, comment='关联扫描配置ID')
     scanned_at = Column(DateTime, server_default=func.now(), comment='扫描时间')
+    checked = Column(Boolean, nullable=False, default=False, comment='是否被勾选（勾选重复功能标记）')
 
     config = relationship('ScanConfig', back_populates='results')
     metadata_record = relationship('FileMetadata', back_populates='scan_result', uselist=False, cascade='all, delete-orphan')
@@ -97,6 +128,8 @@ class FileMetadata(Base):
     author = Column(String(200), nullable=True, comment='作者')
     progress = Column(String(200), nullable=True, comment='更新进度情况，如 完结/更78/完结613+番外')
     source = Column(String(100), nullable=True, comment='来源站点，如 废文/海棠')
+    title_pinyin = Column(String(500), nullable=False, default='', comment='书名拼音搜索字段（全拼|首字母）')
+    author_pinyin = Column(String(300), nullable=False, default='', comment='作者拼音搜索字段（全拼|首字母）')
     summary = Column(Text, nullable=True, comment='内容简介/摘要（工程正则提取首章前简介）')
     parsed_at = Column(DateTime, nullable=True, comment='解析时间')
 
@@ -146,6 +179,30 @@ class KeywordReplaceRule(Base):
     sort_order = Column(Integer, nullable=False, default=0, comment='同作用域内的执行顺序')
     enabled = Column(Boolean, nullable=False, default=True, comment='是否启用')
     created_at = Column(DateTime, server_default=func.now(), comment='创建时间')
+
+
+class DupRuleConfig(Base):
+    """勾选重复规则配置表（内置规则+用户自定义规则）"""
+    __tablename__ = 'dup_rule_configs'
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='规则配置ID')
+    rule_key = Column(String(100), nullable=False, unique=True,
+                      comment='规则标识: 内置=rule1/rule2/rule3a/rule3b/rule4/rule5, 自定义=user_<uuid>')
+    rule_name = Column(String(100), nullable=False, comment='规则显示名称')
+    enabled = Column(Boolean, nullable=False, default=True, comment='是否启用')
+    description = Column(String(500), nullable=True, default='', comment='规则简要描述')
+    # 新增字段 ↓
+    is_builtin = Column(Boolean, nullable=False, default=False,
+                        comment='是否为内置规则（内置规则用户不可删除）')
+    conditions = Column(Text, nullable=True,
+                        comment='用户自定义规则的条件JSON: [{"field":"file_name","op":"contains","value":"水印"}]')
+    action = Column(String(20), nullable=True,
+                    comment='用户自定义规则的动作: check=勾选该行, protect=保护该行')
+    sort_order = Column(Integer, nullable=False, default=0,
+                        comment='自定义规则的执行顺序（升序）')
+    # 原有字段 ↓
+    created_at = Column(DateTime, server_default=func.now(), comment='创建时间')
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment='更新时间')
 
 
 class HelpDoc(Base):

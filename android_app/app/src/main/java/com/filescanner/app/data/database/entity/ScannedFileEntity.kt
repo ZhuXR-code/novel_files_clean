@@ -29,6 +29,10 @@ data class ScannedFileEntity(
     val progress: String = "",
     @ColumnInfo(name = "source", defaultValue = "''")
     val source: String = "",
+    @ColumnInfo(name = "title_pinyin", defaultValue = "''")
+    val titlePinyin: String = "",
+    @ColumnInfo(name = "author_pinyin", defaultValue = "''")
+    val authorPinyin: String = "",
     @ColumnInfo(name = "content_hash")
     val contentHash: String = "",
     val ext: String = "",

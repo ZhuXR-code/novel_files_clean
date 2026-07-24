@@ -80,7 +80,7 @@ interface ScannedFileDao {
     suspend fun deleteAll()
 
     /**
-     * 按“书名 + 作者”相同标记重复（文件名解析结果）。每组保留 id 最小的一条，其余标记。
+     * 按“书名 + 作者”相同勾选重复（文件名解析结果）。每组保留 id 最小的一条，其余标记。
      */
     @Query("""
         UPDATE scanned_file SET marked = 1
@@ -145,16 +145,18 @@ interface ScannedFileDao {
     suspend fun getFilesByTitle(runId: Long, title: String, marked: Int? = null, checked: Int? = null): List<ScannedFileEntity>
 
     /**
-     * 复刻 PC 端“标记重复”：取某文库全部文件的
+     * 复刻 PC 端“勾选重复”：取某文库全部文件的
      * (id, 文件名, 书名, 作者, 进度, 大小, 创建时间) 投影，
      * 由 Repository 在 Kotlin 端按 (书名+作者+大小+进度) 四元组分组（不再比较文件名）、
      * 比较创建时间后计算待删 id。
      * 别名 file_name AS fileName、file_size AS fileSize、created_at AS createdAt 以匹配字段名。
      */
     @Query("""
-        SELECT id, file_name AS fileName, title, author, progress,
-               file_size AS fileSize, created_at AS createdAt
-        FROM scanned_file WHERE scan_run_id = :runId
+        SELECT s.id, s.file_name AS fileName, s.title, s.author, s.progress,
+               COALESCE(s.source, '') AS source,
+               s.file_size AS fileSize, s.created_at AS createdAt
+        FROM scanned_file s
+        WHERE s.scan_run_id = :runId
     """)
     suspend fun getDuplicateRows(runId: Long): List<DuplicateRow>
 }

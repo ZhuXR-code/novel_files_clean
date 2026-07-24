@@ -5,6 +5,7 @@ import time
 import uuid
 import shutil
 import threading
+import json
 import re
 import pymysql
 from datetime import datetime
@@ -21,7 +22,7 @@ from sqlalchemy import create_engine, text, func
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.logger import logger
-from backend.models import Base, ScanConfig, ScanResult, FileMetadata, ColumnConfig, FileGroup, ParseLog, KeywordReplaceRule, HelpDoc
+from backend.models import Base, ScanConfig, ScanResult, FileMetadata, ColumnConfig, FileGroup, ParseLog, KeywordReplaceRule, HelpDoc, DupRuleConfig
 from backend.scanner import scan_files
 from backend.regex_parser import parse_file_names_regex_only, parse_file_summary_regex_only
 from backend import pipeline as pipeline_manager
@@ -260,6 +261,10 @@ def init_database():
 
     # 迁移：为 scan_configs 表添加 parse_on_scan 列（扫描时同步工程类解析）
     _migrate_scan_config_parse_on_scan()
+    # 迁移：为 scan_results 表添加 checked 列（勾选重复持久化）
+    _migrate_scan_results_checked()
+    # 迁移：为 file_metadata 表添加拼音列
+    _migrate_file_metadata_pinyin()
 
     # 第三步：初始化默认数据
     _init_default_data()
@@ -291,6 +296,8 @@ def _init_sqlite_database():
 
     # 迁移：为旧 SQLite 库补 parse_on_scan 列（create_all 不会给已存在的表加列）
     _migrate_scan_config_parse_on_scan()
+    _migrate_scan_results_checked()
+    _migrate_file_metadata_pinyin()
 
     _init_default_data()
     logger.info(f'SQLite 初始化完成: {db_path}')
@@ -611,6 +618,50 @@ def _migrate_scan_config_parse_on_scan():
         logger.warning(f'scan_configs parse_on_scan 迁移警告: {e}')
 
 
+def _migrate_scan_results_checked():
+    """迁移：为 scan_results 表添加 checked 列（勾选重复持久化标记）。"""
+    try:
+        from sqlalchemy import inspect as sa_inspect
+        insp = sa_inspect(engine)
+        if 'scan_results' not in insp.get_table_names():
+            return
+        existing_cols = {c['name'] for c in insp.get_columns('scan_results')}
+        if 'checked' in existing_cols:
+            return
+        with engine.begin() as conn:
+            if IS_SQLITE:
+                conn.execute(text("ALTER TABLE scan_results ADD COLUMN checked BOOLEAN NOT NULL DEFAULT 0"))
+            else:
+                conn.execute(text("ALTER TABLE scan_results ADD COLUMN checked TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否被勾选'"))
+        logger.info('迁移: 添加列 scan_results.checked')
+    except Exception as e:
+        logger.warning(f'scan_results checked 迁移警告: {e}')
+
+
+def _migrate_file_metadata_pinyin():
+    """迁移：为 file_metadata 表添加 title_pinyin/author_pinyin 列（拼音搜索）。"""
+    try:
+        from sqlalchemy import inspect as sa_inspect
+        insp = sa_inspect(engine)
+        if 'file_metadata' not in insp.get_table_names():
+            return
+        existing_cols = {c['name'] for c in insp.get_columns('file_metadata')}
+        for col_name, col_type, comment in [
+            ('title_pinyin', 'TEXT', '书名拼音搜索字段'),
+            ('author_pinyin', 'TEXT', '作者拼音搜索字段'),
+        ]:
+            if col_name in existing_cols:
+                continue
+            with engine.begin() as conn:
+                if IS_SQLITE:
+                    conn.execute(text(f"ALTER TABLE file_metadata ADD COLUMN {col_name} {col_type} NOT NULL DEFAULT ''"))
+                else:
+                    conn.execute(text(f"ALTER TABLE file_metadata ADD COLUMN {col_name} {col_type} NOT NULL DEFAULT '' COMMENT '{comment}'"))
+            logger.info(f'迁移: 添加列 file_metadata.{col_name}')
+    except Exception as e:
+        logger.warning(f'file_metadata pinyin 迁移警告: {e}')
+
+
 def _init_default_data():
     """初始化默认配置数据"""
     db = SessionLocal()
@@ -650,6 +701,15 @@ def _init_default_data():
 
         # 补齐缺失的预置关键词替换规则（去水印等），幂等，不影响用户自定义规则
         seed_default_rules(db)
+
+        # 迁移 dup_rule_configs 表增加新列（is_builtin/conditions/action/sort_order）
+        try:
+            _migrate_dup_rule_configs(db)
+        except Exception as e:
+            logger.warning(f'dup_rule_configs 表迁移失败（可能是首次启动自动建表无需迁移）: {e}')
+
+        # 补齐勾选重复规则配置（幂等，按 rule_key 匹配，不会覆盖用户手动修改的开关）
+        _seed_dup_rules(db)
 
         # 启动时重建所有已有配置的文件分组
         config_ids = [c.id for c in db.query(ScanConfig.id).all()]
@@ -730,19 +790,23 @@ def _seed_help_docs(db: Session):
 - **效果**：生成可供查阅 / 归档的文件，列含 `文件名 / 小说名 / 作者 / 进度 / 来源 / 摘要`。
 - **注意**：导出的是数据库里的解析结果，**不影响源文件**。
 
-## 第 6 步（可选）：合集与标记重复
-- **操作**：在「数据列表」页点「合集模式」按钮，文件按小说名聚合为合集；点「标记重复」一键勾选应清理的冗余行。
+## 第 6 步（可选）：合集与勾选重复
+- **操作**：在「数据列表」页点「合集模式」按钮，文件按小说名聚合为合集；点「勾选重复」一键勾选应清理的冗余行。
 - **效果**：在「同一合集内、按 (作者+小说名) 子分组」套用五则规则智能勾选——① 五字段完全相等的多本删旧留新；② 进度全为纯数字则留进度最大者；③ 含中文进度(如完结)不删，但若存在更小的"进度最大文件"且组内有完结版则连它一起删；④ 本组内唯一最大文件始终保留；⑤ 进度为「完结+数字番外」组合时按数字排序，数字最大者不删、其余删（被删者若恰为本组文件大小最大者也不删）。详细规则与举例见《功能说明》第 4 节。
+- **可配置规则**：上述五则规则可在「设置」页的「勾选重复规则」中单独开启或关闭，默认全部启用。如你希望只按"精确重复"和"最大文件保护"去重，可关闭其余规则，去重逻辑按你勾选的规则执行。
 - **注意**：标记只是「勾选」，**并不删除**；真正删除要走删除或一键清理（见下）。
 
-## 第 7 步（可选）：设置关键词替换
-- **操作**：切到「设置」页，分别维护「扫描阶段」和「解析阶段」的替换规则（`查找 → 替换为`，支持多条按顺序排列）。
+## 第 7 步（可选）：设置关键词替换与勾选重复规则
+- **操作**：切到「设置」页，分别维护：
+  - **关键词替换**：「扫描阶段」和「解析阶段」的替换规则（`查找 → 替换为`，支持多条按顺序排列）。
+  - **勾选重复规则**：六条去重规则的开关（默认全部启用），可按需关闭不想要的规则。
 - **效果**：
   - **扫描阶段**：在**入库前**改写文件名（如去掉 `[XX论坛]` 前缀）。
   - **解析阶段**：在**解析后**规范化 `书名 / 作者 / 进度 / 来源`（如把「更78」规整为「更」）。
-- **注意**：规则按 `sort_order` 顺序生效；改完规则后，建议对相关配置「强制重跑」对应解析以套用新规则。
+  - **勾选重复规则**：关闭的规则不会参与「勾选重复」和「一键清理」的去重判断。
+- **注意**：规则按 `sort_order` 顺序生效；改完规则后，建议对相关配置「强制重跑」对应解析以套用新规则。勾选重复规则关闭后立即生效，不影响数据库已有数据。
 
-> 想一步到位？见《功能说明》里的 **「一键清理」**：一次完成 `扫描 → 解析 → 生成合集 → 标记重复 → 删除确认` 全流程。''',
+> 想一步到位？见《功能说明》里的 **「一键清理」**：一次完成 `扫描 → 解析 → 生成合集 → 勾选重复 → 删除确认` 全流程。''',
         },
         {
             'doc_key': 'scan_logic',
@@ -765,7 +829,7 @@ def _seed_help_docs(db: Session):
   - 大目录扫描可能较久，请等进度条走完再继续，避免重复点击。
 
 ### 一键操作：一键清理的扫描节点（节点 1）
-- **效果**：一键清理流程串行自动执行，扫描作为第 1 个节点先跑，跑完紧接着自动做「工程解析 → 生成合集 → 标记重复 → 二次确认删除」。
+- **效果**：一键清理流程串行自动执行，扫描作为第 1 个节点先跑，跑完紧接着自动做「工程解析 → 生成合集 → 勾选重复 → 二次确认删除」。
 - **注意事项**：
   - 扫描逻辑与普通操作完全一致（同一函数），所以增量、不改源文件等特性同样适用。
   - 若一键清理被取消，已完成的扫描结果**保留、不回滚**，后续节点跳过。
@@ -805,7 +869,7 @@ def _seed_help_docs(db: Session):
 - **大小写敏感性**：Windows 上用于去重的路径比较**不区分大小写**；Linux / macOS 区分大小写。
 - **大目录友好**：文件多时会分批提交（每 50 条一次），进度条走完前请勿重复点击扫描，以免产生大量"跳过"日志与额外开销。
 
-> 扫描只是把文件"登记"进系统；要让文件变得可读、可筛选，还需进行《功能说明》里的**工程解析**；要批量整理冗余，则见**一键清理**与**合集 / 标记重复**。''',
+> 扫描只是把文件"登记"进系统；要让文件变得可读、可筛选，还需进行《功能说明》里的**工程解析**；要批量整理冗余，则见**一键清理**与**合集 / 勾选重复**。''',
         },
         {
             'doc_key': 'features',
@@ -837,7 +901,7 @@ def _seed_help_docs(db: Session):
 
 ## 4. 合集模式与重复标记
 - **合集模式**：在「数据列表」页点「合集模式」按钮，文件按**小说名**聚合成合集，便于同类归并查看；再次点击退出合集视图。
-- **「标记重复」规则**（在**同一合集内、按 `(作者 + 小说名)` 子分组**套用，与一键清理、APP 端完全一致；核心算法见 `backend/dup_logic.py`）：
+- **「勾选重复」规则**（在**同一合集内、按 `(作者 + 小说名)` 子分组**套用，与一键清理、APP 端完全一致；核心算法见 `backend/dup_logic.py`）：
 
   | 规则 | 名称 | 判定 |
   | --- | --- | --- |
@@ -846,6 +910,8 @@ def _seed_help_docs(db: Session):
   | ③ | 含中文进度 / 完结特例 | 进度含中文(如「完结/连载/断更」) 的**不勾选**；但若同组存在文件名带「完结/完本/全本/全集/完整/全套/全集版」等关键词、且「进度数字最大文件」的大小 **小于** 同组**所有**含中文进度文件的大小，则该「进度数字最大文件」**也要勾选**（存在更完整的完结版，部分进度版冗余应删）。 |
   | ④ | 最大文件不勾选原则 | 已勾选文件中，本 `(作者+小说名)` 组内**唯一**文件大小最大者**不勾选**；若多本并列最大，则按大小无法区分、不据此保护，以免同尺寸重复组被整体保留。 |
   | ⑤ | 完结+N番外 组合排序 | 进度【严格】匹配 `完结+数字番外`（如「完结+3番外」）的文件，在同 `(作者+小说名)` 组内按数字 N 排序：**数字最大者不勾选**，其余勾选（强制勾选，覆盖规则③A 对中文进度的保护）；但被勾选的文件若恰为本组 `(作者+小说名)` 内**文件大小最大者**，则也不勾选。 |
+
+  > **规则可配置**：以上五则规则（六条条目）可在「设置」页的「勾选重复规则」中单独开启或关闭（默认全部启用）。去重算法运行时只读取您启用的规则，关闭的规则不参与判断。规则配置持久保存，不受程序升级影响。
 
   > 最终勾选集 = (规则①/②/⑤ 勾选集 − 规则①/③/④/⑤ 保护集) ∪ 规则①/③/⑤ 强制勾选集。
   > 规则①的精确重复(=同尺寸)不可能同时是「唯一最大文件」，故强制勾选不会与规则④冲突。
@@ -864,11 +930,18 @@ def _seed_help_docs(db: Session):
 - **导出 MD**：选中文件 → 每个文件导出一个 Markdown（含书名 / 作者 / 进度 / 来源 / 摘要），保存到 `exports/`。
 - **导出 Excel**：选中或全部 → 导出为 Excel（列：文件名、小说名、作者、进度、来源、摘要）。
 
-## 6. 关键词替换（设置页）
+## 6. 关键词替换与勾选重复规则（设置页）
+### 6a. 关键词替换
 在「设置」页维护替换规则，分两个作用阶段：
 - **扫描阶段（scope=scan）**：作用于**文件名**，在入库前改写。
 - **解析阶段（scope=parse）**：作用于 **书名 / 作者 / 进度 / 来源**，在解析后规范化。
 多条规则按 `sort_order` 从小到大依次生效；可用「启用」开关临时停用，不必删除。
+
+### 6b. 勾选重复规则配置
+在「设置」页的「勾选重复规则」区域，列出第 4 节所述的全部五则规则（拆分为六条），每条规则有名称和简要说明，默认全部启用。你可以：
+- 单独**开启或关闭**某条规则，关闭后该规则不会参与后续的「勾选重复」和「一键清理」去重判断。
+- 点击「保存」按钮持久化配置，配置保存在数据库 `dup_rule_configs` 表，**不会**被程序自动重置。
+- 规则配置关闭后立即生效，不影响之前的勾选/去重结果。
 
 ## 7. 删除操作（两种模式）
 删除 / 清空均提供两种模式，**务必看清再确认**：
@@ -880,7 +953,7 @@ def _seed_help_docs(db: Session):
 
 ## 8. 一键清理（Pipeline）
 选定配置后，后台**串行**自动完成全流程：
-1. **扫描** → 2. **工程文件名解析（全部）** → 3. **生成合集** → 4. **标记重复** → 5. **清理删除**
+1. **扫描** → 2. **工程文件名解析（全部）** → 3. **生成合集** → 4. **勾选重复** → 5. **清理删除**
 - 节点 5 在真正删除前进入「二次确认」状态，前端展示**将被删除的清单**，确认后才执行；取消则放弃删除。
 - **单实例约束**：同一时间只能有一个一键清理在跑，新启动会被拒绝（请先取消或等待前一个完成）。
 - **取消语义**：取消后「已完成节点保留、不回滚」，后续节点（含删除）跳过。
@@ -905,7 +978,7 @@ def _seed_help_docs(db: Session):
 ### 进度字段为什么是「更78 / 完结613+番外」这种格式？
 进度直接从文件名中正则提取，格式取决于原文件名。可在「设置」页添加「解析阶段」关键词替换规则将其规范化，再对相关配置「强制重跑全部」对应解析。
 
-### 标记重复 / 一键清理会删除我的文件吗？
+### 勾选重复 / 一键清理会删除我的文件吗？
 取决于你选择的删除模式：
 - **仅删除数据**：不碰源文件，可重新扫描恢复；
 - **删除文件**：会真正删除磁盘上的源文件（一键清理删前有「二次确认」清单，普通删除有确认弹窗）。
@@ -918,6 +991,15 @@ def _seed_help_docs(db: Session):
 数据保存在数据库，具体位置取决于你使用的版本：
 - **本地软件（EXE）版本**：使用内置 **SQLite** 数据库，默认位于程序**安装目录**下的 `FileScannerData\\file_scanner.db`（如 `C:\\Users\\<你的用户名>\\AppData\\Local\\Programs\\FileScanner\\FileScannerData\\file_scanner.db`）。日志与导出文件也统一存放于该 `FileScannerData\\` 文件夹内，数据库、日志、导出随安装目录整体迁移。无需安装 MySQL。
 - **网页版**：使用 **MySQL** 数据库，默认库名为 `file_scanner_noai`。扫描结果、解析数据、合集、关键词规则、帮助文档等都存在对应表中，可直接查看与维护。
+
+### 勾选重复规则在哪里配置？关掉后有什么影响？
+在「设置」页底部找到「勾选重复规则」区块。该区块列出了六条规则（五则去重逻辑拆分为六条），每条有名称和简要说明，默认全部启用。你可以：
+- 单独**开启或关闭**某条规则。关闭后，该规则不再参与后续的「勾选重复」和「一键清理」的去重判断。
+- 点击「保存」按钮持久化配置，配置保存在数据库，**不会**被程序自动重置。
+- 规则配置关闭后**立即生效**，不影响已存在的勾选/去重结果，只影响后续操作。
+
+**示例**：如果你关闭了"精确重复去重"和"纯数字进度对比"，则同名同作者的文件即使完全相等，也不会被自动勾选；只有剩余启用的规则参与判断。
+**建议**：先理解各规则的含义再进行调整，否则可能导致预期外的勾选结果。
 
 ### 解析结果不准怎么办？
 - 先确认源文件名是否规范；
@@ -937,6 +1019,52 @@ def _seed_help_docs(db: Session):
             db.add(HelpDoc(**d))
     db.commit()
     logger.info(f'帮助手册默认文档已同步: {len(docs)} 篇')
+
+
+def _migrate_dup_rule_configs(db: Session):
+    """迁移 dup_rule_configs 表，增加 is_builtin / conditions / action / sort_order 列（幂等）。"""
+    from backend.models import _IS_SQLITE
+    engine = db.get_bind()
+    table_name = 'dup_rule_configs'
+    from backend.models import _safe_add_columns
+    _safe_add_columns(engine, table_name, {
+        'is_builtin': 'BOOLEAN NOT NULL DEFAULT 0',
+        'conditions': 'TEXT',
+        'action': 'VARCHAR(20)',
+        'sort_order': 'INTEGER NOT NULL DEFAULT 0',
+    })
+
+
+def _seed_dup_rules(db: Session):
+    """种子初始化勾选重复规则配置（按 rule_key 幂等，不覆盖用户手动修改的开关）。"""
+    from backend.models import DupRuleConfig, _IS_SQLITE
+    rules = [
+        {'rule_key': 'rule1', 'rule_name': '精确重复去重', 'enabled': True,
+         'description': '小说名+作者+进度+文件大小完全相等的文件，保留最新一个'},
+        {'rule_key': 'rule2', 'rule_name': '纯数字进度对比', 'enabled': True,
+         'description': '有纯数字进度的文件中，进度最高的不勾选，其余勾选'},
+        {'rule_key': 'rule3a', 'rule_name': '含中文进度保护', 'enabled': True,
+         'description': '含有中文进度（如"更新至50"）的文件不勾选'},
+        {'rule_key': 'rule3b', 'rule_name': '完结特例', 'enabled': True,
+         'description': '中文进度保护的特例：数字进度文件更小且文件名含"完结"关键词时，仍勾选最大进度文件'},
+        {'rule_key': 'rule4', 'rule_name': '最大文件不勾选', 'enabled': True,
+         'description': '同一组内文件大小唯一最大的文件不勾选'},
+        {'rule_key': 'rule5', 'rule_name': '完结+N番外去重', 'enabled': True,
+         'description': '进度匹配"完结+数字番外"的组内，按番外数 N 排序，最大 N 不勾选，其余勾选'},
+    ]
+    # 幂等插入+标记内置；已存在则确保 is_builtin=True
+    for r in rules:
+        exist = db.query(DupRuleConfig).filter(DupRuleConfig.rule_key == r['rule_key']).first()
+        if exist:
+            if not exist.is_builtin:
+                exist.is_builtin = True
+                exist.sort_order = 0
+        else:
+            r['is_builtin'] = True
+            r['sort_order'] = 0
+            db.add(DupRuleConfig(**r))
+    db.commit()
+    logger.info(f'勾选重复规则配置已初始化 ({len(rules)} 条内置规则)')
 
 
 # 合集（文件分组）重建进度：config_id -> {'done':已处理扫描记录数, 'total':总记录数, 'phase':'...'}
@@ -1278,7 +1406,7 @@ def run_scan(config_id: int, db: Session = Depends(get_db)):
 
         # 扫描时同步进行工程类解析（默认开启）：扫描完成后自动启动「工程文件名解析」
         # 后台任务，前端拿到 parse_task_id 后轮询解析进度，解析完成再重建合集，
-        # 使合集/标记重复立即可用，无需用户再手动点「文件名解析」。
+        # 使合集/勾选重复立即可用，无需用户再手动点「文件名解析」。
         parse_task_id = None
         if getattr(config, 'parse_on_scan', True) and total > 0:
             try:
@@ -1450,6 +1578,21 @@ def list_novel_names(
 
 
 # ===================== 扫描结果 API =====================
+
+@app.post('/api/results/clear-checks')
+def clear_all_checks(config_id: int = Query(...), db: Session = Depends(get_db)):
+    """清空指定配置下所有记录的勾选状态"""
+    try:
+        updated = db.query(ScanResult).filter(
+            ScanResult.scan_config_id == config_id,
+            ScanResult.checked == True,
+        ).update({'checked': False}, synchronize_session=False)
+        db.commit()
+        return {'cleared': updated}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f'清空勾选失败: {e}')
+
 
 @app.delete('/api/results')
 def delete_results(ids: List[int] = Query(...), db: Session = Depends(get_db)):
@@ -1672,6 +1815,7 @@ def list_results(
     min_group_count: int = Query(0, ge=0),
     max_group_count: Optional[int] = Query(None, ge=0),
     exclude_names: Optional[str] = Query(None),
+    checked_filter: Optional[str] = Query(None),
     db: Session = Depends(get_db),
 ):
     """获取扫描结果列表（分页），支持合集模式"""
@@ -1687,6 +1831,7 @@ def list_results(
         FileMetadata.progress,
         FileMetadata.source,
         ScanResult.scan_config_id,
+        ScanResult.checked,
     ).outerjoin(
         FileMetadata, ScanResult.id == FileMetadata.scan_result_id
     )
@@ -1702,6 +1847,8 @@ def list_results(
             ScanResult.file_path.like(like_pat),
             FileMetadata.novel_name.like(like_pat),
             FileMetadata.author.like(like_pat),
+            FileMetadata.title_pinyin.like(like_pat),
+            FileMetadata.author_pinyin.like(like_pat),
         ))
 
     if novel_names:
@@ -1727,6 +1874,11 @@ def list_results(
                  func.coalesce(FileMetadata.novel_name, '').notin_(exclude_list)
              )
 
+    if checked_filter == 'checked':
+        base_query = base_query.filter(ScanResult.checked == True)
+    elif checked_filter == 'unchecked':
+        base_query = base_query.filter(ScanResult.checked == False)
+
     if group_by_file_name:
         # 合集模式：按小说名分组（未解析的放在最后，其余按出现次数降序、作者重复数降序、总大小降序）
         from sqlalchemy import func as sa_func
@@ -1738,11 +1890,13 @@ def list_results(
         group_expr = sa_func.coalesce(count_sub.c.novel_name, '')
         count_expr = sa_func.count()
         total_size_expr = sa_func.sum(count_sub.c.file_size)
+        checked_count_expr = sa_func.sum(sa_func.cast(count_sub.c.checked, sa_func.Integer))
         author_dup_expr = sa_func.count(count_sub.c.author) - sa_func.count(sa_func.distinct(count_sub.c.author))
         group_query = db.query(
             group_expr.label('group_name'),
             count_expr.label('name_count'),
             total_size_expr.label('total_size'),
+            checked_count_expr.label('checked_count'),
         ).group_by(
             group_expr
         )
@@ -1751,6 +1905,7 @@ def list_results(
         if max_group_count is not None:
             group_query = group_query.having(count_expr <= max_group_count)
         group_query = group_query.order_by(
+            checked_count_expr.desc(),
             count_expr.desc(),
             author_dup_expr.desc(),
             total_size_expr.desc(),
@@ -1774,6 +1929,7 @@ def list_results(
             items_query = base_query.filter(
                 sa_func.coalesce(FileMetadata.novel_name, '').in_(page_group_names)
             ).order_by(
+                ScanResult.checked.desc(),
                 sa_func.coalesce(FileMetadata.novel_name, ''),
                 ScanResult.file_size.desc(),
             ).limit(20000)
@@ -1795,6 +1951,7 @@ def list_results(
                     'novel_name': display_name,
                     'count': g.name_count,
                     'total_size': g.total_size,
+                    'checked_count': g.checked_count or 0,
                     'items': built_items,
                 })
                 for item in built_items:
@@ -1828,7 +1985,7 @@ def list_results(
         order_col = sort_map.get(sort_by, ScanResult.id)
         if sort_order == 'desc':
             order_col = order_col.desc()
-        query = base_query.order_by(order_col)
+        query = base_query.order_by(ScanResult.checked.desc(), order_col)
 
         # 分页
         total = query.count()
@@ -1857,6 +2014,7 @@ def list_groups(
     min_count: int = Query(0, ge=0),
     max_count: Optional[int] = Query(None, ge=0),
     exclude_names: Optional[str] = Query(None),
+    checked_filter: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=2000),
     db: Session = Depends(get_db),
@@ -1923,11 +2081,14 @@ def list_groups(
             FileMetadata.progress,
             FileMetadata.source,
             ScanResult.scan_config_id,
+            ScanResult.checked,
         ).outerjoin(
             FileMetadata, ScanResult.id == FileMetadata.scan_result_id
         ).filter(
             ScanResult.scan_config_id == config_id,
             func.coalesce(FileMetadata.novel_name, '').in_(group_names),
+            *( [ScanResult.checked == True] if checked_filter == 'checked' else
+               [ScanResult.checked == False] if checked_filter == 'unchecked' else [] ),
         ).order_by(
             ScanResult.file_size.desc(),
         ).limit(20000)
@@ -1972,7 +2133,7 @@ def select_duplicates(
     db: Session = Depends(get_db),
 ):
     """
-    合集模式下“标记重复”（待删勾选）的完整规则，所有判定在【同一合集】内、
+    合集模式下“勾选重复”（待删勾选）的完整规则，所有判定在【同一合集】内、
     按 (作者 + 小说名) 子分组进行（算法见 backend/dup_logic.py）：
 
     规则 1（完全相等去重）：(文件名 + 大小 + 小说名 + 作者 + 进度) 五字段完全一致，
@@ -2023,6 +2184,7 @@ def select_duplicates(
         func.coalesce(FileMetadata.novel_name, '').label('novel_name'),
         FileMetadata.author,
         FileMetadata.progress,
+        func.coalesce(FileMetadata.source, '').label('source'),
         ScanResult.created_date,
     ).outerjoin(
         FileMetadata, ScanResult.id == FileMetadata.scan_result_id
@@ -2030,6 +2192,22 @@ def select_duplicates(
         ScanResult.scan_config_id == config_id,
     ).all()
 
+    from backend.dup_logic import compute_duplicate_ids
+
+    # 读取用户配置的勾选重复规则开关，仅取 enabled=True 的规则
+    dup_rule_configs = db.query(DupRuleConfig).filter(DupRuleConfig.enabled == True).all()
+    enabled_rules = {r.rule_key for r in dup_rule_configs if r.is_builtin}
+    # 收集用户自定义规则（enabled=true）
+    user_rules = [
+        {
+            'id': r.id,
+            'action': r.action or 'check',
+            'conditions': json.loads(r.conditions) if r.conditions else [],
+        }
+        for r in dup_rule_configs if not r.is_builtin and r.conditions
+    ]
+
+    # 补充 source 到 rows（用户自定义规则可能需要 source 字段）
     rows = [{
         'id': it.id,
         'file_name': it.file_name or '',
@@ -2037,26 +2215,43 @@ def select_duplicates(
         'novel_name': it.novel_name or '',
         'author': it.author or '',
         'progress': it.progress or '',
+        'source': it.source or '',
         'created_date': it.created_date,
     } for it in items if (it.novel_name or '') in valid_names]
 
-    from backend.dup_logic import compute_duplicate_ids
-    all_ids, subgroups_with_dups, dup_detail_lines = compute_duplicate_ids(rows)
+    all_ids, subgroups_with_dups, dup_detail_lines = compute_duplicate_ids(
+        rows, enabled_rules=enabled_rules, user_rules=user_rules or None,
+    )
 
-    # 3. 操作日志：本次“标记重复”的判定结果（调试用，可一键复制）
+    # 记录日志时附带启用的规则列表
+    rule_names = [r.rule_name for r in dup_rule_configs]
+
+    # 3. 操作日志：本次“勾选重复”的判定结果（调试用，可一键复制）
     try:
         from backend.operation_log import log_operation, log_block
         log_operation(
-            '标记重复', level='INFO',
+            '勾选重复', level='INFO',
             config_id=config_id, page=page,
             scanned_collections=collections_processed,
             duplicate_collections=subgroups_with_dups,
             total_checked=len(all_ids),
+            enabled_rules=','.join(rule_names),
         )
         if dup_detail_lines:
-            log_block('标记重复-重复组明细', dup_detail_lines)
+            log_block('勾选重复-重复组明细', dup_detail_lines)
     except Exception as log_ex:
         logger.warning(f"写操作日志失败（不影响主流程）: {log_ex}")
+
+    # 将勾选状态持久化到 scan_results.checked，使排序与筛选逻辑可用
+    if all_ids:
+        try:
+            db.query(ScanResult).filter(ScanResult.id.in_(all_ids)).update(
+                {'checked': True}, synchronize_session=False
+            )
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            logger.warning(f"勾选标记持久化失败: {e}")
 
     return {
         'ids_to_check': all_ids,
@@ -2072,7 +2267,7 @@ def select_duplicates(
 
 @app.get('/api/operation-logs')
 def api_operation_logs(limit: int = 2000):
-    """读取 operation.log 中的结构化操作日志（标记重复、清理等），供前端展示与一键复制。"""
+    """读取 operation.log 中的结构化操作日志（勾选重复、清理等），供前端展示与一键复制。"""
     try:
         from backend.operation_log import get_operation_logs
         return {'logs': get_operation_logs(limit=limit)}
@@ -2684,6 +2879,130 @@ def export_excel(ids: Optional[List[int]] = Query(None),
     }
 
 
+# ===================== 勾选重复规则配置（设置页开关 + 自定义规则 CRUD） =====================
+
+@app.get('/api/dup-rule-configs')
+def list_dup_rule_configs(db: Session = Depends(get_db)):
+    """获取全部勾选重复规则配置（内置+用户自定义），内置规则排前，自定义规则按 sort_order 排序"""
+    rules = db.query(DupRuleConfig).order_by(DupRuleConfig.is_builtin.desc(), DupRuleConfig.sort_order, DupRuleConfig.id).all()
+    return [
+        {
+            'id': r.id,
+            'rule_key': r.rule_key,
+            'rule_name': r.rule_name,
+            'enabled': r.enabled,
+            'description': r.description or '',
+            'is_builtin': r.is_builtin,
+            'conditions': json.loads(r.conditions) if r.conditions else None,
+            'action': r.action,
+            'sort_order': r.sort_order,
+        }
+        for r in rules
+    ]
+
+
+@app.put('/api/dup-rule-configs')
+def update_dup_rule_configs(payload: List[dict], db: Session = Depends(get_db)):
+    """批量更新勾选重复规则开关状态，payload = [{"id":1,"enabled":false}, ...]
+    也支持更新 rule_name / description（仅自定义规则）。"""    
+    pydantic_type = type('RuleUpdatePayload', (), {})  # 静态类型占位
+    for item in payload:
+        rule_id = item.get('id')
+        if rule_id is None:
+            continue
+        rule = db.query(DupRuleConfig).filter(DupRuleConfig.id == rule_id).first()
+        if not rule:
+            continue
+        if 'enabled' in item:
+            rule.enabled = bool(item['enabled'])
+        if not rule.is_builtin:
+            if 'rule_name' in item:
+                rule.rule_name = str(item['rule_name'])[:100]
+            if 'description' in item:
+                rule.description = str(item['description'])[:500]
+            if 'conditions' in item:
+                rule.conditions = json.dumps(item['conditions']) if item['conditions'] else None
+            if 'action' in item:
+                rule.action = str(item['action']) if item['action'] else None
+            if 'sort_order' in item:
+                rule.sort_order = int(item['sort_order'])
+    db.commit()
+    return {'status': 'ok', 'updated': len(payload)}
+
+
+@app.post('/api/dup-rule-configs')
+def create_dup_rule_config(
+    payload: dict,
+    db: Session = Depends(get_db),
+):
+    """创建用户自定义去重规则。
+    body = {
+        "rule_name": "去掉水印文件",
+        "description": "文件名包含水印关键字则勾选",
+        "conditions": [{"field":"file_name","op":"contains","value":"www"}],
+        "action": "check",  # "check" 或 "protect"
+        "enabled": true
+    }
+    """
+    rule_name = (payload.get('rule_name') or '').strip()
+    if not rule_name:
+        raise HTTPException(status_code=400, detail='规则名称不能为空')
+    conditions = payload.get('conditions', [])
+    if not isinstance(conditions, list) or not conditions:
+        raise HTTPException(status_code=400, detail='条件列表不能为空')
+    action = payload.get('action', 'check')
+    if action not in ('check', 'protect'):
+        raise HTTPException(status_code=400, detail='动作必须为 "check" 或 "protect"')
+
+    # 生成唯一 rule_key
+    import uuid
+    rule_key = f'user_{uuid.uuid4().hex[:16]}'
+    # 计算 sort_order（放在最后）
+    max_order = db.query(func.max(DupRuleConfig.sort_order)).scalar() or 0
+
+    new_rule = DupRuleConfig(
+        rule_key=rule_key,
+        rule_name=rule_name,
+        enabled=payload.get('enabled', True),
+        description=(payload.get('description') or '').strip(),
+        is_builtin=False,
+        conditions=json.dumps(conditions, ensure_ascii=False),
+        action=action,
+        sort_order=max_order + 1,
+    )
+    db.add(new_rule)
+    db.commit()
+    db.refresh(new_rule)
+    logger.info(f'用户自定义去重规则已创建: id={new_rule.id} name={rule_name} action={action}')
+    return {
+        'id': new_rule.id,
+        'rule_key': rule_key,
+        'rule_name': rule_name,
+        'enabled': new_rule.enabled,
+        'description': new_rule.description or '',
+        'is_builtin': False,
+        'conditions': conditions,
+        'action': action,
+        'sort_order': max_order + 1,
+    }
+
+
+@app.delete('/api/dup-rule-configs/{rule_id}')
+def delete_dup_rule_config(rule_id: int, db: Session = Depends(get_db)):
+    """删除用户自定义去重规则（内置规则不可删除）。"""
+    rule = db.query(DupRuleConfig).filter(DupRuleConfig.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail='规则不存在')
+    if rule.is_builtin:
+        raise HTTPException(status_code=403, detail='内置规则不可删除')
+    rule_key = rule.rule_key
+    rule_name = rule.rule_name
+    db.delete(rule)
+    db.commit()
+    logger.info(f'用户自定义去重规则已删除: id={rule_id} key={rule_key} name={rule_name}')
+    return {'status': 'ok', 'deleted_id': rule_id}
+
+
 # ===================== 帮助手册 API =====================
 
 @app.get('/api/help')
@@ -2829,7 +3148,7 @@ class PipelineStartIn(BaseModel):
 
 @app.post('/api/pipeline/start')
 def api_pipeline_start(data: PipelineStartIn):
-    """启动一键清理（单实例）。先选删除类型，再跑 扫描→解析→合集→标记重复→清理"""
+    """启动一键清理（单实例）。先选删除类型，再跑 扫描→解析→合集→勾选重复→清理"""
     delete_mode = data.delete_mode if data.delete_mode in ('db', 'file') else 'db'
     try:
         tid = pipeline_manager.start_pipeline(data.config_id, delete_mode)
@@ -2979,6 +3298,7 @@ def _build_result_item(r) -> dict:
         'progress': getattr(r, 'progress', '') or '',
         'source': getattr(r, 'source', '') or '',
         'scan_config_id': r.scan_config_id,
+        'checked': bool(getattr(r, 'checked', False)),
     }
 
 

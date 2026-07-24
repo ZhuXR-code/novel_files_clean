@@ -20,6 +20,12 @@
 -keep class com.github.houbb.heaven.** { *; }
 -dontwarn com.github.houbb.**
 
+# ===== TinyPinyin（拼音搜索）=====
+# 内置字典以 assets 或 classpath 打包，需保留避免 Release 裁剪。
+-keep class com.github.promeg.pinyinhelper.** { *; }
+-keep class com.github.promeg.tinypinyin.** { *; }
+-dontwarn com.github.promeg.**
+
 # ===== Coroutines =====
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}

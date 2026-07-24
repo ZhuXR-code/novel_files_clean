@@ -80,7 +80,7 @@ fun HomeScreen(
             CardItem(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        "方法一-开始扫描/查看文库：配置扫描路径→扫描+解析→合集模式→标记重复→批量删除选中",
+                        "方法一-开始扫描/查看文库：配置扫描路径→扫描+解析→合集模式→勾选重复→批量删除选中",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp
                     )
@@ -116,7 +116,7 @@ fun HomeScreen(
                 Text(stringResource(R.string.start_scan))
             }
 
-            // 一键清理：选择文件夹后自动 扫描 → 标记重复 → 删除（与电脑端一致）
+            // 一键清理：选择文件夹后自动 扫描 → 勾选重复 → 删除（与电脑端一致）
             AppButton(
                 onClick = onNavigateToOneClick,
                 modifier = Modifier.fillMaxWidth(),
