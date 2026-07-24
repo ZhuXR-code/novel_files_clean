@@ -474,6 +474,15 @@ private fun RunFilesScreen(
                     ) {
                         Text(stringResource(R.string.clear_checked), fontSize = 11.sp)
                     }
+                    AppButton(
+                        onClick = { showDeleteChoice = true },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.batch_delete_selected)
+                        )
+                    }
                     if (checkedCount > 0) {
                         Text(
                             stringResource(R.string.selected_count, checkedCount),
