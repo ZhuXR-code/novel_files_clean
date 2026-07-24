@@ -17,6 +17,7 @@ import com.filescanner.app.data.model.LastScanConfig
 import com.filescanner.app.data.model.ScanStateManager
 import com.filescanner.app.util.FileUtil
 import com.filescanner.app.util.FileEntry
+import com.filescanner.app.util.ChineseConverter
 import com.filescanner.app.util.KeywordReplace
 import com.filescanner.app.util.LogUtil
 import com.filescanner.app.util.Parser
@@ -277,6 +278,8 @@ class ScanService : Service() {
             author = author,
             progress = progress,
             source = source,
+            titlePinyin = ChineseConverter.toPinyin(title),
+            authorPinyin = ChineseConverter.toPinyin(author),
             contentHash = "",
             ext = ext,
             scanRunId = runId

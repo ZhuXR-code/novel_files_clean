@@ -32,10 +32,12 @@ class FileScannerApp : Application() {
             repository = FileRepository(
                 database.scannedFileDao(),
                 database.scanRunDao(),
-                database.keywordReplaceDao()
+                database.keywordReplaceDao(),
+                database.dupRuleConfigDao()
             )
             LogUtil.i("App", "Database and repository initialized")
             seedDefaultKeywordRules()
+            seedDefaultDupRules()
         } catch (e: Exception) {
             LogUtil.e("App", "Failed to init database: ${e.message}")
         }
@@ -60,6 +62,17 @@ class FileScannerApp : Application() {
                 preferencesUtil.setKeywordSeeded()
             } catch (e: Exception) {
                 LogUtil.e("App", "seed default keyword rules failed: ${e.message}")
+            }
+        }
+    }
+
+    /** 幂等补齐缺失的默认勾选重复规则配置（与 PC 端 backend _seed_dup_rules 一致）。 */
+    private fun seedDefaultDupRules() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                repository.seedDefaultDupRules()
+            } catch (e: Exception) {
+                LogUtil.e("App", "seed default dup rules failed: ${e.message}")
             }
         }
     }

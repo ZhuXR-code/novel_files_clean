@@ -6,10 +6,12 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.filescanner.app.data.database.dao.DupRuleConfigDao
 import com.filescanner.app.data.database.dao.ScannedFileDao
 import com.filescanner.app.data.database.dao.ScanConfigDao
 import com.filescanner.app.data.database.dao.ScanRunDao
 import com.filescanner.app.data.database.dao.KeywordReplaceDao
+import com.filescanner.app.data.database.entity.DupRuleConfigEntity
 import com.filescanner.app.data.database.entity.ScannedFileEntity
 import com.filescanner.app.data.database.entity.ScanConfigEntity
 import com.filescanner.app.data.database.entity.ScanRunEntity
@@ -19,9 +21,9 @@ import com.filescanner.app.util.LogUtil
 @Database(
     entities = [
         ScannedFileEntity::class, ScanConfigEntity::class, ScanRunEntity::class,
-        KeywordReplaceRuleEntity::class
+        KeywordReplaceRuleEntity::class, DupRuleConfigEntity::class
     ],
-    version = 8,
+    version = 11,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -29,6 +31,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun scanConfigDao(): ScanConfigDao
     abstract fun scanRunDao(): ScanRunDao
     abstract fun keywordReplaceDao(): KeywordReplaceDao
+    abstract fun dupRuleConfigDao(): DupRuleConfigDao
 
     companion object {
         @Volatile
@@ -148,12 +151,78 @@ abstract class AppDatabase : RoomDatabase() {
         /**
          * v7 -> v8：scanned_file 新增 checked（是否勾选）列。
          * 仅 ADD COLUMN（NOT NULL DEFAULT 0），SQLite 全版本支持，旧数据安全保留。
-         * 勾选状态由“标记重复”计算或手动勾选写入，供批量删除选中与“已勾选”筛选使用。
+         * 勾选状态由“勾选重复”计算或手动勾选写入，供批量删除选中与“已勾选”筛选使用。
          */
         private val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE scanned_file ADD COLUMN checked INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_scanned_file_checked ON scanned_file(checked)")
+            }
+        }
+
+        /**
+         * v8 -> v9：scanned_file 新增 title_pinyin / author_pinyin 列。
+         * 拼音格式："全拼|首字母"（如 "dou po cang qiong|dpcq"），
+         * 供拼音搜索使用——输入 dpcq 可搜到「斗破苍穹」。
+         * 仅 ADD COLUMN（NOT NULL DEFAULT ''），SQLite 全版本支持，旧数据安全保留。
+         */
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE scanned_file ADD COLUMN title_pinyin TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE scanned_file ADD COLUMN author_pinyin TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        /**
+         * v10 -> v11：dup_rule_configs 表增加 is_builtin/conditions/action/sort_order 列。
+         * 标记已有内置规则为 is_builtin=1；自定义规则列留空 NULL。
+         */
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // SQLite ALTER TABLE ADD COLUMN 不支持一次加多列，逐条执行
+                try { db.execSQL("ALTER TABLE dup_rule_configs ADD COLUMN is_builtin INTEGER NOT NULL DEFAULT 0") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE dup_rule_configs ADD COLUMN conditions TEXT") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE dup_rule_configs ADD COLUMN action TEXT") } catch (_: Exception) {}
+                try { db.execSQL("ALTER TABLE dup_rule_configs ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0") } catch (_: Exception) {}
+                // 标记内置规则
+                db.execSQL("UPDATE dup_rule_configs SET is_builtin = 1, sort_order = 0 WHERE rule_key IN ('rule1','rule2','rule3a','rule3b','rule4','rule5')")
+            }
+        }
+
+        /**
+         * v9 -> v10：新增 dup_rule_configs 表（勾选重复规则配置）。
+         * 建表 + 写入 6 条默认规则（全部启用），幂等。
+         */
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS dup_rule_configs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        rule_key TEXT NOT NULL UNIQUE,
+                        rule_name TEXT NOT NULL,
+                        enabled INTEGER NOT NULL DEFAULT 1,
+                        description TEXT NOT NULL DEFAULT '',
+                        created_at INTEGER NOT NULL DEFAULT 0,
+                        updated_at INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+                val now = System.currentTimeMillis()
+                val defaultRules = arrayOf(
+                    arrayOf("rule1", "精确重复去重", "1", "小说名+作者+进度+文件大小完全相等的文件，保留最新一个", "$now", "$now"),
+                    arrayOf("rule2", "纯数字进度对比", "1", "有纯数字进度的文件中，进度最高的不勾选，其余勾选", "$now", "$now"),
+                    arrayOf("rule3a", "含中文进度保护", "1", "含有中文进度（如\"更新至50\"）的文件不勾选", "$now", "$now"),
+                    arrayOf("rule3b", "完结特例", "1", "中文进度保护的特例：数字进度文件更小且文件名含\"完结\"时，仍勾选最大进度文件", "$now", "$now"),
+                    arrayOf("rule4", "最大文件不勾选", "1", "同一组内文件大小唯一最大的文件不勾选", "$now", "$now"),
+                    arrayOf("rule5", "完结+N番外去重", "1", "进度匹配\"完结+数字番外\"的组内，按番外数 N 排序，最大 N 不勾选，其余勾选", "$now", "$now"),
+                )
+                for (r in defaultRules) {
+                    db.execSQL(
+                        "INSERT OR IGNORE INTO dup_rule_configs (rule_key, rule_name, enabled, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                        r
+                    )
+                }
             }
         }
 
@@ -164,7 +233,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also {

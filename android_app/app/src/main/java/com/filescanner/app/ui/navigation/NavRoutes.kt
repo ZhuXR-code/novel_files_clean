@@ -14,6 +14,7 @@ object NavRoutes {
     const val CONFIG_EDIT = "config_edit/{id}"
     const val ONE_CLICK = "one_click_cleanup"
     const val LOG_VIEWER = "log_viewer"
+    const val DUP_RULE_CONFIG = "dup_rule_config"
 
 
     fun configEdit(id: Long) = "config_edit/$id"

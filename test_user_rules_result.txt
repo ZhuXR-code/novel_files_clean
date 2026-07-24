@@ -1,0 +1,42 @@
+=== 条件评估基础测试 ===
+  [PASS] 文本 eq 匹配
+  [PASS] 文本 eq 不匹配
+  [PASS] text contains
+  [PASS] text not_contains
+  [PASS] text starts_with
+  [PASS] text ends_with
+  [PASS] text regex
+  [PASS] 数值 file_size gt
+  [PASS] 数值 file_size lte
+  [PASS] 数值 file_size between
+  [PASS] 数值 progress gt (50>40)
+  [PASS] 数值 progress gt 不匹配 (50 not >60)
+  [PASS] 文本 progress eq(完结)
+
+=== 自定义规则 check action（跨子分组）===
+  [PASS] check 全部行 got [1, 2]
+  [PASS] check 特定行 got [1]
+
+=== 自定义规则 protect action（覆盖内置规则）===
+  [PASS] 内置规则: 保留最新,勾选文件1 got [1]
+  [PASS] protect 覆盖内置勾选→空 got []
+  [PASS] protect 不相关→保持内置 got [1]
+
+=== 复合条件 (AND) ===
+  [PASS] 某作 AND progress>40→只命中文件1 got [1]
+  [PASS] 某作 AND progress=完结→只命中文件2 got [2]
+
+=== 多规则组合：check + protect 顺序 ===
+  [PASS] 内置规则1: 勾选[1,2] got [1, 2]
+  [PASS] 多规则: check+protect→[1,3] got [1, 3]
+  [PASS] protect在最后→空 got []
+  [PASS] check在最后→全部勾选 got [1, 2, 3]
+
+=== 禁用内置规则 + 仅自定义规则 ===
+  [PASS] 禁内置+仅自定义 got [1, 2]
+  [PASS] 禁内置+无匹配→空 got []
+
+==== 自定义规则引擎测试: 26 pass / 0 fail ====
+
+PASS=26
+FAIL=0

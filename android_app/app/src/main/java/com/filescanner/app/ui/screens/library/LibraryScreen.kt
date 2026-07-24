@@ -406,7 +406,7 @@ private fun RunFilesScreen(
                     IconButton(onClick = { sortMenu = true }) {
                         Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.sort_time))
                     }
-                    // 方案 B：合集模式下，"标记重复"作为常驻主按钮（不再藏在 ⋮ 菜单里）
+                    // 方案 B：合集模式下，"勾选重复"作为常驻主按钮（不再藏在 ⋮ 菜单里）
                     if (groupMode) {
                         IconButton(
                             onClick = { viewModel.selectDuplicates() },
@@ -486,7 +486,7 @@ private fun RunFilesScreen(
                     .padding(padding)
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                // 清理步骤指示器：引导用户按 扫描→合集→标记重复→确认→删除 顺序操作
+                // 清理步骤指示器：引导用户按 扫描→合集→勾选重复→确认→删除 顺序操作
                 StepIndicator(
                     groupMode = groupMode,
                     checkedCount = checkedCount,
@@ -578,7 +578,7 @@ private fun RunFilesScreen(
                 Spacer(Modifier.height(8.dp))
             }
 
-            // 合集计算（标记重复）进度：进行中显示进度条，便于大库下观察进度
+            // 合集计算（勾选重复）进度：进行中显示进度条，便于大库下观察进度
             if (duplicateProgress >= 0) {
                 Column(
                     modifier = Modifier
@@ -1225,7 +1225,7 @@ private fun formatDate(ts: Long): String {
 }
 
 /**
- * 清理步骤指示器（Stepper）：扫描 → 合集模式 → 标记重复 → 确认勾选 → 删除。
+ * 清理步骤指示器（Stepper）：扫描 → 合集模式 → 勾选重复 → 确认勾选 → 删除。
  * 状态完全由现有 groupMode / checkedCount / duplicateProgress 推导，用于引导用户按顺序操作。
  */
 private data class StepInfo(

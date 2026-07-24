@@ -1,7 +1,7 @@
 package com.filescanner.app.util
 
 /**
- * 合集模式「标记重复」核心逻辑的独立测试。
+ * 合集模式「勾选重复」核心逻辑的独立测试。
  *
  * 本文件【逐字移植】自 FileRepository.selectDuplicateIds（含其五个私有辅助函数），
  * 仅去掉了 Room/DAO 依赖（getDuplicateRows 改由入参提供、去掉 setCheckedForIds 持久化、

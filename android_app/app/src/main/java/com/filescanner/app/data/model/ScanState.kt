@@ -55,7 +55,7 @@ object ScanStateManager {
     /**
      * 当前（或最近一次）扫描对应的文库 runId。
      * 供“一键清理”等编排流程在扫描完成后读取，以便对本次文库执行
-     * 标记重复 / 删除等操作。与扫描进度状态分开保存，避免被 ScanState 的
+     * 勾选重复 / 删除等操作。与扫描进度状态分开保存，避免被 ScanState 的
      * 多次 update() 覆盖清零。
      */
     private val _runId = MutableStateFlow(0L)

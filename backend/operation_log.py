@@ -1,7 +1,7 @@
 """操作日志模块（用户关键操作留痕）
 
 与 pipeline 调试日志（ParseLog / logger）不同，操作日志聚焦“用户做了什么”：
-标记重复、删除记录、清空配置、一键清理删除等。落盘到项目根 logs/operation.log，
+勾选重复、删除记录、清空配置、一键清理删除等。落盘到项目根 logs/operation.log，
 带滚动切分与实时 flush，供前端「操作日志」面板查看与一键复制。
 
 设计要点：
@@ -54,7 +54,7 @@ def _stamp():
 def log_operation(action, detail='', **meta):
     """记录一条操作日志。
 
-    action: 操作名，如 '标记重复' / '删除记录' / '清空扫描配置' / '一键清理-删除'
+    action: 操作名，如 '勾选重复' / '删除记录' / '清空扫描配置' / '一键清理-删除'
     detail: 单行摘要
     meta:   额外字段（以 key=value 追加），如 config_id=1, deleted=10
     """

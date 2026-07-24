@@ -1,0 +1,31 @@
+=== 1. 获取勾选重复规则列表 ===
+  [PASS] 返回列表 type=<class 'list'>
+  [PASS] 6条内置规则 got 6
+
+=== 2. 创建自定义规则 ===
+  [FAIL] 创建规则1: status=500
+  [FAIL] 创建规则: Expecting value: line 1 column 1 (char 0)
+
+=== 3. 删除内置规则(应禁止) ===
+  [PASS] 禁止删除内置 status=403
+
+=== 4. 删除自定义规则 ===
+  [SKIP] 无规则ID
+
+=== 5. 更新自定义规则 ===
+
+=== 6. 验证最终列表 ===
+  [FAIL] 总条数=7(6内置+1自定义): got 6
+    id=1 name=精确重复去重 is_builtin=True enabled=True
+    id=2 name=纯数字进度对比 is_builtin=True enabled=True
+    id=3 name=含中文进度保护 is_builtin=True enabled=True
+    id=4 name=完结特例 is_builtin=True enabled=True
+    id=5 name=最大文件不勾选 is_builtin=True enabled=True
+    id=6 name=完结+N番外去重 is_builtin=True enabled=True
+
+=== 7. 配置与前端 ===
+  [PASS] 获取配置 status=200
+  [PASS] 前端可访问 status=200
+  [PASS] 含app.js
+
+==== API 端点测试: 6 pass / 3 fail ====

@@ -111,6 +111,9 @@ dependencies {
     implementation("androidx.paging:paging-runtime:$pagingVersion")
     implementation("androidx.paging:paging-compose:$pagingVersion")
 
+    // 拼音搜索：输入 dpcq 搜到「斗破苍穹」
+    implementation("com.belerweb:pinyin4j:2.5.1")
+
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("com.google.code.gson:gson:2.11.0")

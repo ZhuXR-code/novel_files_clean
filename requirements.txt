@@ -9,3 +9,4 @@ chardet==5.2.0
 openpyxl>=3.1.0
 python-dotenv>=1.0.0
 zhconv>=1.4.3
+pypinyin>=0.51.0

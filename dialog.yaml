@@ -1,0 +1,577 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - heading "文件扫描管理系统" [level=1] [ref=e4]
+    - generic [ref=e5]:
+      - generic [ref=e6]: 方法一：配置扫描路径 → 扫描 → 工程类全部解析 → 合集模式 → 勾选重复 → 批量删除选中
+      - generic [ref=e7]: 方法二：配置扫描路径 → 一键清理 → 确认要删除的文件
+    - generic [ref=e8]:
+      - generic [ref=e9]:
+        - text: "文件总数:"
+        - strong [ref=e10]: "0"
+      - generic [ref=e11]:
+        - text: "已解析:"
+        - strong [ref=e12]: "0"
+  - main [ref=e13]:
+    - complementary [ref=e14]:
+      - button "◀" [ref=e15] [cursor=pointer]
+      - generic [ref=e16]:
+        - generic [ref=e17]:
+          - heading "扫描配置 + 新增" [level=2] [ref=e18]:
+            - generic [ref=e19]: 扫描配置
+            - button "+ 新增" [ref=e20] [cursor=pointer]
+          - generic [ref=e21]:
+            - generic [ref=e154] [cursor=pointer]:
+              - generic [ref=e155]: 测试文档
+              - generic [ref=e156]:
+                - generic "C:\\Users\\a\\Documents\\MuMu共享文件夹\\测试文档" [ref=e157]: "路径: C:\\Users\\a\\Documents\\MuMu共享文件夹\\测试文档"
+                - generic [ref=e158]: "类型: txt"
+                - generic [ref=e159]: 无排除
+              - generic [ref=e160]:
+                - button "▶ 扫描" [ref=e161]
+                - button "编辑" [ref=e162]
+                - button "删除" [ref=e163]
+            - generic [ref=e164] [cursor=pointer]:
+              - generic [ref=e165]: 测试文档
+              - generic [ref=e166]:
+                - generic "C:\\Users\\a\\Documents\\MuMu共享文件夹\\测试文档" [ref=e167]: "路径: C:\\Users\\a\\Documents\\MuMu共享文件夹\\测试文档"
+                - generic [ref=e168]: "类型: txt"
+                - generic [ref=e169]: 无排除
+              - generic [ref=e170]:
+                - button "▶ 扫描" [ref=e171]
+                - button "编辑" [ref=e172]
+                - button "删除" [ref=e173]
+            - generic [ref=e174] [cursor=pointer]:
+              - generic [ref=e175]: C:\Users\a/Documents
+              - generic [ref=e176]:
+                - generic [ref=e177]: "类型: txt"
+                - generic [ref=e178]: 无排除
+              - generic [ref=e179]:
+                - button "▶ 扫描" [ref=e180]
+                - button "编辑" [ref=e181]
+                - button "删除" [ref=e182]
+        - generic [ref=e51]:
+          - heading "列显示配置" [level=2] [ref=e52]
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - checkbox [checked] [ref=e55] [cursor=pointer]
+              - generic [ref=e56]: 文件名
+            - generic [ref=e57]:
+              - checkbox [checked] [ref=e58] [cursor=pointer]
+              - generic [ref=e59]: 文件大小
+            - generic [ref=e60]:
+              - checkbox [checked] [ref=e61] [cursor=pointer]
+              - generic [ref=e62]: 文件路径
+            - generic [ref=e63]:
+              - checkbox [checked] [ref=e64] [cursor=pointer]
+              - generic [ref=e65]: 创建日期
+            - generic [ref=e66]:
+              - checkbox [checked] [ref=e67] [cursor=pointer]
+              - generic [ref=e68]: 小说名
+            - generic [ref=e69]:
+              - checkbox [checked] [ref=e70] [cursor=pointer]
+              - generic [ref=e71]: 作者
+            - generic [ref=e72]:
+              - checkbox [ref=e73] [cursor=pointer]
+              - generic [ref=e74]: 标签
+            - generic [ref=e75]:
+              - checkbox [ref=e76] [cursor=pointer]
+              - generic [ref=e77]: 内容简介
+            - generic [ref=e78]:
+              - checkbox [ref=e79] [cursor=pointer]
+              - generic [ref=e80]: 核心亮点
+            - generic [ref=e81]:
+              - checkbox [ref=e82] [cursor=pointer]
+              - generic [ref=e83]: 主角
+            - generic [ref=e84]:
+              - checkbox [ref=e85] [cursor=pointer]
+              - generic [ref=e86]: 结局类型
+            - generic [ref=e87]:
+              - checkbox [ref=e88] [cursor=pointer]
+              - generic [ref=e89]: 文案
+            - generic [ref=e90]:
+              - checkbox [checked] [ref=e91] [cursor=pointer]
+              - generic [ref=e92]: 进度
+            - generic [ref=e93]:
+              - checkbox [checked] [ref=e94] [cursor=pointer]
+              - generic [ref=e95]: 来源
+    - generic [ref=e96]:
+      - generic [ref=e97]:
+        - generic [ref=e98] [cursor=pointer]: 数据列表
+        - generic [ref=e99] [cursor=pointer]: 一键清理
+        - generic [ref=e100] [cursor=pointer]: 设置
+        - generic [ref=e101] [cursor=pointer]: 帮助手册
+        - generic [ref=e102] [cursor=pointer]: 日志
+      - generic [ref=e1908]:
+        - heading "设置" [level=2] [ref=e1909]
+        - generic [ref=e1910]:
+          - heading "界面字体大小" [level=2] [ref=e1911]
+          - generic [ref=e1912] [cursor=pointer]:
+            - generic [ref=e1913]: 选择显示字号：
+            - combobox [ref=e1914]:
+              - option "小"
+              - option "标准" [selected]
+              - option "大"
+            - generic [ref=e1915]: 当前：标准
+        - generic [ref=e1916]:
+          - heading "勾选重复规则" [level=2] [ref=e1917]
+          - paragraph [ref=e1918]: 选择「勾选重复」时应用的重复检测规则。勾选的规则才会生效，默认全部启用。 内置规则不可删除；自定义规则可增删改，按「条件-动作」模式配置。
+          - generic [ref=e1919]:
+            - button "保存规则配置" [ref=e1920] [cursor=pointer]
+            - button "＋ 添加自定义规则" [active] [ref=e1921] [cursor=pointer]
+        - generic [ref=e2260]:
+          - heading "添加自定义去重规则" [level=3] [ref=e2261]
+          - generic [ref=e2262]:
+            - generic [ref=e2263]: 规则名称
+            - textbox "例如：去掉带水印的文件" [ref=e2264]
+          - generic [ref=e2265]:
+            - generic [ref=e2266]: 动作
+            - combobox [ref=e2267]:
+              - option "勾选该行（条件满足时标记为待删）" [selected]
+              - option "保护该行（条件满足时取消勾选）"
+          - generic [ref=e2268]:
+            - generic [ref=e2269]: 条件列表（所有条件需同时满足）
+            - generic [ref=e2271]:
+              - generic [ref=e2272]: 如果
+              - combobox [ref=e2273]:
+                - option "文件名" [selected]
+                - option "小说名"
+                - option "作者"
+                - option "进度"
+                - option "来源"
+                - option "文件大小（字节）"
+                - option "创建日期"
+              - combobox [ref=e2274]:
+                - option "等于"
+                - option "不等于"
+                - option "包含" [selected]
+                - option "不包含"
+                - option "开头是"
+                - option "结尾是"
+                - option "匹配正则"
+              - textbox "值" [ref=e2275]
+              - button "✕" [ref=e2276] [cursor=pointer]
+            - button "＋ 添加条件" [ref=e2277] [cursor=pointer]
+          - generic [ref=e2278]:
+            - generic [ref=e2279]: 备注说明（可选）
+            - textbox "简短描述这条规则的作用" [ref=e2280]
+          - generic [ref=e2281]:
+            - button "取消" [ref=e2282] [cursor=pointer]
+            - button "保存" [ref=e2283] [cursor=pointer]
+        - paragraph [ref=e1922]:
+          - text: 配置关键词替换规则。规则按「作用域」分别生效：
+          - strong [ref=e1923]: 扫描阶段
+          - text: 作用于扫描得到的文件名（含后缀）；
+          - strong [ref=e1924]: 解析阶段
+          - text: 作用于工程解析提取出的书名 / 作者 / 进度 / 来源。多个规则按「顺序」依次执行。
+        - generic [ref=e1925]:
+          - heading "扫描阶段 · 文件名替换" [level=2] [ref=e1926]
+          - generic [ref=e1927]:
+            - generic [ref=e1928] [cursor=pointer]:
+              - generic [ref=e1929]: "0"
+              - generic [ref=e1930]:
+                - code [ref=e1931]: "[草2莓]"
+                - text: →
+                - code [ref=e1932]: <删除>
+              - generic [ref=e1933]:
+                - checkbox "启用" [checked] [ref=e1934]
+                - text: 启用
+              - button "编辑" [ref=e1935]
+              - button "删除" [ref=e1936]
+            - generic [ref=e1937] [cursor=pointer]:
+              - generic [ref=e1938]: "0"
+              - generic [ref=e1939]:
+                - code [ref=e1940]: （求票票）
+                - text: →
+                - code [ref=e1941]: <删除>
+              - generic [ref=e1942]:
+                - checkbox "启用" [checked] [ref=e1943]
+                - text: 启用
+              - button "编辑" [ref=e1944]
+              - button "删除" [ref=e1945]
+            - generic [ref=e1946] [cursor=pointer]:
+              - generic [ref=e1947]: "2"
+              - generic [ref=e1948]:
+                - code [ref=e1949]: 【草2莓
+                - text: →
+                - code [ref=e1950]: <删除>
+              - generic [ref=e1951]:
+                - checkbox "启用" [checked] [ref=e1952]
+                - text: 启用
+              - button "编辑" [ref=e1953]
+              - button "删除" [ref=e1954]
+            - generic [ref=e1955] [cursor=pointer]:
+              - generic [ref=e1956]: "3"
+              - generic [ref=e1957]:
+                - code [ref=e1958]: 【草2莓】
+                - text: →
+                - code [ref=e1959]: <删除>
+              - generic [ref=e1960]:
+                - checkbox "启用" [checked] [ref=e1961]
+                - text: 启用
+              - button "编辑" [ref=e1962]
+              - button "删除" [ref=e1963]
+            - generic [ref=e1964] [cursor=pointer]:
+              - generic [ref=e1965]: "4"
+              - generic [ref=e1966]:
+                - code [ref=e1967]: "[草 莓]"
+                - text: →
+                - code [ref=e1968]: <删除>
+              - generic [ref=e1969]:
+                - checkbox "启用" [checked] [ref=e1970]
+                - text: 启用
+              - button "编辑" [ref=e1971]
+              - button "删除" [ref=e1972]
+            - generic [ref=e1973] [cursor=pointer]:
+              - generic [ref=e1974]: "5"
+              - generic [ref=e1975]:
+                - code [ref=e1976]: "[草 莓"
+                - text: →
+                - code [ref=e1977]: <删除>
+              - generic [ref=e1978]:
+                - checkbox "启用" [checked] [ref=e1979]
+                - text: 启用
+              - button "编辑" [ref=e1980]
+              - button "删除" [ref=e1981]
+            - generic [ref=e1982] [cursor=pointer]:
+              - generic [ref=e1983]: "6"
+              - generic [ref=e1984]:
+                - code [ref=e1985]: 【lili】
+                - text: →
+                - code [ref=e1986]: <删除>
+              - generic [ref=e1987]:
+                - checkbox "启用" [checked] [ref=e1988]
+                - text: 启用
+              - button "编辑" [ref=e1989]
+              - button "删除" [ref=e1990]
+            - generic [ref=e1991] [cursor=pointer]:
+              - generic [ref=e1992]: "7"
+              - generic [ref=e1993]:
+                - code [ref=e1994]: （l.i.）
+                - text: →
+                - code [ref=e1995]: <删除>
+              - generic [ref=e1996]:
+                - checkbox "启用" [checked] [ref=e1997]
+                - text: 启用
+              - button "编辑" [ref=e1998]
+              - button "删除" [ref=e1999]
+            - generic [ref=e2000] [cursor=pointer]:
+              - generic [ref=e2001]: "8"
+              - generic [ref=e2002]:
+                - code [ref=e2003]: (l.i.）
+                - text: →
+                - code [ref=e2004]: <删除>
+              - generic [ref=e2005]:
+                - checkbox "启用" [checked] [ref=e2006]
+                - text: 启用
+              - button "编辑" [ref=e2007]
+              - button "删除" [ref=e2008]
+            - generic [ref=e2009] [cursor=pointer]:
+              - generic [ref=e2010]: "9"
+              - generic [ref=e2011]:
+                - code [ref=e2012]: （l.i.)
+                - text: →
+                - code [ref=e2013]: <删除>
+              - generic [ref=e2014]:
+                - checkbox "启用" [checked] [ref=e2015]
+                - text: 启用
+              - button "编辑" [ref=e2016]
+              - button "删除" [ref=e2017]
+            - generic [ref=e2018] [cursor=pointer]:
+              - generic [ref=e2019]: "10"
+              - generic [ref=e2020]:
+                - code [ref=e2021]: (l.i.)
+                - text: →
+                - code [ref=e2022]: <删除>
+              - generic [ref=e2023]:
+                - checkbox "启用" [checked] [ref=e2024]
+                - text: 启用
+              - button "编辑" [ref=e2025]
+              - button "删除" [ref=e2026]
+            - generic [ref=e2027] [cursor=pointer]:
+              - generic [ref=e2028]: "11"
+              - generic [ref=e2029]:
+                - code [ref=e2030]: ..txt
+                - text: →
+                - code [ref=e2031]: .txt
+              - generic [ref=e2032]:
+                - checkbox "启用" [checked] [ref=e2033]
+                - text: 启用
+              - button "编辑" [ref=e2034]
+              - button "删除" [ref=e2035]
+            - generic [ref=e2036] [cursor=pointer]:
+              - generic [ref=e2037]: "12"
+              - generic [ref=e2038]:
+                - code [ref=e2039]: 【草莓】
+                - text: →
+                - code [ref=e2040]: <删除>
+              - generic [ref=e2041]:
+                - checkbox "启用" [checked] [ref=e2042]
+                - text: 启用
+              - button "编辑" [ref=e2043]
+              - button "删除" [ref=e2044]
+            - generic [ref=e2045] [cursor=pointer]:
+              - generic [ref=e2046]: "13"
+              - generic [ref=e2047]:
+                - code [ref=e2048]: 【草 莓
+                - text: →
+                - code [ref=e2049]: <删除>
+              - generic [ref=e2050]:
+                - checkbox "启用" [checked] [ref=e2051]
+                - text: 启用
+              - button "编辑" [ref=e2052]
+              - button "删除" [ref=e2053]
+            - generic [ref=e2054] [cursor=pointer]:
+              - generic [ref=e2055]: "14"
+              - generic [ref=e2056]:
+                - code [ref=e2057]: 【＋V信kxee6699】
+                - text: →
+                - code [ref=e2058]: <删除>
+              - generic [ref=e2059]:
+                - checkbox "启用" [checked] [ref=e2060]
+                - text: 启用
+              - button "编辑" [ref=e2061]
+              - button "删除" [ref=e2062]
+            - generic [ref=e2063] [cursor=pointer]:
+              - generic [ref=e2064]: "15"
+              - generic [ref=e2065]:
+                - code [ref=e2066]: .3167 937770
+                - text: →
+                - code [ref=e2067]: <删除>
+              - generic [ref=e2068]:
+                - checkbox "启用" [checked] [ref=e2069]
+                - text: 启用
+              - button "编辑" [ref=e2070]
+              - button "删除" [ref=e2071]
+            - generic [ref=e2072] [cursor=pointer]:
+              - generic [ref=e2073]: "16"
+              - generic [ref=e2074]:
+                - code [ref=e2075]: 【颜3167 937770
+                - text: →
+                - code [ref=e2076]: <删除>
+              - generic [ref=e2077]:
+                - checkbox "启用" [checked] [ref=e2078]
+                - text: 启用
+              - button "编辑" [ref=e2079]
+              - button "删除" [ref=e2080]
+            - generic [ref=e2081] [cursor=pointer]:
+              - generic [ref=e2082]: "17"
+              - generic [ref=e2083]:
+                - code [ref=e2084]: 【Q主caomeiの企鹅3167 937770】
+                - text: →
+                - code [ref=e2085]: <删除>
+              - generic [ref=e2086]:
+                - checkbox "启用" [checked] [ref=e2087]
+                - text: 启用
+              - button "编辑" [ref=e2088]
+              - button "删除" [ref=e2089]
+            - generic [ref=e2090] [cursor=pointer]:
+              - generic [ref=e2091]: "18"
+              - generic [ref=e2092]:
+                - code [ref=e2093]: 【Q主caomei】
+                - text: →
+                - code [ref=e2094]: <删除>
+              - generic [ref=e2095]:
+                - checkbox "启用" [checked] [ref=e2096]
+                - text: 启用
+              - button "编辑" [ref=e2097]
+              - button "删除" [ref=e2098]
+            - generic [ref=e2099] [cursor=pointer]:
+              - generic [ref=e2100]: "19"
+              - generic [ref=e2101]:
+                - code [ref=e2102]: _caomeiの企鹅3167 937770_
+                - text: →
+                - code [ref=e2103]: <删除>
+              - generic [ref=e2104]:
+                - checkbox "启用" [checked] [ref=e2105]
+                - text: 启用
+              - button "编辑" [ref=e2106]
+              - button "删除" [ref=e2107]
+            - generic [ref=e2108] [cursor=pointer]:
+              - generic [ref=e2109]: "20"
+              - generic [ref=e2110]:
+                - code [ref=e2111]: （caomeiの企鹅3167 937770
+                - text: →
+                - code [ref=e2112]: <删除>
+              - generic [ref=e2113]:
+                - checkbox "启用" [checked] [ref=e2114]
+                - text: 启用
+              - button "编辑" [ref=e2115]
+              - button "删除" [ref=e2116]
+            - generic [ref=e2117] [cursor=pointer]:
+              - generic [ref=e2118]: "21"
+              - generic [ref=e2119]:
+                - code [ref=e2120]: (caomeiの企鹅3167 937770
+                - text: →
+                - code [ref=e2121]: <删除>
+              - generic [ref=e2122]:
+                - checkbox "启用" [checked] [ref=e2123]
+                - text: 启用
+              - button "编辑" [ref=e2124]
+              - button "删除" [ref=e2125]
+            - generic [ref=e2126] [cursor=pointer]:
+              - generic [ref=e2127]: "22"
+              - generic [ref=e2128]:
+                - code [ref=e2129]: 【qzcaomeiの企鹅3167 937770
+                - text: →
+                - code [ref=e2130]: <删除>
+              - generic [ref=e2131]:
+                - checkbox "启用" [checked] [ref=e2132]
+                - text: 启用
+              - button "编辑" [ref=e2133]
+              - button "删除" [ref=e2134]
+            - generic [ref=e2135] [cursor=pointer]:
+              - generic [ref=e2136]: "23"
+              - generic [ref=e2137]:
+                - code [ref=e2138]: .QZcaomeiの企鹅3167 937770
+                - text: →
+                - code [ref=e2139]: <删除>
+              - generic [ref=e2140]:
+                - checkbox "启用" [checked] [ref=e2141]
+                - text: 启用
+              - button "编辑" [ref=e2142]
+              - button "删除" [ref=e2143]
+            - generic [ref=e2144] [cursor=pointer]:
+              - generic [ref=e2145]: "24"
+              - generic [ref=e2146]:
+                - code [ref=e2147]: _caomeiの企鹅3167 937770
+                - text: →
+                - code [ref=e2148]: <删除>
+              - generic [ref=e2149]:
+                - checkbox "启用" [checked] [ref=e2150]
+                - text: 启用
+              - button "编辑" [ref=e2151]
+              - button "删除" [ref=e2152]
+            - generic [ref=e2153] [cursor=pointer]:
+              - generic [ref=e2154]: "25"
+              - generic [ref=e2155]:
+                - code [ref=e2156]: .caomeiの企鹅3167 937770
+                - text: →
+                - code [ref=e2157]: <删除>
+              - generic [ref=e2158]:
+                - checkbox "启用" [checked] [ref=e2159]
+                - text: 启用
+              - button "编辑" [ref=e2160]
+              - button "删除" [ref=e2161]
+            - generic [ref=e2162] [cursor=pointer]:
+              - generic [ref=e2163]: "26"
+              - generic [ref=e2164]:
+                - code [ref=e2165]: の企鹅3167 937770
+                - text: →
+                - code [ref=e2166]: <删除>
+              - generic [ref=e2167]:
+                - checkbox "启用" [checked] [ref=e2168]
+                - text: 启用
+              - button "编辑" [ref=e2169]
+              - button "删除" [ref=e2170]
+            - generic [ref=e2171] [cursor=pointer]:
+              - generic [ref=e2172]: "27"
+              - generic [ref=e2173]:
+                - code [ref=e2174]: "[3167 937770]"
+                - text: →
+                - code [ref=e2175]: <删除>
+              - generic [ref=e2176]:
+                - checkbox "启用" [checked] [ref=e2177]
+                - text: 启用
+              - button "编辑" [ref=e2178]
+              - button "删除" [ref=e2179]
+            - generic [ref=e2180] [cursor=pointer]:
+              - generic [ref=e2181]: "28"
+              - generic [ref=e2182]:
+                - code [ref=e2183]: "[3167 937770"
+                - text: →
+                - code [ref=e2184]: <删除>
+              - generic [ref=e2185]:
+                - checkbox "启用" [checked] [ref=e2186]
+                - text: 启用
+              - button "编辑" [ref=e2187]
+              - button "删除" [ref=e2188]
+            - generic [ref=e2189] [cursor=pointer]:
+              - generic [ref=e2190]: "29"
+              - generic [ref=e2191]:
+                - code [ref=e2192]: "3167937770"
+                - text: →
+                - code [ref=e2193]: <删除>
+              - generic [ref=e2194]:
+                - checkbox "启用" [checked] [ref=e2195]
+                - text: 启用
+              - button "编辑" [ref=e2196]
+              - button "删除" [ref=e2197]
+            - generic [ref=e2198] [cursor=pointer]:
+              - generic [ref=e2199]: "30"
+              - generic [ref=e2200]:
+                - code [ref=e2201]: _3167 937770
+                - text: →
+                - code [ref=e2202]: <删除>
+              - generic [ref=e2203]:
+                - checkbox "启用" [checked] [ref=e2204]
+                - text: 启用
+              - button "编辑" [ref=e2205]
+              - button "删除" [ref=e2206]
+            - generic [ref=e2207] [cursor=pointer]:
+              - generic [ref=e2208]: "31"
+              - generic [ref=e2209]:
+                - code [ref=e2210]: （颜3167 937770
+                - text: →
+                - code [ref=e2211]: <删除>
+              - generic [ref=e2212]:
+                - checkbox "启用" [checked] [ref=e2213]
+                - text: 启用
+              - button "编辑" [ref=e2214]
+              - button "删除" [ref=e2215]
+            - generic [ref=e2216] [cursor=pointer]:
+              - generic [ref=e2217]: "32"
+              - generic [ref=e2218]:
+                - code [ref=e2219]: 【3167 937770]
+                - text: →
+                - code [ref=e2220]: <删除>
+              - generic [ref=e2221]:
+                - checkbox "启用" [checked] [ref=e2222]
+                - text: 启用
+              - button "编辑" [ref=e2223]
+              - button "删除" [ref=e2224]
+            - generic [ref=e2225] [cursor=pointer]:
+              - generic [ref=e2226]: "33"
+              - generic [ref=e2227]:
+                - code [ref=e2228]: _.txt
+                - text: →
+                - code [ref=e2229]: .txt
+              - generic [ref=e2230]:
+                - checkbox "启用" [checked] [ref=e2231]
+                - text: 启用
+              - button "编辑" [ref=e2232]
+              - button "删除" [ref=e2233]
+          - generic [ref=e2234]:
+            - generic [ref=e2235]:
+              - text: 查找
+              - textbox "查找" [ref=e2236]:
+                - /placeholder: 如 【草2莓】
+            - generic [ref=e2237]:
+              - text: 替换为
+              - textbox "替换为" [ref=e2238]:
+                - /placeholder: 留空=删除
+            - generic [ref=e2239]:
+              - text: 顺序
+              - spinbutton "顺序" [ref=e2240]: "0"
+            - generic [ref=e2241]:
+              - checkbox "启用" [checked] [ref=e2242]
+              - text: 启用
+            - button "添加规则" [ref=e2243] [cursor=pointer]
+        - generic [ref=e2244]:
+          - heading "解析阶段 · 书名/作者/进度/来源替换" [level=2] [ref=e2245]
+          - generic [ref=e2246]: 暂无规则
+          - generic [ref=e2248]:
+            - generic [ref=e2249]:
+              - text: 查找
+              - textbox "查找" [ref=e2250]:
+                - /placeholder: 如 [草2莓]
+            - generic [ref=e2251]:
+              - text: 替换为
+              - textbox "替换为" [ref=e2252]:
+                - /placeholder: 留空=删除
+            - generic [ref=e2253]:
+              - text: 顺序
+              - spinbutton "顺序" [ref=e2254]: "0"
+            - generic [ref=e2255]:
+              - checkbox "启用" [checked] [ref=e2256]
+              - text: 启用
+            - button "添加规则" [ref=e2257] [cursor=pointer]

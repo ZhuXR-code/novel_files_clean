@@ -287,8 +287,8 @@ struct DupRuleSettings {
 
           Text('命中后动作').fontSize(13).fontColor('#555')
           Row({ space: 12 }) {
-            this.actionRadio('勾选(标记重复)', 'check')
-            this.actionRadio('保护(不勾选)', 'protect')
+            this.actionBtn('勾选(标记重复)', 'check')
+            this.actionBtn('保护(不勾选)', 'protect')
           }
 
           Row() {
@@ -318,34 +318,32 @@ struct DupRuleSettings {
   }
 
   @Builder
-  actionRadio(label: string, value: string) {
-    Row({ space: 4 }) {
-      Radio({ value: value, group: 'action' })
-        .checked(this.editAction === value)
-        .onChange((v: boolean) => { if (v) { this.editAction = value } })
-      Text(label).fontSize(13)
-    }
+  actionBtn(label: string, value: string) {
+    Button(label)
+      .fontSize(13)
+      .height(34)
+      .layoutWeight(1)
+      .backgroundColor(this.editAction === value ? '#007aff' : '#e0e0e0')
+      .fontColor(this.editAction === value ? Color.White : '#333')
+      .onClick(() => { this.editAction = value })
   }
 
   @Builder
   condEditor(c: EditCond, idx: number) {
     Column({ space: 6 }) {
       Row({ space: 6 }) {
+        Text('如果').fontSize(12).fontWeight(FontWeight.Medium).alignSelf(VerticalAlign.Center)
         Select(FIELD_OPTIONS)
           .value(this.fieldLabel(c.field))
-          .width('40%')
+          .layoutWeight(1)
           .onSelect((i: number) => {
             c.field = FIELD_OPTIONS[i].value as string
             this.editConds = [...this.editConds]
           })
-        Select(OP_OPTIONS)
-          .value(this.opLabel(c.op))
-          .width('40%')
-          .onSelect((i: number) => {
-            c.op = OP_OPTIONS[i].value as string
-            this.editConds = [...this.editConds]
-          })
-        Button('删').fontSize(12).height(30).backgroundColor('#ff3b30').fontColor(Color.White)
+        Button('删')
+          .fontSize(12).height(28).width(40)
+          .backgroundColor('#ff3b30').fontColor(Color.White)
+          .enabled(this.editConds.length > 1)
           .onClick(() => {
             this.editConds.splice(idx, 1)
             this.editConds = [...this.editConds]
@@ -353,11 +351,22 @@ struct DupRuleSettings {
       }
       .width('100%')
 
-      TextInput({ placeholder: '值', text: c.value })
-        .onChange((v: string) => {
-          c.value = v
-          this.editConds = [...this.editConds]
-        })
+      Row({ space: 6 }) {
+        Select(OP_OPTIONS)
+          .value(this.opLabel(c.op))
+          .layoutWeight(1)
+          .onSelect((i: number) => {
+            c.op = OP_OPTIONS[i].value as string
+            this.editConds = [...this.editConds]
+          })
+        TextInput({ placeholder: '值', text: c.value })
+          .layoutWeight(1)
+          .onChange((v: string) => {
+            c.value = v
+            this.editConds = [...this.editConds]
+          })
+      }
+      .width('100%')
     }
     .width('100%')
     .padding(10)

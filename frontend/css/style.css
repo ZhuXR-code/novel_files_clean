@@ -505,6 +505,43 @@ body[data-font="large"]    { zoom: 1.18; }
     box-sizing: content-box;
 }
 
+/* ===================== 勾选状态筛选按钮 ===================== */
+.checked-filter-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+}
+.checked-filter-btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    background: transparent;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: var(--font);
+    color: var(--text-secondary);
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+.checked-filter-btn:first-child {
+    border-radius: 4px 0 0 4px;
+}
+.checked-filter-btn:last-child {
+    border-radius: 0 4px 4px 0;
+}
+.checked-filter-btn:not(:last-child) {
+    border-right: none;
+}
+.checked-filter-btn:hover {
+    background: var(--bg);
+    color: var(--text);
+}
+.checked-filter-btn.active {
+    background: var(--text);
+    color: var(--surface);
+    border-color: var(--text);
+    z-index: 1;
+}
+
 .btn-active {
     background: var(--primary) !important;
     color: #fff !important;

@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 一键清理：对齐电脑端“一键清理”流程（扫描 → 标记重复 → 删除）。
+ * 一键清理：对齐电脑端“一键清理”流程（扫描 → 勾选重复 → 删除）。
  *
  * 阶段（phase）：
  *  - idle    ：未开始，选择文件夹
