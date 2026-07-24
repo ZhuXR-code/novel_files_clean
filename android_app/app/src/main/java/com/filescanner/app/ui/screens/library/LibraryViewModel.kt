@@ -137,9 +137,24 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _duplicateProgress = MutableStateFlow(-1)
     val duplicateProgress: StateFlow<Int> = _duplicateProgress
 
+    /** 合集排序模式。合集模式下右上角 ⋮ 菜单中切换。 */
+    enum class GroupSortMode(val value: String) {
+        COUNT_DESC("count_desc"),
+        COUNT_ASC("count_asc"),
+        SIZE_DESC("size_desc"),
+        SIZE_ASC("size_asc"),
+        NAME_ASC("name_asc"),
+        NAME_DESC("name_desc"),
+        DATE_NEWEST("date_newest"),
+        DATE_OLDEST("date_oldest")
+    }
+
     // ===================== 合集模式 =====================
     private val _groupMode = MutableStateFlow(false)
     val groupMode: StateFlow<Boolean> = _groupMode
+
+    private val _groupSort = MutableStateFlow(GroupSortMode.COUNT_DESC)
+    val groupSort: StateFlow<GroupSortMode> = _groupSort
 
     // 合集筛选参数（初始化时从 DataStore 读取）
     private val _groupMinCount = MutableStateFlow(0)
@@ -207,12 +222,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }.flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ListPageState())
 
-    /** 合集模式「当前页」状态流（真·页码分页）：区间/排除/搜索/每页条数/当前页 任一变化都重新查询。 */
+    /** 合集模式「当前页」状态流（真·页码分页）：区间/排除/搜索/排序/每页条数/当前页 任一变化都重新查询。 */
     val groupPageState: StateFlow<GroupPageState> =
         combine(
             combine(_groupMinCount, _groupMaxCount, _groupExcludeNames, _queryDebounced, _filter) { min, max, exclude, q, f ->
                 arrayOf(min, max, exclude, q, f)
-            },
+            }.combine(_groupSort) { arr, sort -> arr + sort },
             _currentRunId,
             _pageKey
         ) { arr, runId, key -> Triple(arr, runId, key) }
@@ -222,12 +237,13 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 val exclude = LibraryLogic.parseExcludeNames(arr[2] as String)
                 val q = arr[3] as String
                 val f = arr[4] as FilterMode
+                val sort = (arr[5] as GroupSortMode)
                 val filterName = f.name
                 val (ps, page) = key
                 if (runId == null) return@flatMapLatest flowOf(GroupPageState(loading = false))
                 combine(
                     repo.groupsCountFlow(min, max, exclude, q, runId, filterName),
-                    repo.groupsPageFlow(min, max, exclude, q, runId, ps, page, filterName),
+                    repo.groupsPageFlow(min, max, exclude, q, runId, ps, page, filterName, sort.value),
                     _pendingDeletedGroupDeltas
                 ) { total, groups, deltas ->
                     val effectiveGroups = groups.map { group ->
@@ -311,6 +327,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun toggleGroupMode() = setGroupMode(!_groupMode.value)
+
+    /** 切换合集排序方式，回到第 1 页。 */
+    fun setGroupSort(sort: GroupSortMode) {
+        _groupSort.value = sort
+        _currentPage.value = 0
+    }
 
     /** 保存合集筛选设置（数量区间 + 排除列表），并持久化。 */
     fun applyGroupFilter(minCount: Int, maxCount: Int, excludeNames: String) {
@@ -495,6 +517,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         if (file.checked == 1) {
             _pendingDeletedCheckedCount.value = _pendingDeletedCheckedCount.value + 1
         }
+        // 触发一次重查，使列表/合集页立即隐藏已删文件（修复从详情返回后条目仍在的问题）
+        _reloadSignal.value += 1
     }
 
     /** 取出当前文库所有【已勾选】(checked) 的文件 id，交给删除流程（暂存单例）。 */

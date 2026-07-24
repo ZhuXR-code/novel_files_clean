@@ -89,6 +89,7 @@ fun AppNavigation() {
                         putExtra("excluded_folders", config.excludedFolders)
                         putExtra("config_name", config.name)
                         putExtra("folder_name", config.folderName)
+                        putExtra("scan_mode", config.scanMode.ifBlank { "quick" })
                     }
                     ctx.startForegroundService(intent)
                     navController.navigate(NavRoutes.SCAN_PROGRESS)

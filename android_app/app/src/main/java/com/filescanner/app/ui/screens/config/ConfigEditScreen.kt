@@ -28,6 +28,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -75,6 +76,7 @@ fun ConfigEditScreen(
     var excludedNames by remember { mutableStateOf(listOf<String>()) }
     var minSize by remember { mutableStateOf("0") }
     var recursive by remember { mutableStateOf(true) }
+    var scanMode by remember { mutableStateOf("quick") }
 
     // 编辑已有配置：按 id 载入并反显
     LaunchedEffect(configId) {
@@ -89,6 +91,7 @@ fun ConfigEditScreen(
                     .filter { it.isNotEmpty() }
                 minSize = cfg.minSizeKb.toString()
                 recursive = cfg.recursive
+                scanMode = cfg.scanMode.ifEmpty { "quick" }
             }
         } else {
             // 新建：用全局默认设置预填（来自设置页）
@@ -301,6 +304,30 @@ fun ConfigEditScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            // 扫描模式
+            Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        stringResource(R.string.scan_mode_label),
+                        fontWeight = MaterialTheme.typography.titleSmall.fontWeight
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+                        RadioButton(selected = scanMode == "quick", onClick = { scanMode = "quick" })
+                        Text(stringResource(R.string.scan_mode_quick), modifier = Modifier.padding(end = 16.dp))
+                        RadioButton(selected = scanMode == "deep", onClick = { scanMode = "deep" })
+                        Text(stringResource(R.string.scan_mode_deep))
+                    }
+                    Text(
+                        text = if (scanMode == "quick")
+                            stringResource(R.string.scan_mode_quick_desc)
+                        else stringResource(R.string.scan_mode_deep_desc),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+
             // 递归
             Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
                 Row(
@@ -330,7 +357,8 @@ fun ConfigEditScreen(
                         minSizeKb = minSize.toIntOrNull() ?: 0,
                         recursive = recursive,
                         exactHash = false,
-                        excludedFolders = excludedNames.joinToString(",")
+                        excludedFolders = excludedNames.joinToString(","),
+                        scanMode = scanMode
                     )
                     viewModel.upsert(cfg) { onBack() }
                 },

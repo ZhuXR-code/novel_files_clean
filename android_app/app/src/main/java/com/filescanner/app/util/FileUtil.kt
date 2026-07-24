@@ -12,7 +12,7 @@ import androidx.documentfile.provider.DocumentFile
 /**
  * 收集阶段产出的文件条目，直接带出大小，避免后续再走一次 contentResolver 查询。
  */
-data class FileEntry(val name: String, val uri: Uri, val size: Long)
+data class FileEntry(val name: String, val uri: Uri, val size: Long, val lastModified: Long = 0L)
 
 object FileUtil {
     /**
@@ -133,7 +133,8 @@ object FileUtil {
         val colSize = DocumentsContract.Document.COLUMN_SIZE
         val colMime = DocumentsContract.Document.COLUMN_MIME_TYPE
         val colFlags = DocumentsContract.Document.COLUMN_FLAGS
-        val projection = arrayOf(colId, colName, colSize, colMime, colFlags)
+        val colLastMod = DocumentsContract.Document.COLUMN_LAST_MODIFIED
+        val projection = arrayOf(colId, colName, colSize, colMime, colFlags, colLastMod)
         val mimeDir = DocumentsContract.Document.MIME_TYPE_DIR
         val rootDocId = DocumentsContract.getTreeDocumentId(treeUri)
         LogUtil.i("FileUtil", "rootDocId=$rootDocId treeUri=$treeUri")
@@ -167,6 +168,8 @@ object FileUtil {
                     val nameCol = cur.getColumnIndexOrThrow(colName)
                     val sizeCol = cur.getColumnIndexOrThrow(colSize)
                     val mimeCol = cur.getColumnIndexOrThrow(colMime)
+                    // COLUMN_LAST_MODIFIED 不一定在所有 provider 都返回，回退到 0
+                    val lastModCol = cur.getColumnIndex(colLastMod)
                     while (cur.moveToNext()) {
                         if (stopped.get()) break
                         val docId = cur.getString(idCol) ?: continue
@@ -181,7 +184,8 @@ object FileUtil {
                             val len = if (cur.isNull(sizeCol)) 0L else cur.getLong(sizeCol)
                             if (isSupportedFile(name, typeSet) && len >= minSize) {
                                 val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-                                results.add(FileEntry(name, docUri, len))
+                                val lastMod = if (lastModCol >= 0 && !cur.isNull(lastModCol)) cur.getLong(lastModCol) else 0L
+                                results.add(FileEntry(name, docUri, len, lastMod))
                                 val n = foundCount.incrementAndGet()
                                 // 节流上报进度，避免 10w 次回调压垮 UI
                                 if (n % 64 == 0) onFound?.invoke(n)
@@ -258,7 +262,8 @@ object FileUtil {
             "_id",
             "_display_name",
             "_size",
-            "relative_path"
+            "relative_path",
+            "date_modified"
         )
         val base = if (root.second.isEmpty()) "" else root.second + "/"
         val (selection, selArgs) = if (recursive) {
@@ -281,6 +286,7 @@ object FileUtil {
                 val nameCol = c.getColumnIndexOrThrow("_display_name")
                 val sizeCol = c.getColumnIndexOrThrow("_size")
                 val relCol = c.getColumnIndexOrThrow("relative_path")
+                val dateModCol = c.getColumnIndex("date_modified")
                 while (c.moveToNext()) {
                     val name = c.getString(nameCol) ?: continue
                     if (!isSupportedFile(name, typeSet)) continue
@@ -293,7 +299,8 @@ object FileUtil {
                     if (len < minSize) continue
                     val docId = "$volumeId:$rel$name"
                     val docUri = DocumentsContract.buildDocumentUriUsingTree(folderUri, docId)
-                    results.add(FileEntry(name, docUri, len))
+                    val lastMod = if (dateModCol >= 0 && !c.isNull(dateModCol)) c.getLong(dateModCol) * 1000L else 0L
+                    results.add(FileEntry(name, docUri, len, lastMod))
                     onFound?.invoke(results.size)
                 }
             }

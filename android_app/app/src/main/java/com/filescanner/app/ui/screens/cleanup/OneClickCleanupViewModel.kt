@@ -104,6 +104,7 @@ class OneClickCleanupViewModel(application: android.app.Application) :
             putExtra("excluded_folders", "")
             putExtra("config_name", "$folderName·一键清理")
             putExtra("folder_name", folderName)
+            putExtra("scan_mode", "quick")
         }
         context.startForegroundService(intent)
     }

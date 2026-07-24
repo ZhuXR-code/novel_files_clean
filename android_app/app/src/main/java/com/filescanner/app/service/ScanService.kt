@@ -58,6 +58,8 @@ class ScanService : Service() {
             val recursive = intent.getBooleanExtra("recursive", true)
             // 需要排除的子文件夹名称（逗号分隔）
             val excludedFolders = intent.getStringExtra("excluded_folders") ?: ""
+            // 扫描模式："quick"=快速扫描(不检测编码)，"deep"=深度扫描(检测编码)
+            val scanMode = intent.getStringExtra("scan_mode") ?: "quick"
             // 文库（本次扫描）名称与展示用文件夹名
             val configName = intent.getStringExtra("config_name") ?: ""
             val folderName = intent.getStringExtra("folder_name") ?: ""
@@ -72,12 +74,13 @@ class ScanService : Service() {
                     recursive = recursive,
                     excludedFolders = excludedFolders,
                     configName = configName,
-                    folderName = folderName
+                    folderName = folderName,
+                    scanMode = scanMode
                 )
             )
 
             startForeground(NOTIFICATION_ID, createNotification(getString(R.string.scan_preparing)))
-            startScanning(treeUri, fileTypes, minSizeKb, recursive, excludedFolders, configName, folderName)
+            startScanning(treeUri, fileTypes, minSizeKb, recursive, excludedFolders, configName, folderName, scanMode)
         } else if (intent?.action == ACTION_STOP_SCAN) {
             stopScanning()
         }
@@ -91,7 +94,8 @@ class ScanService : Service() {
         recursive: Boolean,
         excludedFolders: String,
         configName: String,
-        folderName: String
+        folderName: String,
+        scanMode: String
     ) {
         ScanStateManager.reset()
         scanJob = serviceScope.launch {
@@ -161,7 +165,7 @@ class ScanService : Service() {
                             // 检测取消（协程被 cancel）或进程内停止请求标志，二者任一即退出
                             if (!isActive || ScanStateManager.stopRequested.value) return@launch
                             val entry = fileList[idx]
-                            val entity = parseOne(entry, runId, scanRules, parseRules, hasScanRules, hasParseRules)
+                            val entity = parseOne(entry, runId, scanRules, parseRules, hasScanRules, hasParseRules, scanMode)
                             val d = done.incrementAndGet()
                             reportParseProgress(d, total, entity.fileName, lastState)
                             updateNotificationThrottled(
@@ -261,7 +265,8 @@ class ScanService : Service() {
         scanRules: List<KeywordReplaceRuleEntity>,
         parseRules: List<KeywordReplaceRuleEntity>,
         hasScanRules: Boolean,
-        hasParseRules: Boolean
+        hasParseRules: Boolean,
+        scanMode: String
     ): ScannedFileEntity {
         val rawName = entry.name
         val fileName = if (hasScanRules) (KeywordReplace.applyRules(rawName, scanRules) ?: rawName) else rawName
@@ -271,7 +276,15 @@ class ScanService : Service() {
         val progress = if (hasParseRules) (KeywordReplace.applyRules(parsed.progress, parseRules) ?: parsed.progress) else parsed.progress
         val source = if (hasParseRules) (KeywordReplace.applyRules(parsed.source, parseRules) ?: parsed.source) else parsed.source
         val ext = FileUtil.getFileExtension(fileName)
-        val encoding = runCatching { EncodingUtil.detectEncodingName(applicationContext, entry.uri.toString()) }.getOrDefault("")
+        // 快速扫描跳过编码检测（编码耗时占比最大），深度扫描保留
+        val encoding: String
+        if (scanMode == "quick") {
+            encoding = ""
+        } else {
+            encoding = runCatching { EncodingUtil.detectEncodingName(applicationContext, entry.uri.toString()) }.getOrDefault("")
+        }
+        // 文件日期：从扫描阶段收集的 lastModified（毫秒）
+        val fileDate = if (entry.lastModified > 0) entry.lastModified else null
         return ScannedFileEntity(
             path = entry.uri.toString(),
             fileName = fileName,
@@ -281,6 +294,7 @@ class ScanService : Service() {
             progress = progress,
             source = source,
             encoding = encoding,
+            fileDate = fileDate,
             titlePinyin = ChineseConverter.toPinyin(title),
             authorPinyin = ChineseConverter.toPinyin(author),
             contentHash = "",

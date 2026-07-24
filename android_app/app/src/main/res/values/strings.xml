@@ -223,6 +223,13 @@
     <string name="not_recursive">不递归</string>
     <string name="has_excluded">已排除</string>
 
+    <!-- 扫描模式 -->
+    <string name="scan_mode_label">扫描模式</string>
+    <string name="scan_mode_quick">快速扫描</string>
+    <string name="scan_mode_deep">深度扫描</string>
+    <string name="scan_mode_quick_desc">不检测文件编码，速度快，适合大文件量。卡片显示作者·大小·进度·日期。</string>
+    <string name="scan_mode_deep_desc">检测文件编码，速度较慢但信息完整。卡片显示作者·大小·进度·日期·编码。</string>
+
     <!-- 扫描进度补充 -->
     <string name="collecting">正在收集文件…</string>
     <string name="collected_count">已收集 %1$d 个文件</string>
@@ -258,6 +265,7 @@
     <string name="detail_author">作者</string>
     <string name="detail_progress">进度</string>
     <string name="detail_source">来源</string>
+    <string name="detail_date">日期</string>
     <string name="detail_encoding">编码</string>
     <string name="detail_original_name">原文件名</string>
     <string name="detail_ext">扩展名</string>
@@ -309,4 +317,18 @@
     <string name="page_jump_to">跳到</string>
     <string name="computing_duplicates">正在计算合集重复…</string>
     <string name="toggle_toolbar">展开/收起筛选工具栏</string>
+
+    <!-- 合集排序 -->
+    <string name="group_sort">合集排序</string>
+    <string name="group_sort_count_desc">文件数量（多→少）</string>
+    <string name="group_sort_count_asc">文件数量（少→多）</string>
+    <string name="group_sort_size_desc">合集大小（大→小）</string>
+    <string name="group_sort_size_asc">合集大小（小→大）</string>
+    <string name="group_sort_name_asc">合集名称（A→Z）</string>
+    <string name="group_sort_name_desc">合集名称（Z→A）</string>
+    <string name="group_sort_date_newest">最新文件（新→旧）</string>
+    <string name="group_sort_date_oldest">最旧文件（旧→新）</string>
+
+    <!-- 文件日期 -->
+    <string name="file_date_invalid">无日期</string>
 </resources>

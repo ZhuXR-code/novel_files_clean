@@ -68,6 +68,14 @@ object KeywordReplace {
         KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "_3167 937770", replacement = "", sortOrder = 30),
         KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "（颜3167 937770", replacement = "", sortOrder = 31),
         KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【3167 937770]", replacement = "", sortOrder = 32),
-        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "_.txt", replacement = ".txt", sortOrder = 33)
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "_.txt", replacement = ".txt", sortOrder = 33),
+        // —— 2026-07-24 新增 7 条默认替换规则（与 PC/鸿蒙端同步）——
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【昭昭明月BG】", replacement = "", sortOrder = 34),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【昭昭明月BL】", replacement = "", sortOrder = 35),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【推荐】", replacement = "", sortOrder = 36),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【全本校对】", replacement = "", sortOrder = 37),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【全本精校】", replacement = "", sortOrder = 38),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【BL】", replacement = "", sortOrder = 39),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【BG】", replacement = "", sortOrder = 40)
     )
 }

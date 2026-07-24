@@ -1,6 +1,9 @@
 package com.filescanner.app.util
 
 import android.net.Uri
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 object FormatUtil {
     fun formatSize(bytes: Long): String = when {
@@ -23,5 +26,16 @@ object FormatUtil {
         val decoded = Uri.decode(raw)
         val docPart = Regex("/document/(.*)$").find(decoded)?.groupValues?.get(1) ?: decoded
         return docPart.replace(Regex("^[A-Za-z0-9]+:"), "")
+    }
+
+    /** 把毫秒时间戳格式化为 "yyyy-MM-dd" 短日期。<=0 返回 "无日期"。 */
+    fun formatFileDate(timestamp: Long?): String {
+        if (timestamp == null || timestamp <= 0) return "无日期"
+        return try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            sdf.format(Date(timestamp))
+        } catch (_: Exception) {
+            "无日期"
+        }
     }
 }
