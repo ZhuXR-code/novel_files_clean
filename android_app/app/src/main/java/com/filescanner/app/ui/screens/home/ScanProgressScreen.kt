@@ -145,6 +145,7 @@ fun ScanProgressScreen(onBack: () -> Unit, onFinished: () -> Unit) {
                                 putExtra("excluded_folders", c.excludedFolders)
                                 putExtra("config_name", c.configName)
                                 putExtra("folder_name", c.folderName)
+                                putExtra("scan_mode", c.scanMode.ifBlank { "quick" })
                             }
                             context.startForegroundService(intent)
                         },

@@ -271,12 +271,14 @@ private fun RunFilesScreen(
     val excludeNames by viewModel.groupExcludeNames.collectAsStateWithLifecycle()
     val pageSize by viewModel.pageSize.collectAsStateWithLifecycle()
     val duplicateProgress by viewModel.duplicateProgress.collectAsStateWithLifecycle()
+    val groupSort by viewModel.groupSort.collectAsStateWithLifecycle()
     // 分页导航条用的总数：合集模式=分组数，列表模式=文件数
     val totalCount = if (groupMode) groupPageState.total else listPageState.total
 
     var sortMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
     var showGroupSettings by remember { mutableStateOf(false) }
+    var showGroupSort by remember { mutableStateOf(false) }
     // 批量删除选中：先弹窗让用户选择“仅删除记录”或“删除记录和源文件”
     var showDeleteChoice by remember { mutableStateOf(false) }
     // 搜索框默认隐藏，顶部搜索图标点击后显示；再点切换回隐藏
@@ -323,6 +325,17 @@ private fun RunFilesScreen(
                     showGroupSettings = false
                 }
             )
+    }
+
+    if (showGroupSort) {
+        GroupSortDialog(
+            currentSort = groupSort,
+            onDismiss = { showGroupSort = false },
+            onSelect = { sort ->
+                viewModel.setGroupSort(sort)
+                showGroupSort = false
+            }
+        )
     }
 
     if (showDeleteChoice) {
@@ -439,6 +452,8 @@ private fun RunFilesScreen(
                         if (groupMode) {
                             DropdownMenuItem(text = { Text(stringResource(R.string.group_settings)) },
                                 onClick = { showGroupSettings = true; moreMenu = false })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.group_sort)) },
+                                onClick = { showGroupSort = true; moreMenu = false })
                         }
                         DropdownMenuItem(text = { Text(stringResource(R.string.mark_duplicates_name)) },
                             onClick = { viewModel.markDuplicatesByName(); moreMenu = false })
@@ -461,34 +476,18 @@ private fun RunFilesScreen(
                 color = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                FlowRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    AppOutlinedButton(
-                        onClick = { viewModel.clearChecked() },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                if (checkedCount > 0) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(stringResource(R.string.clear_checked), fontSize = 11.sp)
-                    }
-                    AppButton(
-                        onClick = { showDeleteChoice = true },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = stringResource(R.string.batch_delete_selected)
-                        )
-                    }
-                    if (checkedCount > 0) {
                         Text(
                             stringResource(R.string.selected_count, checkedCount),
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.align(Alignment.CenterVertically)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -647,7 +646,10 @@ private fun RunFilesScreen(
                 pageSize = pageSize,
                 currentPage = currentPage,
                 onPageSizeChange = { viewModel.setPageSize(it) },
-                onJumpToPage = { page -> viewModel.goToPage(page) }
+                onJumpToPage = { page -> viewModel.goToPage(page) },
+                checkedCount = checkedCount,
+                onClearChecked = { viewModel.clearChecked() },
+                onDeleteSelected = { showDeleteChoice = true }
             )
                 // 关闭内部 Column，使下方悬浮按钮成为外层 Box 的直接子项（可使用 BoxScope.align）
                 }
@@ -918,6 +920,7 @@ private fun FileRow(
                     if (f.author.isNotBlank()) add(f.author)
                     add(FormatUtil.formatSize(f.fileSize))
                     if (f.progress.isNotBlank()) add(f.progress)
+                    add(FormatUtil.formatFileDate(f.fileDate))
                     if (f.encoding.isNotBlank()) add(f.encoding)
                     if (f.source.isNotBlank()) add(stringResource(R.string.source_label) + "：" + f.source)
                 }.joinToString(" · ")
@@ -981,6 +984,7 @@ private fun GroupFileRow(
                 if (f.author.isNotBlank()) add(f.author)
                 add(FormatUtil.formatSize(f.fileSize))
                 if (f.progress.isNotBlank()) add(f.progress)
+                add(FormatUtil.formatFileDate(f.fileDate))
                 if (f.encoding.isNotBlank()) add(f.encoding)
                 if (f.source.isNotBlank()) add(stringResource(R.string.source_label) + "：" + f.source)
             }.joinToString(" · ")
@@ -1072,6 +1076,52 @@ private fun GroupSettingsDialog(
     )
 }
 
+/** 合集排序选择弹窗。 */
+@Composable
+private fun GroupSortDialog(
+    currentSort: LibraryViewModel.GroupSortMode,
+    onDismiss: () -> Unit,
+    onSelect: (LibraryViewModel.GroupSortMode) -> Unit
+) {
+    val options = listOf(
+        LibraryViewModel.GroupSortMode.COUNT_DESC to stringResource(R.string.group_sort_count_desc),
+        LibraryViewModel.GroupSortMode.COUNT_ASC to stringResource(R.string.group_sort_count_asc),
+        LibraryViewModel.GroupSortMode.SIZE_DESC to stringResource(R.string.group_sort_size_desc),
+        LibraryViewModel.GroupSortMode.SIZE_ASC to stringResource(R.string.group_sort_size_asc),
+        LibraryViewModel.GroupSortMode.NAME_ASC to stringResource(R.string.group_sort_name_asc),
+        LibraryViewModel.GroupSortMode.NAME_DESC to stringResource(R.string.group_sort_name_desc),
+        LibraryViewModel.GroupSortMode.DATE_NEWEST to stringResource(R.string.group_sort_date_newest),
+        LibraryViewModel.GroupSortMode.DATE_OLDEST to stringResource(R.string.group_sort_date_oldest)
+    )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.group_sort)) },
+        text = {
+            Column {
+                options.forEach { (mode, label) ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(mode) }
+                            .padding(vertical = 6.dp)
+                    ) {
+                        RadioButton(
+                            selected = currentSort == mode,
+                            onClick = { onSelect(mode) }
+                        )
+                        Text(label, modifier = Modifier.padding(start = 4.dp))
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            AppOutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        }
+    )
+}
+
 /**
  * 分页导航条：用于 10w 级大库的分页浏览，交互对齐 PC 端。
  * - 每页条数：输入框（默认 100，范围 10~2000）填完点“应用”生效，不再提供预设按钮。
@@ -1085,7 +1135,10 @@ private fun PageNavBar(
     pageSize: Int,
     currentPage: Int,
     onPageSizeChange: (Int) -> Unit,
-    onJumpToPage: (Int) -> Unit
+    onJumpToPage: (Int) -> Unit,
+    checkedCount: Int = 0,
+    onClearChecked: (() -> Unit)? = null,
+    onDeleteSelected: (() -> Unit)? = null
 ) {
     val pageCount = ((totalCount + pageSize - 1) / pageSize.coerceAtLeast(1)).coerceAtLeast(1)
     // 当前页兜底夹在 [0, pageCount-1]，避免总数变化瞬间越界显示
@@ -1118,12 +1171,12 @@ private fun PageNavBar(
             AppOutlinedButton(
                 onClick = { onJumpToPage(0) },
                 enabled = page > 0,
-                modifier = Modifier.height(30.dp).width(36.dp),
-                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+                modifier = Modifier.height(26.dp).width(28.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
             ) {
                 Text(
                     text = "«",
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1131,12 +1184,12 @@ private fun PageNavBar(
             AppOutlinedButton(
                 onClick = { onJumpToPage((page - 1).coerceAtLeast(0)) },
                 enabled = page > 0,
-                modifier = Modifier.height(30.dp).width(36.dp),
-                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+                modifier = Modifier.height(26.dp).width(28.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
             ) {
                 Text(
                     text = "‹",
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1150,12 +1203,12 @@ private fun PageNavBar(
             AppOutlinedButton(
                 onClick = { onJumpToPage((page + 1).coerceAtMost(pageCount - 1)) },
                 enabled = page < pageCount - 1,
-                modifier = Modifier.height(30.dp).width(36.dp),
-                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+                modifier = Modifier.height(26.dp).width(28.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
             ) {
                 Text(
                     text = "›",
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1163,80 +1216,113 @@ private fun PageNavBar(
             AppOutlinedButton(
                 onClick = { onJumpToPage(pageCount - 1) },
                 enabled = page < pageCount - 1,
-                modifier = Modifier.height(30.dp).width(36.dp),
-                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 2.dp)
+                modifier = Modifier.height(26.dp).width(28.dp),
+                contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
             ) {
                 Text(
                     text = "»",
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
         }
-        // 第二行：每页条数 + 跳到指定页（居中）
+        // 第二行：每页条数 + 跳到指定页（左侧），清除勾选/删除/已选（右侧）
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(stringResource(R.string.page_size), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            // 用 BasicTextField 替代 OutlinedTextField：Material3 OutlinedTextField 有默认最小高度
-            // (~56dp)，强制 height(30.dp) 会把内部输入区域压到几乎消失，导致点击没反应/软键盘弹不出。
-            Box(
-                modifier = Modifier
-                    .width(64.dp)
-                    .height(32.dp)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, tfShape)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                modifier = Modifier.weight(1f)
             ) {
-                BasicTextField(
-                    value = pageSizeText,
-                    onValueChange = { pageSizeText = it.filter { c -> c.isDigit() } },
-                    singleLine = true,
-                    keyboardOptions = numKeyboard,
-                    textStyle = TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface),
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Text(stringResource(R.string.page_size), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // 用 BasicTextField 替代 OutlinedTextField：Material3 OutlinedTextField 有默认最小高度
+                // (~56dp)，强制 height(30.dp) 会把内部输入区域压到几乎消失，导致点击没反应/软键盘弹不出。
+                Box(
+                    modifier = Modifier
+                        .width(64.dp)
+                        .height(32.dp)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, tfShape)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    BasicTextField(
+                        value = pageSizeText,
+                        onValueChange = { pageSizeText = it.filter { c -> c.isDigit() } },
+                        singleLine = true,
+                        keyboardOptions = numKeyboard,
+                        textStyle = TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                AppButton(
+                    onClick = {
+                        val v = pageSizeText.toIntOrNull() ?: 100
+                        val clamped = v.coerceIn(10, 2000)
+                        pageSizeText = clamped.toString()
+                        onPageSizeChange(clamped)
+                    },
+                    modifier = Modifier.height(30.dp),
+                    contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)
+                ) { Text("✓", fontSize = 13.sp) }
+                Text("跳转", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(
+                    modifier = Modifier
+                        .width(64.dp)
+                        .height(32.dp)
+                        .border(1.dp, MaterialTheme.colorScheme.outline, tfShape)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    BasicTextField(
+                        value = jumpText,
+                        onValueChange = { jumpText = it.filter { c -> c.isDigit() } },
+                        singleLine = true,
+                        keyboardOptions = numKeyboard,
+                        textStyle = TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                AppButton(
+                    onClick = {
+                        val p = jumpText.toIntOrNull()
+                        if (p != null && p >= 1 && p <= pageCount) onJumpToPage(p - 1)
+                    },
+                    enabled = jumpText.isNotBlank(),
+                    modifier = Modifier.height(30.dp),
+                    contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)
+                ) { Text("✓", fontSize = 13.sp) }
             }
-            AppButton(
-                onClick = {
-                    val v = pageSizeText.toIntOrNull() ?: 100
-                    val clamped = v.coerceIn(10, 2000)
-                    pageSizeText = clamped.toString()
-                    onPageSizeChange(clamped)
-                },
-                modifier = Modifier.height(30.dp),
-                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)
-            ) { Text("✓", fontSize = 13.sp) }
-            Text("跳转", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Box(
-                modifier = Modifier
-                    .width(64.dp)
-                    .height(32.dp)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, tfShape)
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                BasicTextField(
-                    value = jumpText,
-                    onValueChange = { jumpText = it.filter { c -> c.isDigit() } },
-                    singleLine = true,
-                    keyboardOptions = numKeyboard,
-                    textStyle = TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurface),
-                    modifier = Modifier.fillMaxWidth()
-                )
+            // 右侧：清除勾选、删除、已选数量
+            if (checkedCount > 0) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    AppOutlinedButton(
+                        onClick = { onClearChecked?.invoke() },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(stringResource(R.string.clear_checked), fontSize = 11.sp)
+                    }
+                    AppButton(
+                        onClick = { onDeleteSelected?.invoke() },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.Delete,
+                            contentDescription = stringResource(R.string.batch_delete_selected)
+                        )
+                    }
+                    Text(
+                        stringResource(R.string.selected_count, checkedCount),
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
-            AppButton(
-                onClick = {
-                    val p = jumpText.toIntOrNull()
-                    if (p != null && p >= 1 && p <= pageCount) onJumpToPage(p - 1)
-                },
-                enabled = jumpText.isNotBlank(),
-                modifier = Modifier.height(30.dp),
-                contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)
-            ) { Text("✓", fontSize = 13.sp) }
         }
     }
 }

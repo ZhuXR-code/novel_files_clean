@@ -45,5 +45,8 @@ data class ScannedFileEntity(
     @ColumnInfo(name = "scan_run_id")
     val scanRunId: Long = 0,
     @ColumnInfo(name = "created_at")
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    /** 文件在文件系统中的最后修改时间（毫秒时间戳）。扫描时从 file.lastModified() 读取。 */
+    @ColumnInfo(name = "file_date")
+    val fileDate: Long? = null
 )

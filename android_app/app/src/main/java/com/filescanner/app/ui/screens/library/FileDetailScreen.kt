@@ -146,7 +146,8 @@ fun FileDetailScreen(
                 )
                 DetailRowColumns(
                     stringResource(R.string.detail_progress) to f.progress.ifBlank { "—" },
-                    stringResource(R.string.detail_source) to f.source.ifBlank { "—" }
+                    stringResource(R.string.detail_source) to f.source.ifBlank { "—" },
+                    stringResource(R.string.detail_date) to FormatUtil.formatFileDate(f.fileDate)
                 )
                 DetailRowColumns(
                     stringResource(R.string.detail_marked) to if (f.marked == 1) stringResource(R.string.mark) else stringResource(R.string.unmark),

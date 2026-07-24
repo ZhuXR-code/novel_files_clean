@@ -33,7 +33,8 @@ data class LastScanConfig(
     val recursive: Boolean,
     val excludedFolders: String,
     val configName: String,
-    val folderName: String
+    val folderName: String,
+    val scanMode: String = "quick"
 )
 
 object ScanStateManager {

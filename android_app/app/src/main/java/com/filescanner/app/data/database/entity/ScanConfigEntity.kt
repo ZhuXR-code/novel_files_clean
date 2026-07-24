@@ -31,5 +31,8 @@ data class ScanConfigEntity(
     @ColumnInfo(name = "exact_hash")
     val exactHash: Boolean = false,
     @ColumnInfo(name = "excluded_folders")
-    val excludedFolders: String = ""
+    val excludedFolders: String = "",
+    /** "quick"=快速扫描(不检测编码), "deep"=深度扫描(检测编码)。默认 quick。 */
+    @ColumnInfo(name = "scan_mode", defaultValue = "'quick'")
+    val scanMode: String = "quick"
 )
