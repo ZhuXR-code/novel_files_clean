@@ -1,12 +1,28 @@
 import { router } from '@kit.ArkUI';
+import { PreferencesUtil } from '../utils/PreferencesUtil';
+
+const PREVIEW_SCROLLBAR_MODE_KEY: string = 'preview_scrollbar_mode';
+type ScrollbarMode = 'vertical' | 'horizontal';
 
 @Entry
 @Component
 struct Settings {
+  @State scrollbarMode: ScrollbarMode = 'vertical';
+
+  aboutToAppear(): void {
+    const saved: string = PreferencesUtil.getString(PREVIEW_SCROLLBAR_MODE_KEY, 'vertical');
+    this.scrollbarMode = saved === 'horizontal' ? 'horizontal' : 'vertical';
+  }
+
   private go(url: string): void {
     router.pushUrl({ url: url }).catch((err: Error) => {
       console.error(err.message);
     });
+  }
+
+  private toggleScrollbarMode(): void {
+    this.scrollbarMode = this.scrollbarMode === 'vertical' ? 'horizontal' : 'vertical';
+    PreferencesUtil.putString(PREVIEW_SCROLLBAR_MODE_KEY, this.scrollbarMode);
   }
 
   build() {
@@ -27,6 +43,18 @@ struct Settings {
       .backgroundColor($r('app.color.bg_card'))
       .borderRadius(12)
       .margin({ left: 16, right: 16 })
+
+      Text('阅读设置')
+        .fontSize(13)
+        .fontColor($r('app.color.text_hint'))
+        .margin({ top: 24, left: 16 })
+      Column({ space: 1 }) {
+        this.choiceItem('预览滚动条方向', this.scrollbarMode === 'vertical' ? '竖向' : '横向', () => this.toggleScrollbarMode())
+      }
+      .width('100%')
+      .backgroundColor($r('app.color.bg_card'))
+      .borderRadius(12)
+      .margin({ left: 16, right: 16, top: 8 })
 
       Text('关于')
         .fontSize(13)
@@ -67,6 +95,23 @@ struct Settings {
     .height(52)
     .padding({ left: 16, right: 16 })
     .onClick(() => this.go(url))
+  }
+
+  @Builder
+  choiceItem(label: string, value: string, onClick: () => void) {
+    Row() {
+      Text(label)
+        .fontSize(16)
+        .fontColor($r('app.color.text_primary'))
+      Blank()
+      Text(value)
+        .fontSize(15)
+        .fontColor($r('app.color.text_hint'))
+    }
+    .width('100%')
+    .height(52)
+    .padding({ left: 16, right: 16 })
+    .onClick(onClick)
   }
 
   @Builder
