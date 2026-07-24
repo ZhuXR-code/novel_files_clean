@@ -2,10 +2,13 @@ import { router } from '@kit.ArkUI';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { LogUtil } from '../utils/LogUtil';
+import { PreferencesUtil } from '../utils/PreferencesUtil';
 
 const PREVIEW_BYTES_LIMIT = 2 * 1024 * 1024;
 const INITIAL_LINES = 200;
 const LOAD_MORE_LINES = 200;
+const SCROLLBAR_MODE_KEY: string = 'preview_scrollbar_mode';
+type ScrollbarMode = 'vertical' | 'horizontal';
 
 @Entry
 @Component
@@ -18,8 +21,11 @@ struct FilePreview {
   @State encoding: string = 'UTF-8';
   @State firstVisibleIndex: number = 0;
   @State scrollbarTrackHeight: number = 0;
+  @State scrollbarTrackWidth: number = 0;
   @State dragStartY: number = 0;
+  @State dragStartX: number = 0;
   @State scrollbarActive: boolean = false;
+  @State scrollbarMode: ScrollbarMode = 'vertical';
 
   private scroller: Scroller = new Scroller();
   private scrollbarTimer: number | null = null;
@@ -28,6 +34,8 @@ struct FilePreview {
     const params = router.getParams() as Record<string, Object>;
     this.fileName = (params['fileName'] as string) || '';
     this.filePath = (params['filePath'] as string) || '';
+    const saved: string = PreferencesUtil.getString(SCROLLBAR_MODE_KEY, 'vertical');
+    this.scrollbarMode = saved === 'horizontal' ? 'horizontal' : 'vertical';
     await this.loadContent();
   }
 
@@ -144,6 +152,13 @@ struct FilePreview {
     }, 500);
   }
 
+  private scrollToRatio(ratio: number, animated: boolean = true): void {
+    if (this.lines.length <= this.displayCount) return;
+    const remaining: number = this.lines.length - this.displayCount;
+    const target: number = Math.max(0, Math.min(remaining, Math.round(ratio * remaining)));
+    this.scroller.scrollToIndex(target, animated, ScrollAlign.START);
+  }
+
   get getLoadedAll(): boolean {
     return this.displayCount >= this.lines.length;
   }
@@ -162,6 +177,22 @@ struct FilePreview {
     if (trackH <= 0 || remaining <= 0 || this.displayCount <= 0) return 0;
     const ratio: number = this.firstVisibleIndex / remaining;
     return Math.max(0, Math.min(ratio * (trackH - thumbH), trackH - thumbH));
+  }
+
+  get getThumbWidth(): number {
+    const trackW: number = this.scrollbarTrackWidth;
+    if (trackW <= 0 || this.lines.length <= 0) return 40;
+    const ratio: number = this.displayCount / this.lines.length;
+    return Math.max(trackW * ratio, 30);
+  }
+
+  get getThumbOffsetHorizontal(): number {
+    const trackW: number = this.scrollbarTrackWidth;
+    const thumbW: number = this.getThumbWidth;
+    const remaining: number = this.lines.length - this.displayCount;
+    if (trackW <= 0 || remaining <= 0 || this.displayCount <= 0) return 0;
+    const ratio: number = this.firstVisibleIndex / remaining;
+    return Math.max(0, Math.min(ratio * (trackW - thumbW), trackW - thumbW));
   }
 
   build() {
@@ -193,61 +224,58 @@ struct FilePreview {
           Text('无法读取文件内容或文件为空').fontColor('#999999').fontSize(15)
         }.layoutWeight(1).justifyContent(FlexAlign.Center).width('100%')
       } else {
-        Stack() {
-          List({ scroller: this.scroller }) {
-            ForEach(this.lines.slice(0, this.displayCount), (line: string) => {
-              ListItem() {
-                Text((line && line.length > 0) ? line : '\u00A0')
-                  .fontSize(15).fontColor($r('app.color.text_primary'))
-                  .width('100%').lineHeight(22)
-                  .padding({ left: 16, right: 40 })
-              }
-            })
-            if (!this.getLoadedAll) {
-              ListItem() {
-                Button('加载更多').width('100%').fontSize(14)
-                  .onClick(() => this.loadMore())
-              }
-            }
-          }
-          .width('100%').layoutWeight(1)
-          .onScrollIndex((first: number) => {
-            this.firstVisibleIndex = first;
-          })
+        if (this.scrollbarMode === 'vertical') {
+          this.verticalReader()
+        } else {
+          this.horizontalReader()
+        }
+      }
+    }
+    .width('100%').height('100%').backgroundColor($r('app.color.bg_page'))
+  }
 
-          Column() {
-            Column()
-              .width(this.scrollbarActive ? 10 : 4)
-              .height(this.getThumbHeight)
-              .backgroundColor('#666666')
-              .borderRadius(this.scrollbarActive ? 5 : 2)
-              .position({ y: this.getThumbOffset })
-              .animation({ duration: 150, curve: Curve.EaseInOut })
-              .onTouch((event: TouchEvent) => {
-                if (event.type === TouchType.Down) {
-                  this.activateScrollbar();
-                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-                  this.deactivateScrollbar();
-                }
-              })
-              .gesture(
-                PanGesture({ direction: PanDirection.Vertical })
-                  .onActionStart(() => { this.dragStartY = this.getThumbOffset; })
-                  .onActionUpdate((event: GestureEvent) => {
-                    const trackH: number = this.scrollbarTrackHeight;
-                    const thumbH: number = this.getThumbHeight;
-                    const y: number = Math.max(0, Math.min(trackH - thumbH, this.dragStartY + event.offsetY));
-                    const ratio: number = (trackH - thumbH) > 0 ? y / (trackH - thumbH) : 0;
-                    const remaining: number = this.lines.length - this.displayCount;
-                    this.scroller.scrollToIndex(Math.max(0, Math.round(ratio * remaining)), false, ScrollAlign.START);
-                  })
-                  .onActionEnd(() => this.deactivateScrollbar())
-              )
-          }
-          .width(20).height('100%')
-          .alignItems(HorizontalAlign.Center)
-          .position({ right: 0 })
-          .backgroundColor('#F5F5F5')
+  @Builder
+  lineListItem(line: string) {
+    ListItem() {
+      Text((line && line.length > 0) ? line : '\u00A0')
+        .fontSize(15).fontColor($r('app.color.text_primary'))
+        .width('100%').lineHeight(22)
+        .padding({ left: 16, right: this.scrollbarMode === 'vertical' ? 40 : 16 })
+    }
+  }
+
+  @Builder
+  loadMoreItem() {
+    ListItem() {
+      Button('加载更多').width('100%').fontSize(14)
+        .onClick(() => this.loadMore())
+    }
+  }
+
+  @Builder
+  verticalReader() {
+    Stack() {
+      List({ scroller: this.scroller }) {
+        ForEach(this.lines.slice(0, this.displayCount), (line: string) => {
+          this.lineListItem(line)
+        })
+        if (!this.getLoadedAll) {
+          this.loadMoreItem()
+        }
+      }
+      .width('100%').layoutWeight(1)
+      .onScrollIndex((first: number) => {
+        this.firstVisibleIndex = first;
+      })
+
+      Column() {
+        Column()
+          .width(this.scrollbarActive ? 10 : 4)
+          .height(this.getThumbHeight)
+          .backgroundColor('#666666')
+          .borderRadius(this.scrollbarActive ? 5 : 2)
+          .position({ y: this.getThumbOffset })
+          .animation({ duration: 150, curve: Curve.EaseInOut })
           .onTouch((event: TouchEvent) => {
             if (event.type === TouchType.Down) {
               this.activateScrollbar();
@@ -255,19 +283,103 @@ struct FilePreview {
               this.deactivateScrollbar();
             }
           })
-          .onClick((event: ClickEvent) => {
-            if (this.lines.length <= this.displayCount) return;
-            const ratio: number = event.y / this.scrollbarTrackHeight;
-            const remaining: number = this.lines.length - this.displayCount;
-            this.scroller.scrollToIndex(Math.max(0, Math.round(ratio * remaining)), true, ScrollAlign.START);
-          })
-        }
-        .layoutWeight(1).width('100%')
-        .onAreaChange((_: Area, newArea: Area) => {
-          this.scrollbarTrackHeight = newArea.height as number;
-        })
+          .gesture(
+            PanGesture({ direction: PanDirection.Vertical })
+              .onActionStart(() => { this.dragStartY = this.getThumbOffset; })
+              .onActionUpdate((event: GestureEvent) => {
+                const trackH: number = this.scrollbarTrackHeight;
+                const thumbH: number = this.getThumbHeight;
+                const y: number = Math.max(0, Math.min(trackH - thumbH, this.dragStartY + event.offsetY));
+                const ratio: number = (trackH - thumbH) > 0 ? y / (trackH - thumbH) : 0;
+                this.scrollToRatio(ratio, false);
+              })
+              .onActionEnd(() => this.deactivateScrollbar())
+          )
       }
+      .width(20).height('100%')
+      .alignItems(HorizontalAlign.Center)
+      .position({ right: 0 })
+      .backgroundColor('#F5F5F5')
+      .onTouch((event: TouchEvent) => {
+        if (event.type === TouchType.Down) {
+          this.activateScrollbar();
+        } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+          this.deactivateScrollbar();
+        }
+      })
+      .onClick((event: ClickEvent) => {
+        if (this.lines.length <= this.displayCount) return;
+        this.scrollToRatio(event.y / this.scrollbarTrackHeight);
+      })
     }
-    .width('100%').height('100%').backgroundColor($r('app.color.bg_page'))
+    .layoutWeight(1).width('100%')
+    .onAreaChange((_: Area, newArea: Area) => {
+      this.scrollbarTrackHeight = newArea.height as number;
+    })
+  }
+
+  @Builder
+  horizontalReader() {
+    Column() {
+      List({ scroller: this.scroller }) {
+        ForEach(this.lines.slice(0, this.displayCount), (line: string) => {
+          this.lineListItem(line)
+        })
+        if (!this.getLoadedAll) {
+          this.loadMoreItem()
+        }
+      }
+      .width('100%').layoutWeight(1)
+      .onScrollIndex((first: number) => {
+        this.firstVisibleIndex = first;
+      })
+
+      Row() {
+        Row()
+          .width(this.getThumbWidth)
+          .height(this.scrollbarActive ? 10 : 4)
+          .backgroundColor('#666666')
+          .borderRadius(this.scrollbarActive ? 5 : 2)
+          .position({ x: this.getThumbOffsetHorizontal })
+          .animation({ duration: 150, curve: Curve.EaseInOut })
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.activateScrollbar();
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.deactivateScrollbar();
+            }
+          })
+          .gesture(
+            PanGesture({ direction: PanDirection.Horizontal })
+              .onActionStart(() => { this.dragStartX = this.getThumbOffsetHorizontal; })
+              .onActionUpdate((event: GestureEvent) => {
+                const trackW: number = this.scrollbarTrackWidth;
+                const thumbW: number = this.getThumbWidth;
+                const x: number = Math.max(0, Math.min(trackW - thumbW, this.dragStartX + event.offsetX));
+                const ratio: number = (trackW - thumbW) > 0 ? x / (trackW - thumbW) : 0;
+                this.scrollToRatio(ratio, false);
+              })
+              .onActionEnd(() => this.deactivateScrollbar())
+          )
+      }
+      .width('100%').height(20)
+      .backgroundColor('#F5F5F5')
+      .alignItems(VerticalAlign.Center)
+      .onTouch((event: TouchEvent) => {
+        if (event.type === TouchType.Down) {
+          this.activateScrollbar();
+        } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+          this.deactivateScrollbar();
+        }
+      })
+      .onClick((event: ClickEvent) => {
+        if (this.lines.length <= this.displayCount) return;
+        this.scrollToRatio(event.x / this.scrollbarTrackWidth);
+      })
+      .onAreaChange((_: Area, newArea: Area) => {
+        this.scrollbarTrackWidth = newArea.width as number;
+      })
+    }
+    .width('100%').layoutWeight(1)
   }
 }
