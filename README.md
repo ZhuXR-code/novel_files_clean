@@ -19,6 +19,8 @@
 | Android APP | 原生移动端 | Room（SQLite） | `android_app/`（Android Studio 构建） |
 | HarmonyOS NEXT | 纯血鸿蒙原生端 | relationalStore（SQLite） | `harmony_app/`（DevEco Studio 构建） |
 
+> APP 端新增**预览页滚动条模式选择**（设置 → 阅读设置），支持竖向/横向（顶部）两种滚动条；触摸时自动加粗，0.5 秒不操作恢复。底部操作栏仅保留「清除勾选」和「删除」按钮，其他功能移至右上角菜单，界面更简洁。
+
 > 形态切换靠环境变量 `DB_BACKEND`：不设置走 MySQL；`launcher.py` 在导入后端前设置 `DB_BACKEND=sqlite` 走本地 SQLite 分支。网页版的 MySQL 代码路径在本地模式下完全不被触碰。
 
 ---

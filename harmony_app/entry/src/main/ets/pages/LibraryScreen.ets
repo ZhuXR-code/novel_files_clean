@@ -379,12 +379,7 @@ struct LibraryScreen {
 
       // 操作行（自适应换行，避免小屏按钮被截断）
       Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start, alignItems: ItemAlign.Center }) {
-        Button('规则标重').backgroundColor($r('app.color.primary')).enabled(!this.marking).onClick(() => this.markDuplicates())
-        Button('书名标重').backgroundColor($r('app.color.primary')).enabled(!this.marking).onClick(() => this.markDuplicatesByName())
         Button('清空勾选').onClick(() => this.clearChecked())
-        Button('清空标记').onClick(() => this.clearMarked())
-        Button('导出勾选').onClick(() => this.exportList('checked'))
-        Button('导出标记').onClick(() => this.exportList('marked'))
         Button('删除').backgroundColor($r('app.color.danger')).onClick(() => this.goDelete())
       }
       .width('100%')
