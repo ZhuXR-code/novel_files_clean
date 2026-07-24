@@ -321,19 +321,6 @@ struct FilePreview {
   @Builder
   horizontalReader() {
     Column() {
-      List({ scroller: this.scroller }) {
-        ForEach(this.lines.slice(0, this.displayCount), (line: string) => {
-          this.lineListItem(line)
-        })
-        if (!this.getLoadedAll) {
-          this.loadMoreItem()
-        }
-      }
-      .width('100%').layoutWeight(1)
-      .onScrollIndex((first: number) => {
-        this.firstVisibleIndex = first;
-      })
-
       Row() {
         Row()
           .width(this.getThumbWidth)
@@ -378,6 +365,19 @@ struct FilePreview {
       })
       .onAreaChange((_: Area, newArea: Area) => {
         this.scrollbarTrackWidth = newArea.width as number;
+      })
+
+      List({ scroller: this.scroller }) {
+        ForEach(this.lines.slice(0, this.displayCount), (line: string) => {
+          this.lineListItem(line)
+        })
+        if (!this.getLoadedAll) {
+          this.loadMoreItem()
+        }
+      }
+      .width('100%').layoutWeight(1)
+      .onScrollIndex((first: number) => {
+        this.firstVisibleIndex = first;
       })
     }
     .width('100%').layoutWeight(1)
