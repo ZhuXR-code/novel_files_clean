@@ -1,6 +1,15 @@
 {
   "apiType": "stageMode",
-  "buildOption": {},
+  "buildOption": {
+    "arkOptions": {
+      "strictMode": false
+    },
+    "resOptions": {
+      "copyCodeResource": {
+        "enable": false
+      }
+    }
+  },
   "buildOptionSet": [
     {
       "name": "release",
@@ -11,16 +20,17 @@
             "files": [
               "./obfuscation-rules.txt"
             ]
-          },
-          "consumerFiles": []
+          }
         }
       }
-    }
+    },
   ],
   "targets": [
     {
-      "name": "default",
-      "runtimeOS": "HarmonyOS"
+      "name": "default"
+    },
+    {
+      "name": "ohosTest",
     }
   ]
 }

@@ -105,11 +105,20 @@ struct ConfigEdit {
 
       Scroll() {
         Column({ space: 16 }) {
-          this.field('配置名称', () => {
+          // 配置名称
+          Column({ space: 6 }) {
+            Text('配置名称').fontSize(14).fontColor($r('app.color.text_secondary'))
+              .alignSelf(ItemAlign.Start)
             TextInput({ text: this.name, placeholder: '请输入配置名称' })
               .onChange((v: string) => (this.name = v))
-          })
-          this.field('扫描目录', () => {
+          }
+          .alignItems(HorizontalAlign.Start).width('100%')
+          .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)
+
+          // 扫描目录
+          Column({ space: 6 }) {
+            Text('扫描目录').fontSize(14).fontColor($r('app.color.text_secondary'))
+              .alignSelf(ItemAlign.Start)
             Row() {
               Text(this.folderName || '(未选择)')
                 .fontSize(14)
@@ -120,26 +129,58 @@ struct ConfigEdit {
                 .height(36)
                 .onClick(() => this.selectDir())
             }
-          })
-          this.field('文件类型(逗号分隔)', () => {
+          }
+          .alignItems(HorizontalAlign.Start).width('100%')
+          .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)
+
+          // 文件类型
+          Column({ space: 6 }) {
+            Text('文件类型(逗号分隔)').fontSize(14).fontColor($r('app.color.text_secondary'))
+              .alignSelf(ItemAlign.Start)
             TextInput({ text: this.fileTypes, placeholder: 'txt' })
               .onChange((v: string) => (this.fileTypes = v))
-          })
-          this.field('最小体积(KB, 0=不限)', () => {
+          }
+          .alignItems(HorizontalAlign.Start).width('100%')
+          .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)
+
+          // 最小体积
+          Column({ space: 6 }) {
+            Text('最小体积(KB, 0=不限)').fontSize(14).fontColor($r('app.color.text_secondary'))
+              .alignSelf(ItemAlign.Start)
             TextInput({ text: this.minSizeKb, placeholder: '0' })
               .type(InputType.Number)
               .onChange((v: string) => (this.minSizeKb = v))
-          })
-          this.field('递归子目录', () => {
-            Toggle({ isOn: this.recursive, onChange: (v: boolean) => (this.recursive = v) })
-          })
-          this.field('精确哈希比对(较慢)', () => {
-            Toggle({ isOn: this.exactHash, onChange: (v: boolean) => (this.exactHash = v) })
-          })
-          this.field('排除文件夹(分号分隔)', () => {
+          }
+          .alignItems(HorizontalAlign.Start).width('100%')
+          .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)
+
+          // 递归子目录
+          Column({ space: 6 }) {
+            Text('递归子目录').fontSize(14).fontColor($r('app.color.text_secondary'))
+              .alignSelf(ItemAlign.Start)
+            Toggle({ type: ToggleType.Switch, isOn: this.recursive }).onChange((v: boolean) => (this.recursive = v))
+          }
+          .alignItems(HorizontalAlign.Start).width('100%')
+          .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)
+
+          // 精确哈希比对
+          Column({ space: 6 }) {
+            Text('精确哈希比对(较慢)').fontSize(14).fontColor($r('app.color.text_secondary'))
+              .alignSelf(ItemAlign.Start)
+            Toggle({ type: ToggleType.Switch, isOn: this.exactHash }).onChange((v: boolean) => (this.exactHash = v))
+          }
+          .alignItems(HorizontalAlign.Start).width('100%')
+          .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)
+
+          // 排除文件夹
+          Column({ space: 6 }) {
+            Text('排除文件夹(分号分隔)').fontSize(14).fontColor($r('app.color.text_secondary'))
+              .alignSelf(ItemAlign.Start)
             TextInput({ text: this.excludedFolders, placeholder: '如 已读;缓存' })
               .onChange((v: string) => (this.excludedFolders = v))
-          })
+          }
+          .alignItems(HorizontalAlign.Start).width('100%')
+          .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)
         }
         .width('100%')
         .padding(16)
@@ -150,21 +191,5 @@ struct ConfigEdit {
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.bg_page'))
-  }
-
-  @Builder
-  field(label: string, content: () => void) {
-    Column({ space: 6 }) {
-      Text(label)
-        .fontSize(14)
-        .fontColor($r('app.color.text_secondary'))
-        .alignSelf(HorizontalAlign.Start)
-      content()
-    }
-    .alignItems(HorizontalAlign.Start)
-    .width('100%')
-    .backgroundColor($r('app.color.bg_card'))
-    .borderRadius(10)
-    .padding(12)
   }
 }

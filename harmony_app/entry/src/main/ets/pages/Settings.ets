@@ -19,6 +19,7 @@ struct Settings {
 
       Column({ space: 1 }) {
         this.item('关键词替换规则', 'pages/KeywordReplace')
+        this.item('勾选重复规则', 'pages/DupRuleSettings')
         this.item('操作日志', 'pages/LogViewer')
         this.item('帮助', 'pages/Help')
       }

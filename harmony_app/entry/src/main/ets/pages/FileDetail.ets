@@ -85,13 +85,13 @@ struct FileDetail {
                 Text('星标')
                   .fontSize(15)
                   .fontColor($r('app.color.text_primary'))
-                Toggle({ isOn: this.file!.marked === 1, onChange: (v: boolean) => this.onMarkChanged(v) })
+                Toggle({ type: ToggleType.Switch, isOn: this.file!.marked === 1 }).onChange((v: boolean) => this.onMarkChanged(v))
               }
               Row({ space: 8 }) {
                 Text('勾选删除')
                   .fontSize(15)
                   .fontColor($r('app.color.text_primary'))
-                Toggle({ isOn: this.file!.checked === 1, onChange: (v: boolean) => this.onCheckChanged(v) })
+                Toggle({ type: ToggleType.Switch, isOn: this.file!.checked === 1 }).onChange((v: boolean) => this.onCheckChanged(v))
               }
             }
             .margin({ top: 8 })

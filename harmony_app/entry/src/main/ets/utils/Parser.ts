@@ -1,4 +1,5 @@
 import { ParsedName } from '../model/ParsedName';
+import { ChineseConverter } from './ChineseConverter';
 
 /**
  * 文件名解析工具，完整对齐安卓端 util/Parser.kt 当前优化版本：
@@ -88,6 +89,7 @@ export class Parser {
       name = name.substring(0, dot);
     }
     name = name.trim();
+    name = ChineseConverter.toSimplified(name);
     const result: ParsedName = new ParsedName();
     if (name.length === 0) {
       result.title = rawName;

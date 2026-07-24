@@ -11,6 +11,8 @@ export class ScannedFile {
   author: string = '';
   progress: string = '';
   source: string = '';
+  titlePinyin: string = '';
+  authorPinyin: string = '';
   contentHash: string = '';
   ext: string = '';
   /** 是否已被用户手工标记（1/0） */

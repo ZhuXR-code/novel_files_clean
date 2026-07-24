@@ -45,6 +45,8 @@ export class ScannedFileDao {
     f.author = ScannedFileDao.colStr(rs, 'author');
     f.progress = ScannedFileDao.colStr(rs, 'progress');
     f.source = ScannedFileDao.colStr(rs, 'source');
+    f.titlePinyin = ScannedFileDao.colStr(rs, 'title_pinyin');
+    f.authorPinyin = ScannedFileDao.colStr(rs, 'author_pinyin');
     f.contentHash = ScannedFileDao.colStr(rs, 'content_hash');
     f.ext = ScannedFileDao.colStr(rs, 'ext');
     f.marked = ScannedFileDao.colNum(rs, 'marked');
@@ -61,6 +63,7 @@ export class ScannedFileDao {
     r.title = ScannedFileDao.colStr(rs, 'title');
     r.author = ScannedFileDao.colStr(rs, 'author');
     r.progress = ScannedFileDao.colStr(rs, 'progress');
+    r.source = ScannedFileDao.colStr(rs, 'source');
     r.fileSize = ScannedFileDao.colNum(rs, 'file_size');
     r.createdAt = ScannedFileDao.colNum(rs, 'created_at');
     return r;
@@ -75,6 +78,8 @@ export class ScannedFileDao {
       author: f.author,
       progress: f.progress,
       source: f.source,
+      title_pinyin: f.titlePinyin,
+      author_pinyin: f.authorPinyin,
       content_hash: f.contentHash,
       ext: f.ext,
       marked: f.marked,
@@ -100,7 +105,7 @@ export class ScannedFileDao {
     const values: relationalStore.ValuesBucket = { checked: checked };
     const predicates = new relationalStore.RdbPredicates('scanned_file');
     predicates.equalTo('id', id);
-    await ScannedFileDao.store.update('scanned_file', values, predicates);
+    await ScannedFileDao.store.update(values, predicates);
   }
 
   public static async updateCheckedByIds(ids: number[], checked: number): Promise<void> {
@@ -110,14 +115,14 @@ export class ScannedFileDao {
     const values: relationalStore.ValuesBucket = { checked: checked };
     const predicates = new relationalStore.RdbPredicates('scanned_file');
     predicates.in('id', ids);
-    await ScannedFileDao.store.update('scanned_file', values, predicates);
+    await ScannedFileDao.store.update(values, predicates);
   }
 
   public static async updateMarked(id: number, marked: number): Promise<void> {
     const values: relationalStore.ValuesBucket = { marked: marked };
     const predicates = new relationalStore.RdbPredicates('scanned_file');
     predicates.equalTo('id', id);
-    await ScannedFileDao.store.update('scanned_file', values, predicates);
+    await ScannedFileDao.store.update(values, predicates);
   }
 
   public static async getById(id: number): Promise<ScannedFile | null> {
@@ -166,12 +171,12 @@ export class ScannedFileDao {
     });
   }
 
-  /** 合集页面：返回该文库全部文件的轻量投影（用于复刻“标记重复”）。 */
+  /** 合集页面：返回该文库全部文件的轻量投影（用于复刻“勾选重复”）。 */
   public static async getDuplicateRows(scanRunId: number): Promise<DuplicateRow[]> {
     const predicates = new relationalStore.RdbPredicates('scanned_file');
     predicates.equalTo('scan_run_id', scanRunId);
     predicates.orderByDesc('id');
-    const columns: string[] = ['id', 'file_name', 'title', 'author', 'progress', 'file_size', 'created_at'];
+    const columns: string[] = ['id', 'file_name', 'title', 'author', 'progress', 'source', 'file_size', 'created_at'];
     const rs = await ScannedFileDao.store.query(predicates, columns);
     const list: DuplicateRow[] = [];
     while (rs.goToNextRow()) {
@@ -184,7 +189,13 @@ export class ScannedFileDao {
   public static async searchByScanRun(scanRunId: number, keyword: string): Promise<ScannedFile[]> {
     const predicates = new relationalStore.RdbPredicates('scanned_file');
     predicates.equalTo('scan_run_id', scanRunId);
-    predicates.and().like('file_name', `%${keyword}%`);
+    predicates.beginWrap();
+    predicates.like('file_name', `%${keyword}%`);
+    predicates.or().like('title', `%${keyword}%`);
+    predicates.or().like('author', `%${keyword}%`);
+    predicates.or().like('title_pinyin', `%${keyword}%`);
+    predicates.or().like('author_pinyin', `%${keyword}%`);
+    predicates.endWrap();
     predicates.orderByDesc('id');
     const rs = await ScannedFileDao.store.query(predicates);
     const list: ScannedFile[] = [];
@@ -229,7 +240,7 @@ export class ScannedFileDao {
     const values: relationalStore.ValuesBucket = { checked: 0 };
     const predicates = new relationalStore.RdbPredicates('scanned_file');
     predicates.equalTo('scan_run_id', scanRunId);
-    await ScannedFileDao.store.update('scanned_file', values, predicates);
+    await ScannedFileDao.store.update(values, predicates);
   }
 
   public static async countAll(): Promise<number> {
@@ -282,7 +293,7 @@ export class ScannedFileDao {
     const values: relationalStore.ValuesBucket = { marked: 0 };
     const predicates = new relationalStore.RdbPredicates('scanned_file');
     predicates.equalTo('scan_run_id', scanRunId);
-    await ScannedFileDao.store.update('scanned_file', values, predicates);
+    await ScannedFileDao.store.update(values, predicates);
   }
 
   public static async markIds(ids: number[]): Promise<void> {
@@ -292,7 +303,7 @@ export class ScannedFileDao {
     const values: relationalStore.ValuesBucket = { marked: 1 };
     const predicates = new relationalStore.RdbPredicates('scanned_file');
     predicates.in('id', ids);
-    await ScannedFileDao.store.update('scanned_file', values, predicates);
+    await ScannedFileDao.store.update(values, predicates);
   }
 
   /** 单条勾选/取消勾选（与安卓 setChecked 对齐）。 */
@@ -309,7 +320,7 @@ export class ScannedFileDao {
     const values: relationalStore.ValuesBucket = { checked: 0 };
     const predicates = new relationalStore.RdbPredicates('scanned_file');
     predicates.equalTo('scan_run_id', scanRunId);
-    await ScannedFileDao.store.update('scanned_file', values, predicates);
+    await ScannedFileDao.store.update(values, predicates);
   }
 
   public static async getCheckedIds(scanRunId: number): Promise<number[]> {
@@ -329,7 +340,7 @@ export class ScannedFileDao {
   }
 
   /**
-   * 按“书名 + 作者”相同标记重复。每组保留 id 最小的一条，其余标记 marked=1。
+   * 按“书名 + 作者”相同勾选重复。每组保留 id 最小的一条，其余标记 marked=1。
    * 返回本次标记的条数。
    */
   public static async markDuplicatesByNameSql(scanRunId: number): Promise<number> {

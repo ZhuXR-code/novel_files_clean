@@ -13,6 +13,7 @@
     "pages/Settings",
     "pages/KeywordReplace",
     "pages/LogViewer",
-    "pages/Help"
+    "pages/Help",
+    "pages/DupRuleSettings"
   ]
 }

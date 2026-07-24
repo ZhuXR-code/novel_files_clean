@@ -65,7 +65,7 @@ export class KeywordReplaceDao {
     const values: relationalStore.ValuesBucket = KeywordReplaceDao.toValues(rule);
     const predicates = new relationalStore.RdbPredicates('keyword_replace_rules');
     predicates.equalTo('id', rule.id);
-    await KeywordReplaceDao.store.update('keyword_replace_rules', values, predicates);
+    await KeywordReplaceDao.store.update(values, predicates);
   }
 
   public static async delete(id: number): Promise<void> {
@@ -178,6 +178,6 @@ export class KeywordReplaceDao {
     const values: relationalStore.ValuesBucket = { enabled: enabled ? 1 : 0 };
     const predicates = new relationalStore.RdbPredicates('keyword_replace_rules');
     predicates.equalTo('id', id);
-    await KeywordReplaceDao.store.update('keyword_replace_rules', values, predicates);
+    await KeywordReplaceDao.store.update(values, predicates);
   }
 }

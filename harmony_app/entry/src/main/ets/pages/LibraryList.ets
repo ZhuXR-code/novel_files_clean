@@ -2,6 +2,7 @@ import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
 import { ScanRun } from '../model/ScanRun';
 import { ScanRunDao } from '../database/ScanRunDao';
+import { ScannedFileDao } from '../database/ScannedFileDao';
 import { FormatUtil } from '../utils/FormatUtil';
 import { LogUtil } from '../utils/LogUtil';
 
@@ -32,17 +33,18 @@ struct LibraryList {
   }
 
   private async deleteRun(run: ScanRun): Promise<void> {
-    const result = await promptAction.showDialog({
+    promptAction.showDialog({
       title: '删除文库',
       message: `确认删除文库「${run.name}」及其全部文件记录？此操作不可恢复（不删除原文件）。`,
-      buttons: [{ text: '取消' }, { text: '删除' }]
+      buttons: [{ text: '取消', color: '#888888' }, { text: '删除', color: '#ff3b30' }]
+    }).then((result) => {
+      if (result.index === 1) {
+        ScannedFileDao.deleteByScanRun(run.id);
+        ScanRunDao.delete(run.id);
+        LogUtil.operation('删除文库', `文库ID=${run.id} 名称=${run.name}`);
+        this.load();
+      }
     });
-    if (result.index === 1) {
-      await ScannedFileDao.deleteByScanRun(run.id);
-      await ScanRunDao.delete(run.id);
-      LogUtil.operation('删除文库', `文库ID=${run.id} 名称=${run.name}`);
-      await this.load();
-    }
   }
 
   build() {

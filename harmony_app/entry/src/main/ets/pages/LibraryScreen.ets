@@ -88,7 +88,9 @@ struct LibraryScreen {
         (f) =>
           f.fileName.toLowerCase().includes(q) ||
           f.title.toLowerCase().includes(q) ||
-          f.author.toLowerCase().includes(q)
+          f.author.toLowerCase().includes(q) ||
+          (f.titlePinyin.length > 0 && f.titlePinyin.toLowerCase().includes(q)) ||
+          (f.authorPinyin.length > 0 && f.authorPinyin.toLowerCase().includes(q))
       );
     }
     if (this.sort === 'NAME') {
@@ -113,7 +115,7 @@ struct LibraryScreen {
       this.expandedTitle = '';
       this.refreshView();
       this.searchTimer = null;
-    }, 300) as unknown as number;
+    }, 300);
   }
 
   private submitQuery(): void {
@@ -165,8 +167,8 @@ struct LibraryScreen {
       this.refreshView();
       promptAction.showToast({ message: `已标记 ${ids.length} 个重复文件` });
     } catch (e) {
-      LogUtil.e('LibraryScreen', `标记重复失败: ${(e as Error).message}`);
-      promptAction.showToast({ message: '标记重复失败' });
+      LogUtil.e('LibraryScreen', `勾选重复失败: ${(e as Error).message}`);
+      promptAction.showToast({ message: '勾选重复失败' });
     }
     this.marking = false;
   }
@@ -292,7 +294,7 @@ struct LibraryScreen {
               .fontSize(12)
               .height(30)
               .backgroundColor(this.showCollectionFilter ? $r('app.color.primary_dark') : $r('app.color.bg_card'))
-              .fontColor(this.showCollectionFilter ? Color.White : $r('app.color.text_secondary'))
+              .fontColor(this.showCollectionFilter ? '#ffffff' : $r('app.color.text_secondary'))
               .onClick(() => (this.showCollectionFilter = !this.showCollectionFilter))
           }
         }
@@ -434,7 +436,7 @@ struct LibraryScreen {
       .fontSize(12)
       .height(32)
       .backgroundColor(active ? $r('app.color.primary') : $r('app.color.bg_card'))
-      .fontColor(active ? Color.White : $r('app.color.text_primary'))
+      .fontColor(active ? '#ffffff' : $r('app.color.text_primary'))
       .onClick(onClick)
   }
 
@@ -444,7 +446,7 @@ struct LibraryScreen {
       .fontSize(12)
       .height(30)
       .backgroundColor(active ? $r('app.color.primary_dark') : $r('app.color.bg_card'))
-      .fontColor(active ? Color.White : $r('app.color.text_secondary'))
+      .fontColor(active ? '#ffffff' : $r('app.color.text_secondary'))
       .onClick(onClick)
   }
 
@@ -470,7 +472,7 @@ struct LibraryScreen {
   @Builder
   fileRow(file: ScannedFile) {
     Row({ space: 10 }) {
-      Toggle({ isOn: file.checked === 1, onChange: (v: boolean) => this.onCheckChanged(file, v) })
+      Toggle({ type: ToggleType.Checkbox, isOn: file.checked === 1 }).onChange((v: boolean) => this.onCheckChanged(file, v))
         .width(36)
       Column({ space: 3 }) {
         Text(file.title || file.fileName)
@@ -583,17 +585,19 @@ struct LibraryScreen {
     }
     const excludes: string[] = this.colExcludeNames;
     const titles: string[] = [];
-    for (const [title, files] of map) {
-      if (this.colMinCount > 0 && files.length < this.colMinCount) {
+    const allKeys: string[] = Array.from(map.keys());
+    for (const key of allKeys) {
+      const fileList: ScannedFile[] = map.get(key)!;
+      if (this.colMinCount > 0 && fileList.length < this.colMinCount) {
         continue;
       }
-      if (this.colMaxCount > 0 && files.length > this.colMaxCount) {
+      if (this.colMaxCount > 0 && fileList.length > this.colMaxCount) {
         continue;
       }
-      if (excludes.length > 0 && excludes.some((e) => title.toLowerCase().includes(e))) {
+      if (excludes.length > 0 && excludes.some((e) => key.toLowerCase().includes(e))) {
         continue;
       }
-      titles.push(title);
+      titles.push(key);
     }
     titles.sort((a, b) => {
       if (a === '' && b !== '') return 1;
@@ -624,7 +628,9 @@ struct LibraryScreen {
         (f) =>
           f.fileName.toLowerCase().includes(q) ||
           f.title.toLowerCase().includes(q) ||
-          f.author.toLowerCase().includes(q)
+          f.author.toLowerCase().includes(q) ||
+          (f.titlePinyin.length > 0 && f.titlePinyin.toLowerCase().includes(q)) ||
+          (f.authorPinyin.length > 0 && f.authorPinyin.toLowerCase().includes(q))
       );
     }
     if (this.sort === 'NAME') {

@@ -67,7 +67,7 @@ export class ScanRunDao {
     const values: relationalStore.ValuesBucket = { file_count: fileCount };
     const predicates = new relationalStore.RdbPredicates('scan_run');
     predicates.equalTo('id', runId);
-    await ScanRunDao.store.update('scan_run', values, predicates);
+    await ScanRunDao.store.update(values, predicates);
   }
 
   public static async delete(runId: number): Promise<void> {

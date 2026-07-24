@@ -54,8 +54,7 @@ struct LogViewer {
           .fontColor($r('app.color.text_hint'))
           .margin({ top: 40 })
       } else {
-        TextArea({ text: this.content })
-          .editable(false)
+        TextArea({ text: this.content }).enabled(false)
           .layoutWeight(1)
           .width('100%')
           .padding(12)
