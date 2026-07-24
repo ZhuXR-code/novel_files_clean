@@ -474,36 +474,6 @@ private fun RunFilesScreen(
                     ) {
                         Text(stringResource(R.string.clear_checked), fontSize = 11.sp)
                     }
-                    AppOutlinedButton(
-                        onClick = { viewModel.clearMarked() },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(stringResource(R.string.clear_marked), fontSize = 11.sp)
-                    }
-                    if (groupMode) {
-                        AppOutlinedButton(
-                            onClick = { viewModel.selectDuplicates() },
-                            enabled = duplicateProgress < 0,
-                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(stringResource(R.string.mark_duplicates), fontSize = 11.sp)
-                        }
-                    }
-                    AppOutlinedButton(
-                        onClick = { viewModel.markDuplicatesByName() },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(stringResource(R.string.mark_duplicates_name), fontSize = 11.sp)
-                    }
-                    AppButton(
-                        onClick = { showDeleteChoice = true },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = stringResource(R.string.batch_delete_selected)
-                        )
-                    }
                     if (checkedCount > 0) {
                         Text(
                             stringResource(R.string.selected_count, checkedCount),
