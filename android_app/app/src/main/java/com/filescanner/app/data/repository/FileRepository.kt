@@ -269,13 +269,15 @@ class FileRepository(
         sort: String,
         runId: Long,
         pageSize: Int,
-        page: Int
+        page: Int,
+        checkedSortToFront: Boolean = false
     ): Flow<List<ScannedFileEntity>> {
         val where = buildFilesWhere(filter, query, runId)
+        val checkedPrefix = if (checkedSortToFront) "checked DESC, " else ""
         val orderBy = when (sort) {
-            "NAME" -> "checked DESC, file_name ASC"
-            "SIZE" -> "checked DESC, file_size DESC"
-            else -> "checked DESC, created_at DESC"
+            "NAME" -> "${checkedPrefix}file_name ASC"
+            "SIZE" -> "${checkedPrefix}file_size DESC"
+            else -> "${checkedPrefix}created_at DESC"
         }
         val limit = pageSize.coerceAtLeast(1)
         val offset = (page.coerceAtLeast(0)) * limit
@@ -334,12 +336,13 @@ class FileRepository(
         pageSize: Int,
         page: Int,
         filter: String = "ALL",
-        groupSort: String = "count_desc"
+        groupSort: String = "count_desc",
+        checkedSortToFront: Boolean = false
     ): Flow<List<NovelGroup>> {
         val (whereSql, havingSql) = buildGroupsClauses(minCount, maxCount, excludeNames, query, runId, filter)
         val limit = pageSize.coerceAtLeast(1)
         val offset = (page.coerceAtLeast(0)) * limit
-        val orderBy = buildGroupOrderBy(groupSort)
+        val orderBy = buildGroupOrderBy(groupSort, checkedSortToFront)
         val selectExtra = if (groupSort.startsWith("date_")) ", MAX(created_at) AS newest_date" else ""
         val sql = buildString {
             append("SELECT title AS group_title, COUNT(*) AS file_count, SUM(file_size) AS total_size, SUM(checked) AS checked_count")
@@ -352,15 +355,22 @@ class FileRepository(
         return dao.groupsPageFlow(SimpleSQLiteQuery(sql))
     }
 
-    private fun buildGroupOrderBy(sort: String): String = when (sort) {
-        "count_asc"  -> "(checked_count > 0) DESC, (title = '') ASC, file_count ASC, title ASC"
-        "size_desc"  -> "(checked_count > 0) DESC, (title = '') ASC, total_size DESC, title ASC"
-        "size_asc"   -> "(checked_count > 0) DESC, (title = '') ASC, total_size ASC, title ASC"
-        "name_asc"   -> "(title = '') ASC, (checked_count > 0) DESC, title ASC"
-        "name_desc"  -> "(title = '') ASC, (checked_count > 0) DESC, title DESC"
-        "date_newest"-> "(checked_count > 0) DESC, newest_date DESC, title ASC"
-        "date_oldest"-> "(checked_count > 0) DESC, newest_date ASC, title ASC"
-        else         -> "(checked_count > 0) DESC, (title = '') ASC, file_count DESC, title ASC"
+    private fun buildGroupOrderBy(sort: String, checkedSortToFront: Boolean = false): String {
+        val base = when (sort) {
+            "count_asc"  -> "(checked_count > 0) DESC, (title = '') ASC, file_count ASC, title ASC"
+            "size_desc"  -> "(checked_count > 0) DESC, (title = '') ASC, total_size DESC, title ASC"
+            "size_asc"   -> "(checked_count > 0) DESC, (title = '') ASC, total_size ASC, title ASC"
+            "name_asc"   -> "(title = '') ASC, (checked_count > 0) DESC, title ASC"
+            "name_desc"  -> "(title = '') ASC, (checked_count > 0) DESC, title DESC"
+            "date_newest"-> "(checked_count > 0) DESC, newest_date DESC, title ASC"
+            "date_oldest"-> "(checked_count > 0) DESC, newest_date ASC, title ASC"
+            else         -> "(checked_count > 0) DESC, (title = '') ASC, file_count DESC, title ASC"
+        }
+        return if (checkedSortToFront) {
+            base
+        } else {
+            base.replace("(checked_count > 0) DESC, ", "").replace(", (checked_count > 0) DESC", "")
+        }
     }
 
     /** 合集模式：符合区间/排除/搜索条件的分组总数（Flow）。 */

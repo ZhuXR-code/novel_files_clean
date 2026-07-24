@@ -68,7 +68,21 @@ export class KeywordReplace {
     KeywordReplace.rule('scan', '_3167 937770', '', 30),
     KeywordReplace.rule('scan', '（颜3167 937770', '', 31),
     KeywordReplace.rule('scan', '【3167 937770]', '', 32),
-    KeywordReplace.rule('scan', '_.txt', '.txt', 33)
+    KeywordReplace.rule('scan', '_.txt', '.txt', 33),
+    // —— 与 Android 端同步的默认替换规则 ——
+    KeywordReplace.rule('scan', '【YLW】', '', 34),
+    KeywordReplace.rule('scan', '『推』', '', 35),
+    KeywordReplace.rule('scan', '【昭昭明月BG】', '', 36),
+    KeywordReplace.rule('scan', '【昭昭明月BL】', '', 37),
+    KeywordReplace.rule('scan', '【推荐】', '', 38),
+    KeywordReplace.rule('scan', '【全本校对】', '', 39),
+    KeywordReplace.rule('scan', '【全本精校】', '', 40),
+    KeywordReplace.rule('scan', '【BL】', '', 41),
+    KeywordReplace.rule('scan', '【BG】', '', 42),
+    KeywordReplace.rule('scan', '【YLW连载】', '', 43),
+    KeywordReplace.rule('scan', '【棠】', '', 44),
+    KeywordReplace.rule('scan', '【公众号：推文日记】', '', 45),
+    KeywordReplace.rule('scan', '【书香门第★九落】', '', 46)
   ];
 
   private static rule(scope: string, pattern: string, replacement: string, sortOrder: number): KeywordReplaceRule {

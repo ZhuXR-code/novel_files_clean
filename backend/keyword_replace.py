@@ -65,6 +65,20 @@ DEFAULT_KEYWORD_RULES = [
     {'scope': 'scan', 'pattern': '（颜3167 937770', 'replacement': '', 'sort_order': 31},
     {'scope': 'scan', 'pattern': '【3167 937770]', 'replacement': '', 'sort_order': 32},
     {'scope': 'scan', 'pattern': '_.txt', 'replacement': '.txt', 'sort_order': 33},
+    # —— 与 Android 端同步的默认替换规则 ——
+    {'scope': 'scan', 'pattern': '【YLW】', 'replacement': '', 'sort_order': 34},
+    {'scope': 'scan', 'pattern': '『推』', 'replacement': '', 'sort_order': 35},
+    {'scope': 'scan', 'pattern': '【昭昭明月BG】', 'replacement': '', 'sort_order': 36},
+    {'scope': 'scan', 'pattern': '【昭昭明月BL】', 'replacement': '', 'sort_order': 37},
+    {'scope': 'scan', 'pattern': '【推荐】', 'replacement': '', 'sort_order': 38},
+    {'scope': 'scan', 'pattern': '【全本校对】', 'replacement': '', 'sort_order': 39},
+    {'scope': 'scan', 'pattern': '【全本精校】', 'replacement': '', 'sort_order': 40},
+    {'scope': 'scan', 'pattern': '【BL】', 'replacement': '', 'sort_order': 41},
+    {'scope': 'scan', 'pattern': '【BG】', 'replacement': '', 'sort_order': 42},
+    {'scope': 'scan', 'pattern': '【YLW连载】', 'replacement': '', 'sort_order': 43},
+    {'scope': 'scan', 'pattern': '【棠】', 'replacement': '', 'sort_order': 44},
+    {'scope': 'scan', 'pattern': '【公众号：推文日记】', 'replacement': '', 'sort_order': 45},
+    {'scope': 'scan', 'pattern': '【书香门第★九落】', 'replacement': '', 'sort_order': 46},
 ]
 
 
