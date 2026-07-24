@@ -56,6 +56,7 @@ class ScanConfig(Base):
     file_types = Column(String(200), nullable=False, default='txt', comment='文件类型，多个用逗号分隔')
     excluded_folders = Column(Text, nullable=True, comment='排除的文件夹，多个用逗号分隔')
     parse_on_scan = Column(Boolean, nullable=False, default=True, comment='扫描时是否同步执行工程类解析（文件名/摘要），默认开启')
+    scan_mode = Column(String(20), nullable=False, default='quick', comment='扫描模式: quick=快速扫描(仅文件名解析), full=完整扫描(含摘要提取)')
     created_at = Column(DateTime, server_default=func.now(), comment='创建时间')
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment='更新时间')
 
@@ -131,6 +132,7 @@ class FileMetadata(Base):
     title_pinyin = Column(String(500), nullable=False, default='', comment='书名拼音搜索字段（全拼|首字母）')
     author_pinyin = Column(String(300), nullable=False, default='', comment='作者拼音搜索字段（全拼|首字母）')
     summary = Column(Text, nullable=True, comment='内容简介/摘要（工程正则提取首章前简介）')
+    encoding = Column(String(20), nullable=True, comment='文件编码（如 utf-8/gb18030/shift_jis）')
     parsed_at = Column(DateTime, nullable=True, comment='解析时间')
 
     scan_result = relationship('ScanResult', back_populates='metadata_record')

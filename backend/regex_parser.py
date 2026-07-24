@@ -1062,6 +1062,131 @@ def parse_file_names_regex_only(
     }
 
 
+def detect_file_encodings(
+    db: Session,
+    file_ids: Optional[List[int]] = None,
+    config_id: Optional[int] = None,
+    progress_callback=None,
+    cancel_check=None,
+    log_callback=None,
+    db_session_factory=None,
+    pymysql_factory=None,
+    concurrency: int = 8,
+    force: bool = False,
+) -> dict:
+    """快速扫描-完整模式：批量检测文件编码（读文件头 8KB，不读摘要）。
+
+    仅检测编码并写入 file_metadata.encoding，不读取文件全文/摘要。
+    已检测过编码的文件（force=False）会跳过。
+    """
+    PAGE_SIZE = 5000
+    import chardet
+
+    if file_ids:
+        total = len(file_ids)
+    elif config_id is not None:
+        total = db.query(func.count(ScanResult.id)).filter(
+            ScanResult.scan_config_id == config_id
+        ).scalar() or 0
+    else:
+        return {'success': 0, 'failed': 0, 'skipped': 0}
+
+    success_count = 0
+    failed_count = 0
+    total_skipped = 0
+    processed = 0
+
+    def detect_batch(batch):
+        """对一批文件读取头 8KB 检测编码，返回 (scan_result_id, encoding) 列表"""
+        results = []
+        for sr in batch:
+            id_ = sr.id if isinstance(sr, ScanResult) else (sr[0] if hasattr(sr, '__getitem__') else sr)
+            file_path = sr.file_path if isinstance(sr, ScanResult) else (sr[1] if hasattr(sr, '__getitem__') else '')
+            try:
+                with open(file_path, 'rb') as f:
+                    raw = f.read(min(8192, os.path.getsize(file_path) if os.path.getsize(file_path) > 0 else 8192))
+                    detected = chardet.detect(raw)
+                    encoding = detected.get('encoding', 'utf-8')
+                    if encoding and encoding.lower() in ('gb2312', 'gbk'):
+                        encoding = 'gb18030'
+                    results.append((id_, encoding or 'utf-8'))
+            except Exception:
+                results.append((id_, 'utf-8'))
+        return results
+
+    offset = 0
+    while offset < total:
+        if cancel_check and cancel_check():
+            break
+        if file_ids:
+            chunk = file_ids[offset:offset + PAGE_SIZE]
+            scan_results = db.query(ScanResult).filter(ScanResult.id.in_(chunk)).all()
+        else:
+            scan_results = db.query(ScanResult).filter(
+                ScanResult.scan_config_id == config_id
+            ).order_by(ScanResult.id).offset(offset).limit(PAGE_SIZE).all()
+        offset += PAGE_SIZE
+
+        if not scan_results:
+            continue
+
+        # 如果 force=False，跳过已有 encoding 的文件
+        if not force:
+            existing_ids = set()
+            scan_ids = [sr.id for sr in scan_results]
+            existing = db.query(FileMetadata.scan_result_id).filter(
+                FileMetadata.scan_result_id.in_(scan_ids),
+                FileMetadata.encoding.isnot(None),
+            ).all()
+            existing_ids = {e[0] for e in existing}
+            scan_results = [sr for sr in scan_results if sr.id not in existing_ids]
+
+        if not scan_results:
+            total_skipped += len(chunk) if 'chunk' in dir() else PAGE_SIZE
+            continue
+
+        # 检测编码
+        detections = detect_batch(scan_results)
+
+        if detections:
+            try:
+                if db_session_factory:
+                    sess = db_session_factory()
+                    try:
+                        for sid, enc in detections:
+                            sess.execute(
+                                text("INSERT INTO file_metadata (scan_result_id, encoding) VALUES (:sid, :enc) "
+                                     "ON CONFLICT(scan_result_id) DO UPDATE SET encoding = :enc"),
+                                {'sid': sid, 'enc': enc})
+                        sess.commit()
+                    finally:
+                        sess.close()
+                else:
+                    # 直接使用传入的 db session
+                    for sid, enc in detections:
+                        meta = db.query(FileMetadata).filter(FileMetadata.scan_result_id == sid).first()
+                        if meta:
+                            meta.encoding = enc
+                        else:
+                            db.add(FileMetadata(scan_result_id=sid, encoding=enc))
+                    db.commit()
+                success_count += len(detections)
+            except Exception as e:
+                failed_count += len(detections)
+                logger.warning(f'编码检测批量写入失败: {e}')
+
+        processed += len(scan_results)
+        if progress_callback:
+            progress_callback(processed, total)
+
+    return {
+        'success': success_count,
+        'failed': failed_count,
+        'skipped': total_skipped,
+        'total_detected': success_count,
+    }
+
+
 def parse_file_summary_regex_only(
     db: Session,
     file_ids: Optional[List[int]] = None,

@@ -449,6 +449,21 @@
                 <div class="form-group">
                     <label><input type="checkbox" id="cfgParseOnScan" checked> 扫描时同步进行工程类解析 <small>(勾选后扫描完成会自动解析文件名提取书名/作者，合集与勾选重复立即可用；默认开启)</small></label>
                 </div>
+                <div class="form-group">
+                    <label>扫描模式</label>
+                    <div style="display:flex;gap:12px;margin-top:6px">
+                        <label style="cursor:pointer;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;display:flex;align-items:center;gap:6px">
+                            <input type="radio" name="cfgScanMode" value="quick" checked onchange="updateScanModeDesc()">
+                            <span style="font-weight:600">快速扫描</span>
+                            <small style="color:var(--text-secondary);display:block">仅扫描文件名，不读文件内容，秒级完成</small>
+                        </label>
+                        <label style="cursor:pointer;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;display:flex;align-items:center;gap:6px">
+                            <input type="radio" name="cfgScanMode" value="full" onchange="updateScanModeDesc()">
+                            <span style="font-weight:600">完整扫描</span>
+                            <small style="color:var(--text-secondary);display:block">含文件编码检测（读文件头 8KB），比快速模式略慢</small>
+                        </label>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <input type="hidden" id="cfgEditId" value="">
@@ -549,6 +564,6 @@
         <button class="back-nav-btn" id="backToBottomBtn" title="回到底部" onclick="scrollToBottom()">↓</button>
     </div>
 
-    <script src="/static/js/app.js?v=20260723g"></script>
+    <script src="/static/js/app.js?v=20260724h"></script>
 </body>
 </html>

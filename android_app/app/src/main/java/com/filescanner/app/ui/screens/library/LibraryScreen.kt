@@ -471,30 +471,7 @@ private fun RunFilesScreen(
                 }
             )
         },
-        bottomBar = {
-            Surface(
-                tonalElevation = 4.dp,
-                shadowElevation = 6.dp,
-                color = MaterialTheme.colorScheme.surface,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (checkedCount > 0) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            stringResource(R.string.selected_count, checkedCount),
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
+        bottomBar = {}
         ) { padding ->
             Box(
                 modifier = Modifier
@@ -1333,7 +1310,8 @@ private fun PageNavBar(
                     ) {
                         Icon(
                             Icons.Filled.Delete,
-                            contentDescription = stringResource(R.string.batch_delete_selected)
+                            contentDescription = stringResource(R.string.batch_delete_selected),
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                     Text(
