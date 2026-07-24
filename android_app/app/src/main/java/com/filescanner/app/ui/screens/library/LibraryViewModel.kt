@@ -70,6 +70,10 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _sort = MutableStateFlow(SortMode.TIME)
     val sort: StateFlow<SortMode> = _sort
 
+    /** 勾选文件/合集是否自动排到最前面（默认关闭） */
+    private val _checkedSortToFront = MutableStateFlow(false)
+    val checkedSortToFront: StateFlow<Boolean> = _checkedSortToFront
+
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query
     // 搜索加 300ms 防抖，避免每键都对 10w 级数据做 filter/sort
@@ -106,6 +110,14 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         val checked: Int = 0
     )
 
+    /** 合集模式分页查询参数聚合（避免 combine 超过 5 个 Flow 的显式参数重载）。 */
+    private data class GroupPageParams(
+        val arr: Array<Any>,
+        val runId: Long?,
+        val key: Pair<Int, Int>,
+        val checkedSortToFront: Boolean
+    )
+
     /** 列表模式分页查询参数聚合（避免 combine 超过 5 个 Flow 的显式参数重载）。 */
     private data class ListPageKey(
         val filter: FilterMode,
@@ -113,7 +125,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         val query: String,
         val runId: Long?,
         val pageSize: Int,
-        val page: Int
+        val page: Int,
+        val checkedSortToFront: Boolean = false
     )
 
     /** 每页条数 + 当前页 合成一个键，便于放进 5 参数 combine。
@@ -196,14 +209,17 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
      * 仅在进入某文库（runId 非空）时有数据，否则为空。
      */
     val listPageState: StateFlow<ListPageState> =
-        combine(_filter, _sort, _queryDebounced, _currentRunId, _pageKey) { f, s, q, runId, key ->
+        combine(
+            combine(_filter, _sort, _queryDebounced) { f, s, q -> Triple(f, s, q) },
+            combine(_currentRunId, _pageKey, _checkedSortToFront) { runId, key, c -> Triple(runId, key, c) }
+        ) { (f, s, q), (runId, key, checkedSortToFront) ->
             val (ps, page) = key
-            ListPageKey(f, s, q, runId, ps, page)
+            ListPageKey(f, s, q, runId, ps, page, checkedSortToFront)
         }.flatMapLatest { k ->
             if (k.runId == null) return@flatMapLatest flowOf(ListPageState(loading = false))
             combine(
                 repo.filesCountFlow(k.filter.name, k.query, k.runId),
-                repo.filesPageFlow(k.filter.name, k.query, k.sort.name, k.runId, k.pageSize, k.page),
+                repo.filesPageFlow(k.filter.name, k.query, k.sort.name, k.runId, k.pageSize, k.page, k.checkedSortToFront),
                 _pendingDeletedIds
             ) { total, items, pending ->
                 val effectiveItems = items.filter { it.id !in pending }
@@ -226,12 +242,19 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     val groupPageState: StateFlow<GroupPageState> =
         combine(
             combine(_groupMinCount, _groupMaxCount, _groupExcludeNames, _queryDebounced, _filter) { min, max, exclude, q, f ->
-                arrayOf(min, max, exclude, q, f)
+                arrayOf<Any>(min, max, exclude, q, f)
             }.combine(_groupSort) { arr, sort -> arr + sort },
             _currentRunId,
-            _pageKey
-        ) { arr, runId, key -> Triple(arr, runId, key) }
-            .flatMapLatest { (arr, runId, key) ->
+            _pageKey,
+            _checkedSortToFront
+        ) { arr, runId, key, checkedSortToFront ->
+            GroupPageParams(arr, runId, key, checkedSortToFront)
+        }
+            .flatMapLatest { params ->
+                val arr = params.arr
+                val runId = params.runId
+                val key = params.key
+                val checkedSortToFront = params.checkedSortToFront
                 val min = arr[0] as Int
                 val max = arr[1] as Int
                 val exclude = LibraryLogic.parseExcludeNames(arr[2] as String)
@@ -243,7 +266,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 if (runId == null) return@flatMapLatest flowOf(GroupPageState(loading = false))
                 combine(
                     repo.groupsCountFlow(min, max, exclude, q, runId, filterName),
-                    repo.groupsPageFlow(min, max, exclude, q, runId, ps, page, filterName, sort.value),
+                    repo.groupsPageFlow(min, max, exclude, q, runId, ps, page, filterName, sort.value, checkedSortToFront),
                     _pendingDeletedGroupDeltas
                 ) { total, groups, deltas ->
                     val effectiveGroups = groups.map { group ->
@@ -307,6 +330,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     fun setFilter(f: FilterMode) { _filter.value = f; _currentPage.value = 0; reloadExpandedGroups() }
     fun setSort(s: SortMode) { LogUtil.i("LibVM", "setSort $s"); _sort.value = s; _currentPage.value = 0 }
+    fun toggleCheckedSortToFront() { _checkedSortToFront.value = !_checkedSortToFront.value; _currentPage.value = 0 }
     fun setQuery(q: String) { _query.value = q; _currentPage.value = 0 }
     fun clearToast() { _toast.value = null }
 
@@ -517,8 +541,10 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         if (file.checked == 1) {
             _pendingDeletedCheckedCount.value = _pendingDeletedCheckedCount.value + 1
         }
-        // 触发一次重查，使列表/合集页立即隐藏已删文件（修复从详情返回后条目仍在的问题）
-        _reloadSignal.value += 1
+        // 注意：不需要手动 bump _reloadSignal。_pendingDeletedIds 已经是
+        // listPageState 内层 combine 的依赖，它一变化 combine 会自动重发，
+        // 立刻把被删文件从列表中过滤掉。外层 _reloadSignal 反而会取消重建
+        // 内层 flow，导致全量 DB 重查 → 滚动回顶 + 勾选状态闪烁。
     }
 
     /** 取出当前文库所有【已勾选】(checked) 的文件 id，交给删除流程（暂存单例）。 */

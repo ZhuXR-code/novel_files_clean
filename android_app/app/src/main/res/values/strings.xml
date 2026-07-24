@@ -115,6 +115,7 @@
     <!-- 合集模式 -->
     <string name="group_mode">合集模式</string>
     <string name="list_mode">列表模式</string>
+    <string name="auto_sort_checked">勾选文件排到前面</string>
     <string name="group_settings">合集设置</string>
     <string name="group_unparsed">未解析</string>
     <string name="group_summary">%1$d 个文件 · %2$s</string>

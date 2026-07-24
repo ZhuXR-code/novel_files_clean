@@ -76,6 +76,13 @@ object KeywordReplace {
         KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【全本校对】", replacement = "", sortOrder = 37),
         KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【全本精校】", replacement = "", sortOrder = 38),
         KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【BL】", replacement = "", sortOrder = 39),
-        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【BG】", replacement = "", sortOrder = 40)
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【BG】", replacement = "", sortOrder = 40),
+        // —— 新增默认替换规则 ——
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【YLW】", replacement = "", sortOrder = 41),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "『推』", replacement = "", sortOrder = 42),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【YLW连载】", replacement = "", sortOrder = 43),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【棠】", replacement = "", sortOrder = 44),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【公众号：推文日记】", replacement = "", sortOrder = 45),
+        KeywordReplaceRuleEntity(scope = SCOPE_SCAN, pattern = "【书香门第★九落】", replacement = "", sortOrder = 46)
     )
 }

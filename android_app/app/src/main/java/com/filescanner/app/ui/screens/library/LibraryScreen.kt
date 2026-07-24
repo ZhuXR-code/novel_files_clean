@@ -62,6 +62,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import com.filescanner.app.ui.components.AppOutlinedButton
 import androidx.compose.foundation.text.KeyboardOptions
@@ -263,6 +264,7 @@ private fun RunFilesScreen(
     val toast by viewModel.toast.collectAsStateWithLifecycle()
     val query by viewModel.query.collectAsStateWithLifecycle()
     val groupMode by viewModel.groupMode.collectAsStateWithLifecycle()
+    val checkedSortToFront by viewModel.checkedSortToFront.collectAsStateWithLifecycle()
     val expandedGroups by viewModel.expandedGroups.collectAsStateWithLifecycle()
     val groupFiles by viewModel.groupFiles.collectAsStateWithLifecycle()
     val groupCheckedCounts by viewModel.groupCheckedCounts.collectAsStateWithLifecycle()
@@ -533,6 +535,24 @@ private fun RunFilesScreen(
                     ) {
                         Text(stringResource(R.string.group_mode), fontSize = 13.sp)
                     }
+                }
+                // 勾选文件是否自动排到前面 — 紧挨在分段按钮下方，占位极小
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        stringResource(R.string.auto_sort_checked),
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Switch(
+                        checked = checkedSortToFront,
+                        onCheckedChange = { viewModel.toggleCheckedSortToFront() }
+                    )
                 }
                 // 筛选 chips：列表模式显示（全部 / 已勾选 / 未勾选 / 已标记 / 未标记）；
                 // 合集模式额外显示「含已勾选」（仅保留组内有已勾选文件的合集），与搜索框叠加使用
@@ -821,14 +841,14 @@ private fun GroupList(
                                         fontWeight = MaterialTheme.typography.titleSmall.fontWeight,
                                         fontSize = MaterialTheme.typography.titleSmall.fontSize
                                     )
-                                    Spacer(Modifier.height(2.dp))
+                                    Spacer(Modifier.height(1.dp))
                                     Text(
                                         stringResource(R.string.group_summary, g.fileCount, FormatUtil.formatSize(g.totalSize)),
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     if (gChecked > 0) {
-                                        Spacer(Modifier.height(2.dp))
+                                        Spacer(Modifier.height(1.dp))
                                         Text(
                                             stringResource(R.string.group_checked, gChecked),
                                             fontSize = 12.sp,
@@ -904,7 +924,7 @@ private fun FileRow(
                     fontWeight = MaterialTheme.typography.titleSmall.fontWeight,
                     fontSize = MaterialTheme.typography.titleSmall.fontSize
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(1.dp))
                 // 原文件名（物理文件名），与解析书名不同时才显示，避免冗余
                 if (f.fileName.isNotBlank() && f.fileName != f.title) {
                     Text(
@@ -914,7 +934,7 @@ private fun FileRow(
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.outline
                     )
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(1.dp))
                 }
                 val sub = buildList {
                     if (f.author.isNotBlank()) add(f.author)
