@@ -7,10 +7,13 @@ import com.filescanner.app.FileScannerApp
 import com.filescanner.app.data.database.entity.ScannedFileEntity
 import com.filescanner.app.data.database.entity.ScanRunEntity
 import com.filescanner.app.data.database.entity.DuplicateRow
+import com.filescanner.app.data.model.DeleteStateManager
 import com.filescanner.app.data.model.NovelGroup
 import com.filescanner.app.util.LibraryLogic
 import com.filescanner.app.util.LogUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -48,6 +51,7 @@ data class GroupPageState(
     val loading: Boolean = true
 )
 
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class LibraryViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as FileScannerApp
     private val repo = app.repository
@@ -85,6 +89,33 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
      */
     private val _reloadSignal = MutableStateFlow(0L)
 
+    /** 详情页删除后、服务真正完成前的乐观待删文件 ID 集合，返回列表/合集页时即时隐藏。 */
+    private val _pendingDeletedIds = MutableStateFlow<Set<Long>>(emptySet())
+
+    /** 待删文件对各合集的统计影响：标题 -> (待删数量, 待删总大小, 待删勾选数)。
+     *  用于即时调整合集头部的文件数/大小/勾选数，并在空合集时隐藏该合集。 */
+    private val _pendingDeletedGroupDeltas = MutableStateFlow<Map<String, PendingGroupDelta>>(emptyMap())
+
+    /** 待删文件中原本处于勾选状态的数量，用于乐观更新底部已勾选总数。 */
+    private val _pendingDeletedCheckedCount = MutableStateFlow(0)
+
+    /** 待删文件对合集的统计影响。 */
+    private data class PendingGroupDelta(
+        val count: Int = 0,
+        val size: Long = 0,
+        val checked: Int = 0
+    )
+
+    /** 列表模式分页查询参数聚合（避免 combine 超过 5 个 Flow 的显式参数重载）。 */
+    private data class ListPageKey(
+        val filter: FilterMode,
+        val sort: SortMode,
+        val query: String,
+        val runId: Long?,
+        val pageSize: Int,
+        val page: Int
+    )
+
     /** 每页条数 + 当前页 合成一个键，便于放进 5 参数 combine。
      *  额外并入 _reloadSignal：写库操作（清标记/清勾选/删除）后自增它，
      *  即可让 listPageState / groupPageState 都重新查询当前页，使界面即时刷新。 */
@@ -92,8 +123,11 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         combine(_pageSize, _currentPage, _reloadSignal) { ps, page, sig -> ps to page }
 
     /** 当前文库【已勾选】(checked) 文件总数，供底部批量操作栏显隐与计数。 */
-    val checkedCount: StateFlow<Int> = _currentRunId.flatMapLatest { runId ->
-        if (runId == null) flowOf(0) else repo.checkedCountFlow(runId)
+    val checkedCount: StateFlow<Int> = combine(_currentRunId, _pendingDeletedCheckedCount) { runId, pending ->
+        runId to pending
+    }.flatMapLatest { (runId, pending) ->
+        if (runId == null) flowOf(0)
+        else repo.checkedCountFlow(runId).map { (it - pending).coerceAtLeast(0) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _toast = MutableStateFlow<String?>(null)
@@ -148,28 +182,25 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
      */
     val listPageState: StateFlow<ListPageState> =
         combine(_filter, _sort, _queryDebounced, _currentRunId, _pageKey) { f, s, q, runId, key ->
-            arrayOf(f, s, q, runId, key)
-        }.flatMapLatest { arr ->
-            val f = arr[0] as FilterMode
-            val s = arr[1] as SortMode
-            val q = arr[2] as String
-            val runId = arr[3] as Long?
-            val key = arr[4] as Pair<*, *>
-            val ps = key.first as Int
-            val page = key.second as Int
-            if (runId == null) return@flatMapLatest flowOf(ListPageState(loading = false))
+            val (ps, page) = key
+            ListPageKey(f, s, q, runId, ps, page)
+        }.flatMapLatest { k ->
+            if (k.runId == null) return@flatMapLatest flowOf(ListPageState(loading = false))
             combine(
-                repo.filesCountFlow(f.name, q, runId),
-                repo.filesPageFlow(f.name, q, s.name, runId, ps, page)
-            ) { total, items ->
-                val pageCount = LibraryLogic.computePageCount(total, ps)
+                repo.filesCountFlow(k.filter.name, k.query, k.runId),
+                repo.filesPageFlow(k.filter.name, k.query, k.sort.name, k.runId, k.pageSize, k.page),
+                _pendingDeletedIds
+            ) { total, items, pending ->
+                val effectiveItems = items.filter { it.id !in pending }
+                val effectiveTotal = (total - pending.size).coerceAtLeast(0)
+                val pageCount = LibraryLogic.computePageCount(effectiveTotal, k.pageSize)
                 // 当前页越界（如删除后总数变少）→ 自动回退到最后一页
-                if (page > pageCount - 1 && total > 0) _currentPage.value = pageCount - 1
+                if (k.page > pageCount - 1 && effectiveTotal > 0) _currentPage.value = pageCount - 1
                 ListPageState(
-                    items = items,
-                    total = total,
-                    page = LibraryLogic.adjustPage(page, pageCount),
-                    pageSize = ps,
+                    items = effectiveItems,
+                    total = effectiveTotal,
+                    page = LibraryLogic.adjustPage(k.page, pageCount),
+                    pageSize = k.pageSize,
                     loading = false
                 )
             }
@@ -196,13 +227,26 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 if (runId == null) return@flatMapLatest flowOf(GroupPageState(loading = false))
                 combine(
                     repo.groupsCountFlow(min, max, exclude, q, runId, filterName),
-                    repo.groupsPageFlow(min, max, exclude, q, runId, ps, page, filterName)
-                ) { total, groups ->
-                    val pageCount = LibraryLogic.computePageCount(total, ps)
-                    if (page > pageCount - 1 && total > 0) _currentPage.value = pageCount - 1
+                    repo.groupsPageFlow(min, max, exclude, q, runId, ps, page, filterName),
+                    _pendingDeletedGroupDeltas
+                ) { total, groups, deltas ->
+                    val effectiveGroups = groups.map { group ->
+                        val d = deltas[group.title]
+                        if (d != null && d.count > 0) {
+                            group.copy(
+                                fileCount = (group.fileCount - d.count).coerceAtLeast(0),
+                                totalSize = (group.totalSize - d.size).coerceAtLeast(0),
+                                checkedCount = (group.checkedCount - d.checked).coerceAtLeast(0)
+                            )
+                        } else group
+                    }.filter { it.fileCount > 0 }
+                    val removedCount = groups.size - effectiveGroups.size
+                    val effectiveTotal = (total - removedCount).coerceAtLeast(0)
+                    val pageCount = LibraryLogic.computePageCount(effectiveTotal, ps)
+                    if (page > pageCount - 1 && effectiveTotal > 0) _currentPage.value = pageCount - 1
                     GroupPageState(
-                        groups = groups,
-                        total = total,
+                        groups = effectiveGroups,
+                        total = effectiveTotal,
                         page = LibraryLogic.adjustPage(page, pageCount),
                         pageSize = ps,
                         loading = false
@@ -213,7 +257,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     // groupPageState 在本 init 块之前已声明初始化，此处再订阅它刷新各合集头部已勾选数状态。
     init {
-        // 合集列表每页加载时，用数据库聚合的已勾选数刷新各合集头部状态（重置为真实值）
+        // 合集列表每页加载时，用数据库聚合的已勾选数刷新各合集头部状态（重置为真实值）。
         viewModelScope.launch {
             groupPageState.collect { st ->
                 if (st.groups.isNotEmpty()) {
@@ -221,9 +265,26 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
         }
+
+        // DeleteService 完成后清理乐观待删状态，并触发一次重查以同步真实数据。
+        viewModelScope.launch {
+            DeleteStateManager.state.collect { state ->
+                if (state.finished) {
+                    _pendingDeletedIds.value = emptySet()
+                    _pendingDeletedGroupDeltas.value = emptyMap()
+                    _pendingDeletedCheckedCount.value = 0
+                    _reloadSignal.value += 1
+                }
+            }
+        }
     }
 
     fun setCurrentRunId(runId: Long?) {
+        if (_currentRunId.value != runId) {
+            _pendingDeletedIds.value = emptySet()
+            _pendingDeletedGroupDeltas.value = emptyMap()
+            _pendingDeletedCheckedCount.value = 0
+        }
         _currentRunId.value = runId
         _currentPage.value = 0
     }
@@ -280,6 +341,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         return markedArg to checkedArg
     }
 
+    /** 从文件列表中过滤掉详情页已乐观删除、但服务尚未完成的文件。 */
+    private fun filterPendingDeleted(files: List<ScannedFileEntity>): List<ScannedFileEntity> {
+        val pending = _pendingDeletedIds.value
+        return if (pending.isEmpty()) files else files.filter { it.id !in pending }
+    }
+
     /**
      * 筛选条件变化时，重新加载所有已展开合集的文件列表。
      * 否则缓存会停留在旧筛选结果（例如 CHECKED 下展开只加载了已勾选文件，
@@ -292,7 +359,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         val (markedArg, checkedArg) = currentFilterArgs()
         viewModelScope.launch(Dispatchers.IO) {
             val loaded = titles.associateWith { title ->
-                repo.getFilesByTitle(runId, title, markedArg, checkedArg)
+                filterPendingDeleted(repo.getFilesByTitle(runId, title, markedArg, checkedArg))
             }
             val newFilterMap = _groupFilesFilter.value.toMutableMap().apply {
                 titles.forEach { this[it] = _filter.value }
@@ -316,7 +383,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 val runId = _currentRunId.value ?: return@toggleGroupExpand
                 val (markedArg, checkedArg) = currentFilterArgs()
                 viewModelScope.launch(Dispatchers.IO) {
-                    val files = repo.getFilesByTitle(runId, title, markedArg, checkedArg)
+                    val files = filterPendingDeleted(repo.getFilesByTitle(runId, title, markedArg, checkedArg))
                     _groupFiles.value = _groupFiles.value + (title to files)
                     _groupFilesFilter.value = _groupFilesFilter.value + (title to _filter.value)
                 }
@@ -396,6 +463,37 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             _groupFiles.value = _groupFiles.value.mapValues { (_, list) -> list.map { it.copy(checked = 0) } }
             // 强制分页流重查，使列表/合集模式立即同步（Room Flow 不会自动重发当前页）
             _reloadSignal.value += 1
+        }
+    }
+
+    /**
+     * 从详情页删除单个文件时的乐观更新。
+     * 立即把该文件从当前内存快照和待删集合中移除，并累积该合集待删统计量，
+     * 使用户返回列表/合集页时立刻看不到该文件；待 [DeleteService] 真正完成后统一清理。
+     */
+    fun deleteFileOptimistically(file: ScannedFileEntity) {
+        val title = file.title
+        val curGroups = _groupFiles.value
+        val files = curGroups[title]
+        if (files != null) {
+            val remaining = files.filter { it.id != file.id }
+            if (remaining.isEmpty()) {
+                _groupFiles.value = curGroups - title
+                _expandedGroups.value = _expandedGroups.value - title
+                _groupCheckedCounts.value = _groupCheckedCounts.value - title
+            } else {
+                _groupFiles.value = curGroups + (title to remaining)
+            }
+        }
+        val delta = _pendingDeletedGroupDeltas.value[title] ?: PendingGroupDelta()
+        _pendingDeletedGroupDeltas.value = _pendingDeletedGroupDeltas.value + (title to delta.copy(
+            count = delta.count + 1,
+            size = delta.size + file.fileSize,
+            checked = delta.checked + (if (file.checked == 1) 1 else 0)
+        ))
+        _pendingDeletedIds.value = _pendingDeletedIds.value + file.id
+        if (file.checked == 1) {
+            _pendingDeletedCheckedCount.value = _pendingDeletedCheckedCount.value + 1
         }
     }
 

@@ -50,6 +50,7 @@ fun SettingsScreen(
 
     val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val fontScaleMode by viewModel.fontScaleMode.collectAsStateWithLifecycle()
+    val previewScrollbarMode by viewModel.previewScrollbarMode.collectAsStateWithLifecycle()
 
     var showClear by remember { mutableStateOf(false) }
 
@@ -102,6 +103,25 @@ fun SettingsScreen(
                 }
             }
 
+
+            // 阅读设置：预览滚动条方向
+            CardItem {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(stringResource(R.string.preview_scrollbar_mode), fontWeight = MaterialTheme.typography.titleSmall.fontWeight)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = previewScrollbarMode == "vertical",
+                            onClick = { viewModel.setPreviewScrollbarMode("vertical") }
+                        )
+                        Text(stringResource(R.string.scrollbar_vertical))
+                        RadioButton(
+                            selected = previewScrollbarMode == "horizontal",
+                            onClick = { viewModel.setPreviewScrollbarMode("horizontal") }
+                        )
+                        Text(stringResource(R.string.scrollbar_horizontal))
+                    }
+                }
+            }
 
             // 关键词替换（文件名数据清洗）
             CardItem(onClick = onNavigateToKeywordReplace) {

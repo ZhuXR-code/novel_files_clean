@@ -23,7 +23,7 @@ import com.filescanner.app.util.LogUtil
         ScannedFileEntity::class, ScanConfigEntity::class, ScanRunEntity::class,
         KeywordReplaceRuleEntity::class, DupRuleConfigEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -190,6 +190,15 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * v11 -> v12：scanned_file 新增 encoding 字段，保存文件编码。
+         */
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE scanned_file ADD COLUMN encoding TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        /**
          * v9 -> v10：新增 dup_rule_configs 表（勾选重复规则配置）。
          * 建表 + 写入 6 条默认规则（全部启用），幂等。
          */
@@ -233,7 +242,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also {

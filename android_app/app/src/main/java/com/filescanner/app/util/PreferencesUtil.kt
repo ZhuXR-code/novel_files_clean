@@ -26,6 +26,8 @@ class PreferencesUtil(private val context: Context) {
         val FONT_SCALE = stringPreferencesKey("font_scale")
         // 关键词替换默认规则是否已预埋，避免重复写入
         val KW_SEED_DONE = booleanPreferencesKey("kw_seed_done")
+        // 预览滚动条方向："vertical" / "horizontal"
+        val PREVIEW_SCROLLBAR_MODE = stringPreferencesKey("preview_scrollbar_mode")
     }
 
     val themeMode: Flow<String> = context.dataStore.data.map { it[THEME_MODE] ?: "system" }
@@ -36,9 +38,14 @@ class PreferencesUtil(private val context: Context) {
     val groupMaxCount: Flow<Int> = context.dataStore.data.map { it[GROUP_MAX_COUNT] ?: -1 }
     val groupExcludeNames: Flow<String> = context.dataStore.data.map { it[GROUP_EXCLUDE_NAMES] ?: "" }
     val fontScaleMode: Flow<String> = context.dataStore.data.map { it[FONT_SCALE] ?: "standard" }
+    val previewScrollbarMode: Flow<String> = context.dataStore.data.map { it[PREVIEW_SCROLLBAR_MODE] ?: "vertical" }
 
     suspend fun setThemeMode(mode: String) {
         context.dataStore.edit { it[THEME_MODE] = mode }
+    }
+
+    suspend fun setPreviewScrollbarMode(mode: String) {
+        context.dataStore.edit { it[PREVIEW_SCROLLBAR_MODE] = mode }
     }
 
     suspend fun setFontScale(mode: String) {
