@@ -1,9 +1,6 @@
 {
   "apiType": "stageMode",
   "buildOption": {
-    "arkOptions": {
-      "strictMode": false
-    },
     "resOptions": {
       "copyCodeResource": {
         "enable": false
