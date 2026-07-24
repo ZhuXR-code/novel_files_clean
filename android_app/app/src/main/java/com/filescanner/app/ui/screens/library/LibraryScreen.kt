@@ -444,6 +444,8 @@ private fun RunFilesScreen(
                             onClick = { viewModel.markDuplicatesByName(); moreMenu = false })
                         DropdownMenuItem(text = { Text(stringResource(R.string.clear_marked)) },
                             onClick = { viewModel.clearMarked(); moreMenu = false })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.clear_checked)) },
+                            onClick = { viewModel.clearChecked(); moreMenu = false })
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.delete_selected)) },
                             onClick = { showDeleteChoice = true; moreMenu = false }
@@ -468,13 +470,13 @@ private fun RunFilesScreen(
                 ) {
                     AppOutlinedButton(
                         onClick = { viewModel.clearChecked() },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(stringResource(R.string.clear_checked), fontSize = 11.sp)
                     }
                     AppOutlinedButton(
                         onClick = { viewModel.clearMarked() },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(stringResource(R.string.clear_marked), fontSize = 11.sp)
                     }
@@ -482,20 +484,20 @@ private fun RunFilesScreen(
                         AppOutlinedButton(
                             onClick = { viewModel.selectDuplicates() },
                             enabled = duplicateProgress < 0,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(stringResource(R.string.mark_duplicates), fontSize = 11.sp)
                         }
                     }
                     AppOutlinedButton(
                         onClick = { viewModel.markDuplicatesByName() },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(stringResource(R.string.mark_duplicates_name), fontSize = 11.sp)
                     }
                     AppButton(
                         onClick = { showDeleteChoice = true },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Icon(
                             Icons.Filled.Delete,

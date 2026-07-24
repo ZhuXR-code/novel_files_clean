@@ -5,17 +5,24 @@ import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.size
@@ -26,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -43,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,6 +64,7 @@ import com.filescanner.app.util.EncodingUtil
 import com.filescanner.app.util.PreferencesUtil
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
@@ -206,6 +216,8 @@ fun FilePreviewScreen(
 
     // 当前预览页正文字号（仅作用于本页面，范围 10~28sp，默认 13）
     var previewFontSize by remember { mutableStateOf(13) }
+    // 字号调节面板折叠/展开状态，默认展开
+    var fontSizeExpanded by remember { mutableStateOf(true) }
 
     // 自定义可拖拽滚动条的状态
     val trackHeightPx = remember { mutableStateOf(0) }      // 内容区高度（px）
@@ -276,7 +288,20 @@ fun FilePreviewScreen(
         topBar = {
             TopBar(
                 title = fileTitle.ifBlank { stringResource(R.string.preview_title) },
-                onBack = onBack
+                onBack = onBack,
+                actions = {
+                    IconButton(onClick = { fontSizeExpanded = !fontSizeExpanded }) {
+                        Text(
+                            if (fontSizeExpanded) "Aa" else "Aa",
+                            fontSize = 14.sp,
+                            fontWeight = if (fontSizeExpanded) FontWeight.Bold else FontWeight.Normal,
+                            color = if (fontSizeExpanded)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             )
         }
     ) { padding ->
@@ -287,32 +312,36 @@ fun FilePreviewScreen(
         ) {
             // 信息栏：编码 + 已加载行数
             if (!loading && error == null) {
-                // 字体大小调节工具条（仅作用于当前预览页）
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        stringResource(R.string.preview_font),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    AppOutlinedButton(
-                        onClick = { previewFontSize = (previewFontSize - 1).coerceAtLeast(10) }
-                    ) { Text("A−", fontSize = 12.sp) }
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        "$previewFontSize",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    AppOutlinedButton(
-                        onClick = { previewFontSize = (previewFontSize + 1).coerceAtMost(28) }
-                    ) { Text("A+", fontSize = 12.sp) }
+                // 折叠内容：A− / 当前字号 / A+
+                if (fontSizeExpanded) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            stringResource(R.string.preview_font),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        AppOutlinedButton(
+                            onClick = { previewFontSize = (previewFontSize - 1).coerceAtLeast(10) },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                        ) { Text("A−", fontSize = 12.sp) }
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "$previewFontSize",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        AppOutlinedButton(
+                            onClick = { previewFontSize = (previewFontSize + 1).coerceAtMost(28) },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
+                        ) { Text("A+", fontSize = 12.sp) }
+                    }
                 }
                 Row(
                     modifier = Modifier
@@ -514,30 +543,72 @@ private fun VerticalPreviewContent(
             val maxOff = (trackHeightPx.value - thumbH).coerceAtLeast(0)
             val thumbOffset = (fraction * maxOff).toInt()
 
-            val dragState = rememberDraggableState { delta ->
-                val mFirst = maxOf(
-                    1,
-                    (lines.size - listState.layoutInfo.visibleItemsInfo.size).coerceAtLeast(0)
-                )
-                val mOff = (trackHeightPx.value - thumbH).coerceAtLeast(1)
-                val cur = if (mFirst <= 0) 0f
-                else listState.firstVisibleItemIndex.toFloat() / mFirst
-                val newFrac = (cur + delta / mOff).coerceIn(0f, 1f)
-                val target = (newFrac * mFirst).roundToInt()
-                scope.launch { listState.scrollToItem(target) }
+            // 手指触摸/拖拽时滑条变宽，松开 0.5 秒后缩回
+            val thumbWidthAnim = remember { Animatable(4f) }
+            var thumbDragging by remember { mutableStateOf(false) }
+            LaunchedEffect(thumbDragging) {
+                if (thumbDragging) {
+                    thumbWidthAnim.animateTo(12f, tween(150))
+                } else {
+                    delay(500)
+                    thumbWidthAnim.animateTo(4f, tween(200))
+                }
             }
 
+            // 全高的触摸轨道（比可见滑块宽，方便点到），点按/拖拽均触发变宽
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset { IntOffset(0, thumbOffset) }
-                    .size(width = 4.dp, height = thumbH.dp)
-                    .background(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
-                        RoundedCornerShape(2.dp)
-                    )
-                    .draggable(dragState, Orientation.Vertical)
-            )
+                    .fillMaxHeight()
+                    .width(20.dp)
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            thumbDragging = true
+
+                            // 首次触摸即跳转到对应位置
+                            val mFirst = maxOf(
+                                1,
+                                (lines.size - listState.layoutInfo.visibleItemsInfo.size).coerceAtLeast(0)
+                            )
+                            val touchFrac =
+                                (down.position.y / trackHeightPx.value).coerceIn(0f, 1f)
+                            val jumpTarget = (touchFrac * mFirst).roundToInt()
+                            scope.launch { listState.scrollToItem(jumpTarget) }
+
+                            // 继续跟踪拖拽
+                            do {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                if (change.pressed) {
+                                    change.consume()
+                                    val mOff =
+                                        (trackHeightPx.value - thumbH).coerceAtLeast(1)
+                                    val cur = if (mFirst <= 0) 0f
+                                    else listState.firstVisibleItemIndex.toFloat() / mFirst
+                                    val newFrac = (cur + (change.position.y - down.position.y) / mOff)
+                                        .coerceIn(0f, 1f)
+                                    val target = (newFrac * mFirst).roundToInt()
+                                    scope.launch { listState.scrollToItem(target) }
+                                }
+                            } while (change.pressed)
+
+                            thumbDragging = false
+                        }
+                    }
+            ) {
+                // 可见滑块（纯展示，手势由外层轨道统一处理）
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .offset { IntOffset(0, thumbOffset) }
+                        .size(width = thumbWidthAnim.value.dp, height = thumbH.dp)
+                        .background(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                            RoundedCornerShape(2.dp)
+                        )
+                )
+            }
         }
     }
 }

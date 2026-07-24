@@ -7,6 +7,8 @@ import androidx.core.content.FileProvider
 import com.filescanner.app.util.FileUtil
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -92,6 +94,17 @@ fun FileDetailScreen(
                 onBack = onBack,
                 actions = {
                     file?.let { f ->
+                        // 顶部预览入口
+                        IconButton(onClick = {
+                            previewAllChoice = false
+                            showPreviewDialog = true
+                        }) {
+                            Icon(
+                                Icons.Filled.Visibility,
+                                contentDescription = stringResource(R.string.preview_file),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         IconButton(onClick = { viewModel.toggleMark(f.id, f.marked) }) {
                             Icon(
                                 if (f.marked == 1) Icons.Filled.Star else Icons.Filled.StarBorder,
@@ -125,15 +138,15 @@ fun FileDetailScreen(
             file?.let { f ->
                 DetailRow(stringResource(R.string.detail_title), f.title.ifBlank { "—" })
                 DetailRow(stringResource(R.string.detail_author), f.author.ifBlank { "—" })
-                DetailRowColumns(
-                    stringResource(R.string.detail_progress) to f.progress.ifBlank { "—" },
-                    stringResource(R.string.detail_source) to f.source.ifBlank { "—" }
-                )
                 DetailRow(stringResource(R.string.detail_original_name), f.fileName.ifBlank { "—" })
                 DetailRowColumns(
                     stringResource(R.string.detail_ext) to f.ext.ifBlank { "—" },
                     stringResource(R.string.detail_size) to FormatUtil.formatSize(f.fileSize),
                     stringResource(R.string.detail_encoding) to f.encoding.ifBlank { "—" }
+                )
+                DetailRowColumns(
+                    stringResource(R.string.detail_progress) to f.progress.ifBlank { "—" },
+                    stringResource(R.string.detail_source) to f.source.ifBlank { "—" }
                 )
                 DetailRowColumns(
                     stringResource(R.string.detail_marked) to if (f.marked == 1) stringResource(R.string.mark) else stringResource(R.string.unmark),
@@ -420,7 +433,13 @@ private fun DetailRowColumns(vararg items: Pair<String, String>) {
                 )
             }
             if (index < items.size - 1) {
-                Spacer(Modifier.width(12.dp))
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(36.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                )
+                Spacer(Modifier.width(8.dp))
             }
         }
     }
