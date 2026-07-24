@@ -24,12 +24,19 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val fontScaleMode: StateFlow<String> = prefs.fontScaleMode
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "standard")
 
+    val previewScrollbarMode: StateFlow<String> = prefs.previewScrollbarMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "vertical")
+
     fun setTheme(mode: String) {
         viewModelScope.launch(Dispatchers.IO) { prefs.setThemeMode(mode) }
     }
 
     fun setFontScale(mode: String) {
         viewModelScope.launch(Dispatchers.IO) { prefs.setFontScale(mode) }
+    }
+
+    fun setPreviewScrollbarMode(mode: String) {
+        viewModelScope.launch(Dispatchers.IO) { prefs.setPreviewScrollbarMode(mode) }
     }
 
 

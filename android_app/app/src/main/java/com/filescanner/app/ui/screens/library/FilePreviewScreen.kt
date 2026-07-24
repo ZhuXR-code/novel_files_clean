@@ -51,6 +51,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.filescanner.app.R
 import com.filescanner.app.ui.components.AppOutlinedButton
 import com.filescanner.app.ui.components.TopBar
+import com.filescanner.app.util.EncodingUtil
+import com.filescanner.app.util.PreferencesUtil
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -62,7 +65,6 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.Reader
-import java.nio.charset.Charset
 
 /** “前 50 行”模式的行数上限 */
 private const val HEAD_LINES = 50
@@ -114,16 +116,7 @@ internal class PreviewLoader(
 
     /** 打开文件：先采样探测编码，再以探测到的编码重新打开流（跳过 BOM）。 */
     fun open() {
-        val sample = ByteArray(SAMPLE_BYTES)
-        var sampleLen = 0
-        openRawStream().use { ins ->
-            while (sampleLen < SAMPLE_BYTES) {
-                val n = ins.read(sample, sampleLen, SAMPLE_BYTES - sampleLen)
-                if (n <= 0) break
-                sampleLen += n
-            }
-        }
-        val (charset, bomSkip) = detectCharset(sample, sampleLen)
+        val (charset, bomSkip) = EncodingUtil.detectEncodingAndBom(context, path, SAMPLE_BYTES)
         charsetName = charset.displayName()
 
         val ins = openRawStream()
@@ -183,45 +176,6 @@ internal class PreviewLoader(
         eofReached = true
         carry.setLength(0)
     }
-
-    companion object {
-        /** 返回 (编码, 需跳过的 BOM 字节数)。 */
-        private fun detectCharset(sample: ByteArray, len: Int): Pair<Charset, Long> {
-            if (len >= 3 &&
-                sample[0] == 0xEF.toByte() && sample[1] == 0xBB.toByte() && sample[2] == 0xBF.toByte()
-            ) return Charsets.UTF_8 to 3L
-            if (len >= 2 && sample[0] == 0xFF.toByte() && sample[1] == 0xFE.toByte()) {
-                return charset("UTF-16LE") to 2L
-            }
-            if (len >= 2 && sample[0] == 0xFE.toByte() && sample[1] == 0xFF.toByte()) {
-                return charset("UTF-16BE") to 2L
-            }
-            // 无 BOM：严格校验 UTF-8；不合法则按中文 txt 最常见的 GB18030（GBK 超集）兜底
-            return if (looksLikeUtf8(sample, len)) Charsets.UTF_8 to 0L
-            else charset("GB18030") to 0L
-        }
-
-        /** 手写 UTF-8 合法性校验；采样末尾被截断的多字节序列不算错误。 */
-        private fun looksLikeUtf8(b: ByteArray, len: Int): Boolean {
-            var i = 0
-            while (i < len) {
-                val c = b[i].toInt() and 0xFF
-                val need = when {
-                    c < 0x80 -> 0
-                    c in 0xC2..0xDF -> 1
-                    c in 0xE0..0xEF -> 2
-                    c in 0xF0..0xF4 -> 3
-                    else -> return false
-                }
-                if (i + need >= len) return true // 采样截断，视为合法
-                for (j in 1..need) {
-                    if ((b[i + j].toInt() and 0xC0) != 0x80) return false
-                }
-                i += need + 1
-            }
-            return true
-        }
-    }
 }
 
 /**
@@ -237,6 +191,8 @@ fun FilePreviewScreen(
     viewModel: LibraryViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val prefs = remember { PreferencesUtil(context) }
+    val scrollbarMode by prefs.previewScrollbarMode.collectAsStateWithLifecycle(initialValue = "vertical")
     val lines = remember { mutableStateListOf<String>() }
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
@@ -253,6 +209,7 @@ fun FilePreviewScreen(
 
     // 自定义可拖拽滚动条的状态
     val trackHeightPx = remember { mutableStateOf(0) }      // 内容区高度（px）
+    val trackWidthPx = remember { mutableStateOf(0) }       // 内容区宽度（px）
     val scrollbarVisible by remember {
         derivedStateOf { lines.size > listState.layoutInfo.visibleItemsInfo.size }
     }
@@ -417,111 +374,249 @@ fun FilePreviewScreen(
                     )
                 }
 
-                else -> Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(end = 2.dp)
-                        .onGloballyPositioned { coordinates -> trackHeightPx.value = coordinates.size.height }
-                ) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        itemsIndexed(lines) { index, line ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 1.dp)
-                            ) {
-                                // 行号：固定宽度，弱化显示
-                                Text(
-                                    (index + 1).toString(),
-                                    fontSize = (previewFontSize - 2).coerceAtLeast(10).sp,
-                                    color = MaterialTheme.colorScheme.outline,
-                                    modifier = Modifier.padding(end = 10.dp, top = 2.dp)
-                                )
-                                Text(
-                                    line,
-                                    fontSize = previewFontSize.sp,
-                                    lineHeight = (previewFontSize + 6).sp,
-                                    fontWeight = FontWeight.Normal
-                                )
-                            }
-                        }
-                        // 底部状态：加载更多 / 前50行提示 / 文件末尾
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 14.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                when {
-                                    loadingMore -> Row(verticalAlignment = Alignment.CenterVertically) {
-                                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                        Spacer(Modifier.size(8.dp))
-                                        Text(
-                                            stringResource(R.string.preview_loading_more),
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-
-                                    !previewAll -> Text(
-                                        stringResource(R.string.preview_head_done, HEAD_LINES),
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-
-                                    eof -> Text(
-                                        stringResource(R.string.preview_eof),
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    // 右侧可拖拽滚动条：在已加载范围内上下滑动浏览
-                    if (scrollbarVisible && trackHeightPx.value > 0) {
-                        val layoutInfo = listState.layoutInfo
-                        val total = lines.size
-                        val visible = layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
-                        val maxFirst = (total - visible).coerceAtLeast(0)
-                        val fraction = if (maxFirst <= 0) 0f
-                        else listState.firstVisibleItemIndex.toFloat() / maxFirst
-                        val thumbH = (trackHeightPx.value.toFloat() * visible / total.coerceAtLeast(1))
-                            .toInt().coerceAtLeast(48)
-                        val maxOff = (trackHeightPx.value - thumbH).coerceAtLeast(0)
-                        val thumbOffset = (fraction * maxOff).toInt()
-
-                        val dragState = rememberDraggableState { delta ->
-                            val mFirst = maxOf(
-                                1,
-                                (lines.size - listState.layoutInfo.visibleItemsInfo.size).coerceAtLeast(0)
-                            )
-                            val mOff = (trackHeightPx.value - thumbH).coerceAtLeast(1)
-                            val cur = if (mFirst <= 0) 0f
-                            else listState.firstVisibleItemIndex.toFloat() / mFirst
-                            val newFrac = (cur + delta / mOff).coerceIn(0f, 1f)
-                            val target = (newFrac * mFirst).roundToInt()
-                            scope.launch { listState.scrollToItem(target) }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .offset { IntOffset(0, thumbOffset) }
-                                .size(width = 4.dp, height = thumbH.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
-                                    RoundedCornerShape(2.dp)
-                                )
-                                .draggable(dragState, Orientation.Vertical)
+                else -> {
+                    if (scrollbarMode == "vertical") {
+                        VerticalPreviewContent(
+                            lines = lines,
+                            listState = listState,
+                            previewAll = previewAll,
+                            loadingMore = loadingMore,
+                            eof = eof,
+                            previewFontSize = previewFontSize,
+                            scrollbarVisible = scrollbarVisible,
+                            trackHeightPx = trackHeightPx,
+                            scope = scope
+                        )
+                    } else {
+                        HorizontalPreviewContent(
+                            lines = lines,
+                            listState = listState,
+                            previewAll = previewAll,
+                            loadingMore = loadingMore,
+                            eof = eof,
+                            previewFontSize = previewFontSize,
+                            scrollbarVisible = scrollbarVisible,
+                            trackWidthPx = trackWidthPx,
+                            scope = scope
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PreviewLazyList(
+    lines: List<String>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    previewAll: Boolean,
+    loadingMore: Boolean,
+    eof: Boolean,
+    previewFontSize: Int,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        state = listState,
+        modifier = modifier.fillMaxSize()
+    ) {
+        itemsIndexed(lines) { index, line ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 1.dp)
+            ) {
+                Text(
+                    (index + 1).toString(),
+                    fontSize = (previewFontSize - 2).coerceAtLeast(10).sp,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(end = 10.dp, top = 2.dp)
+                )
+                Text(
+                    line,
+                    fontSize = previewFontSize.sp,
+                    lineHeight = (previewFontSize + 6).sp,
+                    fontWeight = FontWeight.Normal
+                )
+            }
+        }
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                when {
+                    loadingMore -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            stringResource(R.string.preview_loading_more),
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    !previewAll -> Text(
+                        stringResource(R.string.preview_head_done, HEAD_LINES),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    eof -> Text(
+                        stringResource(R.string.preview_eof),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VerticalPreviewContent(
+    lines: List<String>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    previewAll: Boolean,
+    loadingMore: Boolean,
+    eof: Boolean,
+    previewFontSize: Int,
+    scrollbarVisible: Boolean,
+    trackHeightPx: androidx.compose.runtime.MutableState<Int>,
+    scope: kotlinx.coroutines.CoroutineScope
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(end = 2.dp)
+            .onGloballyPositioned { coordinates -> trackHeightPx.value = coordinates.size.height }
+    ) {
+        PreviewLazyList(
+            lines = lines,
+            listState = listState,
+            previewAll = previewAll,
+            loadingMore = loadingMore,
+            eof = eof,
+            previewFontSize = previewFontSize
+        )
+        // 右侧可拖拽滚动条：在已加载范围内上下滑动浏览
+        if (scrollbarVisible && trackHeightPx.value > 0) {
+            val layoutInfo = listState.layoutInfo
+            val total = lines.size
+            val visible = layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
+            val maxFirst = (total - visible).coerceAtLeast(0)
+            val fraction = if (maxFirst <= 0) 0f
+            else listState.firstVisibleItemIndex.toFloat() / maxFirst
+            val thumbH = (trackHeightPx.value.toFloat() * visible / total.coerceAtLeast(1))
+                .toInt().coerceAtLeast(48)
+            val maxOff = (trackHeightPx.value - thumbH).coerceAtLeast(0)
+            val thumbOffset = (fraction * maxOff).toInt()
+
+            val dragState = rememberDraggableState { delta ->
+                val mFirst = maxOf(
+                    1,
+                    (lines.size - listState.layoutInfo.visibleItemsInfo.size).coerceAtLeast(0)
+                )
+                val mOff = (trackHeightPx.value - thumbH).coerceAtLeast(1)
+                val cur = if (mFirst <= 0) 0f
+                else listState.firstVisibleItemIndex.toFloat() / mFirst
+                val newFrac = (cur + delta / mOff).coerceIn(0f, 1f)
+                val target = (newFrac * mFirst).roundToInt()
+                scope.launch { listState.scrollToItem(target) }
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset { IntOffset(0, thumbOffset) }
+                    .size(width = 4.dp, height = thumbH.dp)
+                    .background(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                        RoundedCornerShape(2.dp)
+                    )
+                    .draggable(dragState, Orientation.Vertical)
+            )
+        }
+    }
+}
+
+@Composable
+private fun HorizontalPreviewContent(
+    lines: List<String>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    previewAll: Boolean,
+    loadingMore: Boolean,
+    eof: Boolean,
+    previewFontSize: Int,
+    scrollbarVisible: Boolean,
+    trackWidthPx: androidx.compose.runtime.MutableState<Int>,
+    scope: kotlinx.coroutines.CoroutineScope
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { coordinates ->
+                trackWidthPx.value = coordinates.size.width
+            }
+    ) {
+        // 顶部可拖拽横向滚动条
+        if (scrollbarVisible && trackWidthPx.value > 0) {
+            val layoutInfo = listState.layoutInfo
+            val total = lines.size
+            val visible = layoutInfo.visibleItemsInfo.size.coerceAtLeast(1)
+            val maxFirst = (total - visible).coerceAtLeast(0)
+            val fraction = if (maxFirst <= 0) 0f
+            else listState.firstVisibleItemIndex.toFloat() / maxFirst
+            val thumbW = (trackWidthPx.value.toFloat() * visible / total.coerceAtLeast(1))
+                .toInt().coerceAtLeast(48)
+            val maxOff = (trackWidthPx.value - thumbW).coerceAtLeast(0)
+            val thumbOffset = (fraction * maxOff).toInt()
+
+            val dragState = rememberDraggableState { delta ->
+                val mFirst = maxOf(
+                    1,
+                    (lines.size - listState.layoutInfo.visibleItemsInfo.size).coerceAtLeast(0)
+                )
+                val mOff = (trackWidthPx.value - thumbW).coerceAtLeast(1)
+                val cur = if (mFirst <= 0) 0f
+                else listState.firstVisibleItemIndex.toFloat() / mFirst
+                val newFrac = (cur + delta / mOff).coerceIn(0f, 1f)
+                val target = (newFrac * mFirst).roundToInt()
+                scope.launch { listState.scrollToItem(target) }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(20.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(thumbOffset, 0) }
+                        .size(width = thumbW.dp, height = 4.dp)
+                        .align(Alignment.CenterStart)
+                        .background(
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                            RoundedCornerShape(2.dp)
+                        )
+                        .draggable(dragState, Orientation.Horizontal)
+                )
+            }
+        } else {
+            Spacer(modifier = Modifier.height(0.dp))
+        }
+
+        PreviewLazyList(
+            lines = lines,
+            listState = listState,
+            previewAll = previewAll,
+            loadingMore = loadingMore,
+            eof = eof,
+            previewFontSize = previewFontSize,
+            modifier = Modifier.weight(1f)
+        )
     }
 }

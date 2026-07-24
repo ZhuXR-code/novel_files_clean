@@ -21,6 +21,7 @@ import com.filescanner.app.util.ChineseConverter
 import com.filescanner.app.util.KeywordReplace
 import com.filescanner.app.util.LogUtil
 import com.filescanner.app.util.Parser
+import com.filescanner.app.util.EncodingUtil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -270,6 +271,7 @@ class ScanService : Service() {
         val progress = if (hasParseRules) (KeywordReplace.applyRules(parsed.progress, parseRules) ?: parsed.progress) else parsed.progress
         val source = if (hasParseRules) (KeywordReplace.applyRules(parsed.source, parseRules) ?: parsed.source) else parsed.source
         val ext = FileUtil.getFileExtension(fileName)
+        val encoding = runCatching { EncodingUtil.detectEncodingName(applicationContext, entry.uri.toString()) }.getOrDefault("")
         return ScannedFileEntity(
             path = entry.uri.toString(),
             fileName = fileName,
@@ -278,6 +280,7 @@ class ScanService : Service() {
             author = author,
             progress = progress,
             source = source,
+            encoding = encoding,
             titlePinyin = ChineseConverter.toPinyin(title),
             authorPinyin = ChineseConverter.toPinyin(author),
             contentHash = "",

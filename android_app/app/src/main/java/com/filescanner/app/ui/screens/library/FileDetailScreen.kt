@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -27,6 +28,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -123,13 +125,20 @@ fun FileDetailScreen(
             file?.let { f ->
                 DetailRow(stringResource(R.string.detail_title), f.title.ifBlank { "—" })
                 DetailRow(stringResource(R.string.detail_author), f.author.ifBlank { "—" })
-                DetailRow(stringResource(R.string.detail_progress), f.progress.ifBlank { "—" })
-                DetailRow(stringResource(R.string.detail_source), f.source.ifBlank { "—" })
+                DetailRowColumns(
+                    stringResource(R.string.detail_progress) to f.progress.ifBlank { "—" },
+                    stringResource(R.string.detail_source) to f.source.ifBlank { "—" }
+                )
                 DetailRow(stringResource(R.string.detail_original_name), f.fileName.ifBlank { "—" })
-                DetailRow(stringResource(R.string.detail_ext), f.ext.ifBlank { "—" })
-                DetailRow(stringResource(R.string.detail_size), FormatUtil.formatSize(f.fileSize))
-                DetailRow(stringResource(R.string.detail_marked), if (f.marked == 1) stringResource(R.string.mark) else stringResource(R.string.unmark))
-                DetailRow(stringResource(R.string.detail_checked), if (f.checked == 1) stringResource(R.string.state_checked) else stringResource(R.string.state_unchecked))
+                DetailRowColumns(
+                    stringResource(R.string.detail_ext) to f.ext.ifBlank { "—" },
+                    stringResource(R.string.detail_size) to FormatUtil.formatSize(f.fileSize),
+                    stringResource(R.string.detail_encoding) to f.encoding.ifBlank { "—" }
+                )
+                DetailRowColumns(
+                    stringResource(R.string.detail_marked) to if (f.marked == 1) stringResource(R.string.mark) else stringResource(R.string.unmark),
+                    stringResource(R.string.detail_checked) to if (f.checked == 1) stringResource(R.string.state_checked) else stringResource(R.string.state_unchecked)
+                )
                 DetailRow(stringResource(R.string.detail_content_hash), f.contentHash.ifBlank { "—" })
                 DetailRow(stringResource(R.string.detail_path), FormatUtil.toHumanReadablePath(f.path), isPath = true)
 
@@ -333,6 +342,8 @@ fun FileDetailScreen(
                 AppButton(
                     onClick = {
                         showConfirmDialog = false
+                        // 乐观更新：返回列表/合集前先把该文件从 ViewModel 快照中移除
+                        viewModel.deleteFileOptimistically(target)
                         val intent = Intent(context, DeleteService::class.java).apply {
                             action = DeleteService.ACTION_START_DELETE
                             putExtra("ids", longArrayOf(target.id))
@@ -379,6 +390,41 @@ private fun DetailRow(label: String, value: String, isPath: Boolean = false) {
             color = MaterialTheme.colorScheme.outlineVariant
         )
     }
+}
+
+@Composable
+private fun DetailRowColumns(vararg items: Pair<String, String>) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        items.forEachIndexed { index, (label, value) ->
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.Start
+            ) {
+                Text(
+                    label,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    value,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (index < items.size - 1) {
+                Spacer(Modifier.width(12.dp))
+            }
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 /**

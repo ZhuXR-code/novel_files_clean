@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -59,6 +61,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import com.filescanner.app.ui.components.AppOutlinedButton
 import androidx.compose.foundation.text.KeyboardOptions
@@ -242,7 +245,7 @@ private fun RunListScreen(
 }
 
 /** 单个文库内的文件列表（列表/合集模式），即原来的文库内容。 */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun RunFilesScreen(
     viewModel: LibraryViewModel,
@@ -282,12 +285,13 @@ private fun RunFilesScreen(
     var toolbarExpanded by remember { mutableStateOf(true) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
+    // 使用 rememberSaveable + LazyListState.Saver，保证从详情页返回时恢复滚动位置（不自动回顶）。
+    val listState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() }
 
     // 翻页 / 切筛选 / 换模式 / 改每页条数 / 搜索 后，把列表滚回顶部（每页是独立数据集）。
     // 用 rememberSaveable 记录上次触发回顶的参数组合：仅当这些参数真正变化时才回顶。
     // 从小说明细页返回时（本组件被重建、LaunchedEffect 重新执行，但参数未变），不再强制回顶，
-    // 从而让 rememberLazyListState 恢复原滚动位置，自动定位到点进去的那本小说。
+    // 同时 listState 已用 rememberSaveable(LazyListState.Saver) 保存，组件重建后恢复滚动位置。
     var lastTopKey by rememberSaveable { mutableStateOf("") }
     val topKey = "$currentPage|$filter|$groupMode|$pageSize|$query"
     LaunchedEffect(topKey) {
@@ -440,18 +444,27 @@ private fun RunFilesScreen(
                             onClick = { viewModel.markDuplicatesByName(); moreMenu = false })
                         DropdownMenuItem(text = { Text(stringResource(R.string.clear_marked)) },
                             onClick = { viewModel.clearMarked(); moreMenu = false })
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.delete_selected)) },
+                            onClick = { showDeleteChoice = true; moreMenu = false }
+                        )
                     }
                 }
             )
         },
         bottomBar = {
-            if (checkedCount > 0) {
-                Row(
+            Surface(
+                tonalElevation = 4.dp,
+                shadowElevation = 6.dp,
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                FlowRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     AppOutlinedButton(
                         onClick = { viewModel.clearChecked() },
@@ -459,14 +472,27 @@ private fun RunFilesScreen(
                     ) {
                         Text(stringResource(R.string.clear_checked), fontSize = 11.sp)
                     }
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        stringResource(R.string.selected_count, checkedCount),
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    // 批量删除按钮：只保留垃圾桶图标，避免文字在窄屏下被强制竖排换行
-                    // （之前 "批量删除选中" 6 个字在已勾选数字很大时被挤到 6 行竖排）
+                    AppOutlinedButton(
+                        onClick = { viewModel.clearMarked() },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                    ) {
+                        Text(stringResource(R.string.clear_marked), fontSize = 11.sp)
+                    }
+                    if (groupMode) {
+                        AppOutlinedButton(
+                            onClick = { viewModel.selectDuplicates() },
+                            enabled = duplicateProgress < 0,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                        ) {
+                            Text(stringResource(R.string.mark_duplicates), fontSize = 11.sp)
+                        }
+                    }
+                    AppOutlinedButton(
+                        onClick = { viewModel.markDuplicatesByName() },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
+                    ) {
+                        Text(stringResource(R.string.mark_duplicates_name), fontSize = 11.sp)
+                    }
                     AppButton(
                         onClick = { showDeleteChoice = true },
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
@@ -474,6 +500,14 @@ private fun RunFilesScreen(
                         Icon(
                             Icons.Filled.Delete,
                             contentDescription = stringResource(R.string.batch_delete_selected)
+                        )
+                    }
+                    if (checkedCount > 0) {
+                        Text(
+                            stringResource(R.string.selected_count, checkedCount),
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.align(Alignment.CenterVertically)
                         )
                     }
                 }
@@ -903,6 +937,7 @@ private fun FileRow(
                     if (f.author.isNotBlank()) add(f.author)
                     add(FormatUtil.formatSize(f.fileSize))
                     if (f.progress.isNotBlank()) add(f.progress)
+                    if (f.encoding.isNotBlank()) add(f.encoding)
                     if (f.source.isNotBlank()) add(stringResource(R.string.source_label) + "：" + f.source)
                 }.joinToString(" · ")
                 Text(
@@ -965,6 +1000,7 @@ private fun GroupFileRow(
                 if (f.author.isNotBlank()) add(f.author)
                 add(FormatUtil.formatSize(f.fileSize))
                 if (f.progress.isNotBlank()) add(f.progress)
+                if (f.encoding.isNotBlank()) add(f.encoding)
                 if (f.source.isNotBlank()) add(stringResource(R.string.source_label) + "：" + f.source)
             }.joinToString(" · ")
             if (sub.isNotBlank()) {

@@ -154,6 +154,10 @@
 
     <!-- 设置 -->
     <string name="scan_settings">扫描设置</string>
+    <string name="reading_settings">阅读设置</string>
+    <string name="preview_scrollbar_mode">预览滚动条方向</string>
+    <string name="scrollbar_vertical">竖向</string>
+    <string name="scrollbar_horizontal">横向</string>
     <string name="theme">主题</string>
     <string name="theme_system">跟随系统</string>
     <string name="theme_light">浅色</string>
@@ -254,6 +258,7 @@
     <string name="detail_author">作者</string>
     <string name="detail_progress">进度</string>
     <string name="detail_source">来源</string>
+    <string name="detail_encoding">编码</string>
     <string name="detail_original_name">原文件名</string>
     <string name="detail_ext">扩展名</string>
     <string name="detail_size">大小</string>
