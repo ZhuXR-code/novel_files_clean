@@ -28,6 +28,7 @@ import com.filescanner.app.ui.screens.home.HomeScreen
 import com.filescanner.app.ui.screens.home.ScanProgressScreen
 import com.filescanner.app.ui.screens.library.LibraryScreen
 import com.filescanner.app.ui.screens.library.FileDetailScreen
+import com.filescanner.app.ui.screens.library.FilePreviewScreen
 import com.filescanner.app.ui.screens.settings.SettingsScreen
 import com.filescanner.app.ui.screens.settings.KeywordReplaceScreen
 import com.filescanner.app.ui.screens.settings.LogViewerScreen
@@ -134,6 +135,22 @@ fun AppNavigation() {
             val id = backStack.arguments?.getLong("id") ?: -1L
             FileDetailScreen(
                 fileId = id,
+                onBack = { navController.popBackStack() },
+                onPreview = { fid, all -> navController.navigate(NavRoutes.filePreview(fid, all)) }
+            )
+        }
+        composable(
+            route = NavRoutes.FILE_PREVIEW,
+            arguments = listOf(
+                navArgument("id") { type = NavType.LongType },
+                navArgument("all") { type = NavType.BoolType }
+            )
+        ) { backStack ->
+            val id = backStack.arguments?.getLong("id") ?: -1L
+            val all = backStack.arguments?.getBoolean("all") ?: false
+            FilePreviewScreen(
+                fileId = id,
+                previewAll = all,
                 onBack = { navController.popBackStack() }
             )
         }

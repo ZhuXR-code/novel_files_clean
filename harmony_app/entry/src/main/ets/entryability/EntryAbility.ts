@@ -62,6 +62,12 @@ export default class EntryAbility extends UIAbility {
    */
   private async seedDefaultDupRules(): Promise<void> {
     try {
+      // 先清理历史上因缺少 UNIQUE 约束、每次启动都重新插入而重复的内置规则（每个 rule_key 只保留一条）
+      try {
+        await DupRuleConfigDao.dedupByKey();
+      } catch (e) {
+        LogUtil.e('EntryAbility', `清理重复内置规则失败: ${(e as Error).message}`);
+      }
       const builtins: DupRuleConfig[] = [
         EntryAbility.builtin('rule1', '完全相等去重', '小说名+作者+进度+文件大小 完全一致视为重复', 1),
         EntryAbility.builtin('rule2', '数字进度对比', '有纯数字进度时，数字大者保留', 2),

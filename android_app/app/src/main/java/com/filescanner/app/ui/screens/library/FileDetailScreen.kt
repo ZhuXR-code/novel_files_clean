@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Delete
@@ -63,6 +64,7 @@ import kotlinx.coroutines.withContext
 fun FileDetailScreen(
     fileId: Long,
     onBack: () -> Unit,
+    onPreview: (Long, Boolean) -> Unit = { _, _ -> },
     viewModel: LibraryViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -73,6 +75,9 @@ fun FileDetailScreen(
     var deleteSourceChoice by remember { mutableStateOf(false) }
     // 二次确认对话框：防止误删
     var showConfirmDialog by remember { mutableStateOf(false) }
+    // 预览范围选择对话框：false=前50行，true=全部内容
+    var showPreviewDialog by remember { mutableStateOf(false) }
+    var previewAllChoice by remember { mutableStateOf(false) }
 
     LaunchedEffect(fileId) {
         file = withContext(Dispatchers.IO) { viewModel.getById(fileId) }
@@ -129,7 +134,20 @@ fun FileDetailScreen(
                 DetailRow(stringResource(R.string.detail_path), FormatUtil.toHumanReadablePath(f.path), isPath = true)
 
                 Spacer(Modifier.height(20.dp))
+                // 预览内容（应用内直接查看，弹窗选择范围）
                 AppButton(
+                    onClick = {
+                        previewAllChoice = false
+                        showPreviewDialog = true
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Visibility, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.preview_file))
+                }
+                Spacer(Modifier.height(12.dp))
+                AppOutlinedButton(
                     onClick = { openFileWithViewer(context, f.path) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -156,6 +174,74 @@ fun FileDetailScreen(
                 )
             }
         }
+    }
+
+    // 预览范围选择对话框：用户确认读取「前 50 行」还是「全部内容」
+    if (showPreviewDialog && file != null) {
+        val target = file!!
+        AlertDialog(
+            onDismissRequest = { showPreviewDialog = false },
+            title = { Text(stringResource(R.string.preview_choose_title)) },
+            text = {
+                Column {
+                    Text(
+                        stringResource(R.string.preview_choose_hint),
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    // 选项一：仅前 50 行
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { previewAllChoice = false }
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = !previewAllChoice, onClick = { previewAllChoice = false })
+                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                            Text(stringResource(R.string.preview_head_50))
+                            Text(
+                                stringResource(R.string.preview_head_50_hint),
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    // 选项二：全部内容
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { previewAllChoice = true }
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = previewAllChoice, onClick = { previewAllChoice = true })
+                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                            Text(stringResource(R.string.preview_full))
+                            Text(
+                                stringResource(R.string.preview_full_hint),
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                AppButton(
+                    onClick = {
+                        showPreviewDialog = false
+                        onPreview(target.id, previewAllChoice)
+                    }
+                ) { Text(stringResource(R.string.preview_start)) }
+            },
+            dismissButton = {
+                AppOutlinedButton(onClick = { showPreviewDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
     }
 
     // 删除确认对话框：复用 DeleteService，支持“仅删除记录”与“删除记录和源文件”两种选择

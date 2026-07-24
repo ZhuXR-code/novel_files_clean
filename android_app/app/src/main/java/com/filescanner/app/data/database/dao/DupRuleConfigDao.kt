@@ -72,6 +72,20 @@ interface DupRuleConfigDao {
     @Query("SELECT COUNT(*) FROM dup_rule_configs WHERE rule_key = :ruleKey")
     suspend fun countByKey(ruleKey: String): Int
 
+    /** 同步内置规则的最新说明文案（仅更新 description，不动用户开关，也不影响自定义规则）。
+     *  用于让存量库的设置页也能看到优化后的内置规则描述。 */
+    @Query("UPDATE dup_rule_configs SET description = :description WHERE rule_key = :ruleKey AND is_builtin = 1")
+    suspend fun refreshBuiltinDescription(ruleKey: String, description: String)
+
+    /** 清理 rule_key 重复的行：每个 rule_key 只保留 id 最小的一条。
+     *  用于修复早期因缺少 UNIQUE 约束、每次启动 seed 都重复插入内置规则的问题。
+     *  自定义规则的 rule_key 为唯一随机串，不受影响。 */
+    @Query("""
+        DELETE FROM dup_rule_configs 
+        WHERE id NOT IN (SELECT MIN(id) FROM dup_rule_configs GROUP BY rule_key)
+    """)
+    suspend fun dedupByKey()
+
     /** 获取当前最大 sort_order（用于新规则排序）。 */
     @Query("SELECT COALESCE(MAX(sort_order), 0) FROM dup_rule_configs")
     suspend fun getMaxSortOrder(): Int

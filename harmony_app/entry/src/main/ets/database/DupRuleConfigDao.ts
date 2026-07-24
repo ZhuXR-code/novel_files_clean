@@ -133,6 +133,18 @@ export class DupRuleConfigDao {
     return result;
   }
 
+  /**
+   * 清理 rule_key 重复的行：每个 rule_key 只保留 id 最小的一条。
+   * 用于修复早期因缺少 UNIQUE 约束、每次启动 seed 都重复插入内置规则的问题。
+   * 自定义规则的 rule_key 为唯一随机串，不受影响。
+   * 对齐安卓端 DupRuleConfigDao.dedupByKey()。
+   */
+  public static async dedupByKey(): Promise<void> {
+    await DupRuleConfigDao.store.executeSql(
+      `DELETE FROM dup_rule_config WHERE id NOT IN (SELECT MIN(id) FROM dup_rule_config GROUP BY rule_key)`
+    );
+  }
+
   public static async getEnabledBuiltinRuleKeys(): Promise<string[]> {
     const predicates = new relationalStore.RdbPredicates('dup_rule_config');
     predicates.equalTo('is_builtin', 1).and().equalTo('enabled', 1);

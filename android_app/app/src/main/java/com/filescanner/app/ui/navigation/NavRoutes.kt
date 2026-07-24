@@ -4,6 +4,7 @@ object NavRoutes {
     const val HOME = "home"
     const val LIBRARY = "library"
     const val FILE_DETAIL = "file_detail/{id}"
+    const val FILE_PREVIEW = "file_preview/{id}/{all}"
     const val SCAN_PROGRESS = "scan_progress"
     const val DELETE_CONFIRM = "delete_confirm"
     const val DELETE_PROGRESS = "delete_progress"
@@ -19,4 +20,5 @@ object NavRoutes {
 
     fun configEdit(id: Long) = "config_edit/$id"
     fun fileDetail(id: Long) = "file_detail/$id"
+    fun filePreview(id: Long, all: Boolean) = "file_preview/$id/$all"
 }
