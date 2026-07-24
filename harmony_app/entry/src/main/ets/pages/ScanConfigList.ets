@@ -37,16 +37,17 @@ struct ScanConfigList {
   }
 
   private async deleteConfig(cfg: ScanConfig): Promise<void> {
-    const result = await promptAction.showDialog({
+    promptAction.showDialog({
       title: '删除配置',
       message: `确认删除配置「${cfg.name}」？`,
-      buttons: [{ text: '取消' }, { text: '删除' }]
+      buttons: [{ text: '取消', color: '#888888' }, { text: '删除', color: '#ff3b30' }]
+    }).then((result) => {
+      if (result.index === 1) {
+        ScanConfigDao.delete(cfg.id);
+        LogUtil.operation('删除配置', `配置ID=${cfg.id} 名称=${cfg.name}`);
+        this.load();
+      }
     });
-    if (result.index === 1) {
-      await ScanConfigDao.delete(cfg.id);
-      LogUtil.operation('删除配置', `配置ID=${cfg.id} 名称=${cfg.name}`);
-      await this.load();
-    }
   }
 
   private scanWith(cfg: ScanConfig): void {
@@ -117,23 +118,23 @@ struct ScanConfigList {
                   Button('删除')
                     .backgroundColor($r('app.color.danger'))
                     .height(32)
-                    .alignSelf(FlexAlign.End)
+                    .alignSelf(ItemAlign.End)
                     .margin({ top: 6 })
                     .onClick(() => this.deleteConfig(cfg))
-                }
-                .width('100%')
-                .padding(16)
-                .backgroundColor($r('app.color.bg_card'))
-                .borderRadius(10)
               }
-              .padding({ left: 12, right: 12, bottom: 10 })
-            },
-            (cfg: ScanConfig) => cfg.id.toString()
-          )
-        }
-        .layoutWeight(1)
-        .width('100%')
-        .backgroundColor($r('app.color.bg_page'))
+              .width('100%')
+              .padding(16)
+              .backgroundColor($r('app.color.bg_card'))
+              .borderRadius(10)
+            }
+            .padding({ left: 12, right: 12, bottom: 10 })
+          },
+          (cfg: ScanConfig) => cfg.id.toString()
+        )
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .backgroundColor($r('app.color.bg_page'))
       }
     }
     .width('100%')

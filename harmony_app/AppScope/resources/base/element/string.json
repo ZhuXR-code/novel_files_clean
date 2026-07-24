@@ -1,5 +1,8 @@
 {
   "string": [
-    { "name": "app_name", "value": "文件清理" }
+    {
+      "name": "app_name",
+      "value": "HarmonyCleaner"
+    }
   ]
 }

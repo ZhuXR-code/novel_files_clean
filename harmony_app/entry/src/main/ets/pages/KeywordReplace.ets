@@ -101,11 +101,11 @@ struct KeywordReplace {
       Row({ space: 8 }) {
         Button('扫描阶段')
           .backgroundColor(this.scope === 'scan' ? $r('app.color.primary') : $r('app.color.bg_card'))
-          .fontColor(this.scope === 'scan' ? Color.White : $r('app.color.text_primary'))
+          .fontColor(this.scope === 'scan' ? '#ffffff' : $r('app.color.text_primary'))
           .onClick(() => this.changeScope('scan'))
         Button('解析阶段')
           .backgroundColor(this.scope === 'parse' ? $r('app.color.primary') : $r('app.color.bg_card'))
-          .fontColor(this.scope === 'parse' ? Color.White : $r('app.color.text_primary'))
+          .fontColor(this.scope === 'parse' ? '#ffffff' : $r('app.color.text_primary'))
           .onClick(() => this.changeScope('parse'))
       }
       .width('100%')
@@ -148,7 +148,7 @@ struct KeywordReplace {
               ListItem() {
                 Column({ space: 4 }) {
                   Row({ space: 8 }) {
-                    Toggle({ isOn: r.enabled, onChange: (v: boolean) => this.toggleEnabled(r, v) })
+                    Toggle({ type: ToggleType.Switch, isOn: r.enabled }).onChange((v: boolean) => this.toggleEnabled(r, v))
                       .width(36)
                     Column({ space: 3 }) {
                       Text(`匹配: ${r.pattern}`)

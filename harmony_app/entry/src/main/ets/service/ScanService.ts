@@ -3,6 +3,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { common } from '@kit.AbilityKit';
 import { ScannedFile } from '../model/ScannedFile';
+import { ChineseConverter } from '../utils/ChineseConverter';
 import { ScanConfig } from '../model/ScanConfig';
 import { ScanRun } from '../model/ScanRun';
 import { KeywordReplaceRule } from '../model/KeywordReplaceRule';
@@ -55,7 +56,7 @@ export class ScanService {
   public static async selectDirectory(context: common.Context): Promise<string> {
     const documentPicker = new picker.DocumentViewPicker(context);
     const options = new picker.DocumentSelectOptions();
-    options.selectMode = picker.DocumentSelectMode.DIR;
+    options.selectMode = picker.DocumentSelectMode.FOLDER;
     const uris: string[] = await documentPicker.select(options);
     if (uris.length === 0) {
       throw new Error('未选择任何目录');
@@ -110,7 +111,7 @@ export class ScanService {
         }
         let names: string[] = [];
         try {
-          names = fileIo.listFile(dir);
+          names = await fileIo.listFile(dir);
         } catch (e) {
           LogUtil.e('ScanService', `遍历目录失败: ${dir} -> ${(e as Error).message}`);
           continue;
@@ -122,7 +123,7 @@ export class ScanService {
           const childUri: string = dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`;
           let stat: fileIo.Stat | null = null;
           try {
-            stat = fileIo.stat(childUri);
+            stat = await fileIo.stat(childUri);
           } catch (e) {
             continue;
           }
@@ -158,6 +159,8 @@ export class ScanService {
             rec.author = parsed.author;
             rec.progress = parsed.progress;
             rec.source = parsed.source;
+            rec.titlePinyin = ChineseConverter.toPinyin(parsed.title);
+            rec.authorPinyin = ChineseConverter.toPinyin(parsed.author);
             rec.contentHash = config.exactHash ? await ScanService.computeMd5(childUri) : '';
             rec.ext = ext;
             rec.scanRunId = runId;

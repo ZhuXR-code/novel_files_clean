@@ -75,7 +75,7 @@ harmony_app/
 | 关键词替换 | `KeywordReplace.kt` | `utils/KeywordReplace.ts`（字面量） |
 | 文件扫描 | SAF 遍历 | `ScanService`（Picker + fs 遍历，增量写库） |
 | 文库/合集浏览 | Room 查询 | `LibraryScreen` |
-| 标记重复 / 一键清理 | —— | `LibraryScreen` / `OneClickCleanup` |
+| 勾选重复 / 一键清理 | —— | `LibraryScreen` / `OneClickCleanup` |
 | 物理删除 + 记录 | —— | `DeleteService` |
 | CSV 导出 | —— | `ExportService` |
 | 操作日志 | —— | `LogUtil`（UTF-8 解码） |
@@ -105,7 +105,7 @@ DevEco Studio + 模拟器/真机完成构建与验证。
 以当前 git 工作区中 `android_app/` 已改文件为基准，对鸿蒙端做以下对齐：
 
 - `utils/Parser.ts`：书名/作者前缀兼容"作家"；标签识别支持【】、[]、（）、()；作者尾部清洗新增"更新至N / 补番 / 修"；进度提取新增"番外 / 更新至N"；新增 cleanTitle 清洗书名前导标签。
-- `utils/DupLogic.ts` + `database/ScannedFileDao.ts`：新增 `markDuplicatesByName` / `markDuplicatesByNameSql`（按书名+作者相同标记重复），并新增 `setCheckedForIds` / `clearChecked` / `getCheckedIds` / `markIds` / `clearMarked` / `getMarked` / `getFilesByTitle` / `getByPath` / `deleteAll` 等批量方法。
+- `utils/DupLogic.ts` + `database/ScannedFileDao.ts`：新增 `markDuplicatesByName` / `markDuplicatesByNameSql`（按书名+作者相同勾选重复），并新增 `setCheckedForIds` / `clearChecked` / `getCheckedIds` / `markIds` / `clearMarked` / `getMarked` / `getFilesByTitle` / `getByPath` / `deleteAll` 等批量方法。
 - `utils/KeywordReplace.ts` + `database/KeywordReplaceDao.ts` + `EntryAbility.ts`：新增 10 条默认去水印规则，启动时按 pattern 幂等补齐；DAO 新增 `countByScopeAndPattern` / `maxSortOrder` / `upsert` / `setEnabled`。
 - `service/ScanService.ts` + `pages/ScanProgress.ets`：新增 `stop()` 停止扫描，进度回调节流，扫描停止后保留已写入结果。
 - `service/DeleteService.ts` + `pages/DeleteConfirm.ets` + `pages/DeleteProgress.ets`：新增 `deleteSource` 开关（仅删记录 或 删记录+源文件）、分批删除、删除后重算受影响文库的 `file_count`。

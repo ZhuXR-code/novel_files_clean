@@ -1,5 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
+import { DupRuleConfigDao } from './DupRuleConfigDao';
 
 /**
  * 关系型数据库单例封装，对齐安卓端 AppDatabase（v8 schema）。
@@ -63,7 +64,9 @@ export class RdbHelper {
         marked INTEGER NOT NULL DEFAULT 0,
         checked INTEGER NOT NULL DEFAULT 0,
         scan_run_id INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL DEFAULT 0
+        created_at INTEGER NOT NULL DEFAULT 0,
+        title_pinyin TEXT NOT NULL DEFAULT '',
+        author_pinyin TEXT NOT NULL DEFAULT ''
       )`);
     await store.executeSql('CREATE UNIQUE INDEX IF NOT EXISTS idx_sf_path_run ON scanned_file(path, scan_run_id)');
     await store.executeSql('CREATE INDEX IF NOT EXISTS idx_sf_marked ON scanned_file(marked)');
@@ -105,5 +108,19 @@ export class RdbHelper {
         enabled INTEGER NOT NULL DEFAULT 1,
         created_at INTEGER NOT NULL DEFAULT 0
       )`);
+
+    await DupRuleConfigDao.createTable();
+
+    // 旧库迁移：补充拼音列（列已存在时 ALTER 抛错，忽略即可，保持幂等）
+    await RdbHelper.addColumnIfNotExists(store, 'scanned_file', 'title_pinyin', "TEXT NOT NULL DEFAULT ''");
+    await RdbHelper.addColumnIfNotExists(store, 'scanned_file', 'author_pinyin', "TEXT NOT NULL DEFAULT ''");
+  }
+
+  private static async addColumnIfNotExists(store: relationalStore.RdbStore, table: string, column: string, def: string): Promise<void> {
+    try {
+      await store.executeSql(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+    } catch (e) {
+      // 列已存在时 ALTER 会报错，忽略
+    }
   }
 }

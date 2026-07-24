@@ -5,7 +5,7 @@ import { AppContext } from './AppContext';
 /**
  * 操作日志工具，对齐安卓端 util/LogUtil。
  * 日志写入应用沙箱 filesDir/operation_log.log（追加），同时打印到控制台。
- * 关键业务（创建/更新/删除配置、扫描、删除、标记重复、一键清理、导出）均调用 logOperation 记录。
+ * 关键业务（创建/更新/删除配置、扫描、删除、勾选重复、一键清理、导出）均调用 logOperation 记录。
  */
 export class LogUtil {
   private static readonly LOG_FILE: string = 'operation_log.log';

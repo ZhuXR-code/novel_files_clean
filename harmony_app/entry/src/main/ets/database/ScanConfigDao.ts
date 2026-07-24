@@ -69,7 +69,7 @@ export class ScanConfigDao {
     const values: relationalStore.ValuesBucket = ScanConfigDao.toValues(cfg);
     const predicates = new relationalStore.RdbPredicates('scan_config');
     predicates.equalTo('id', cfg.id);
-    await ScanConfigDao.store.update('scan_config', values, predicates);
+    await ScanConfigDao.store.update(values, predicates);
   }
 
   public static async delete(id: number): Promise<void> {

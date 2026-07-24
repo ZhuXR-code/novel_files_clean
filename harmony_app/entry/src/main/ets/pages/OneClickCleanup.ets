@@ -32,7 +32,7 @@ struct OneClickCleanup {
       this.checkedCount = ids.length;
       promptAction.showToast({ message: `已标记 ${ids.length} 个重复文件` });
     } catch (e) {
-      LogUtil.e('OneClickCleanup', `标记重复失败: ${(e as Error).message}`);
+      LogUtil.e('OneClickCleanup', `勾选重复失败: ${(e as Error).message}`);
       promptAction.showToast({ message: '标记失败' });
     }
     this.marking = false;
@@ -64,7 +64,7 @@ struct OneClickCleanup {
       .padding({ left: 12, right: 12 })
       .alignItems(VerticalAlign.Center)
 
-      Text('选择文库后点击「标记重复」，系统将按五则规则自动勾选应删除的重复文件。')
+      Text('选择文库后点击「勾选重复」，系统将按五则规则自动勾选应删除的重复文件。')
         .fontSize(13)
         .fontColor($r('app.color.text_secondary'))
         .padding(16)
@@ -116,7 +116,7 @@ struct OneClickCleanup {
       }
 
       Column({ space: 10 }) {
-        Button('标记重复')
+        Button('勾选重复')
           .width('80%')
           .backgroundColor($r('app.color.primary'))
           .enabled(!this.marking && this.selectedRunId > 0)
