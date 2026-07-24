@@ -267,6 +267,16 @@ struct LibraryScreen {
             this.mode = this.mode === 'list' ? 'collection' : 'list';
             this.expandedTitle = '';
           })
+        Button('⋮')
+          .fontSize(20)
+          .width(40)
+          .height(40)
+          .backgroundColor(Color.Transparent)
+          .fontColor($r('app.color.text_primary'))
+          .bindMenu([
+            { value: '清除标记', action: () => this.clearMarked() },
+            { value: '删除', action: () => this.goDelete() }
+          ])
       }
       .width('100%')
       .height(52)
@@ -367,26 +377,20 @@ struct LibraryScreen {
       }
       .padding({ left: 12, right: 12 })
 
-      // 操作行
-      Column({ space: 6 }) {
-        Row({ space: 6 }) {
-          Button('规则标重').backgroundColor($r('app.color.primary')).enabled(!this.marking).onClick(() => this.markDuplicates())
-          Button('书名标重').backgroundColor($r('app.color.primary')).enabled(!this.marking).onClick(() => this.markDuplicatesByName())
-          Button('清空勾选').onClick(() => this.clearChecked())
-          Button('清空标记').onClick(() => this.clearMarked())
-        }
-        .width('100%')
-        .padding({ top: 4 })
-
-        Row({ space: 6 }) {
-          Button('导出勾选').onClick(() => this.exportList('checked'))
-          Button('导出标记').onClick(() => this.exportList('marked'))
-          Button('删除').backgroundColor($r('app.color.danger')).onClick(() => this.goDelete())
-        }
-        .width('100%')
+      // 操作行（自适应换行，避免小屏按钮被截断）
+      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start, alignItems: ItemAlign.Center }) {
+        Button('规则标重').backgroundColor($r('app.color.primary')).enabled(!this.marking).onClick(() => this.markDuplicates())
+        Button('书名标重').backgroundColor($r('app.color.primary')).enabled(!this.marking).onClick(() => this.markDuplicatesByName())
+        Button('清空勾选').onClick(() => this.clearChecked())
+        Button('清空标记').onClick(() => this.clearMarked())
+        Button('导出勾选').onClick(() => this.exportList('checked'))
+        Button('导出标记').onClick(() => this.exportList('marked'))
+        Button('删除').backgroundColor($r('app.color.danger')).onClick(() => this.goDelete())
       }
       .width('100%')
       .padding({ left: 12, right: 12, top: 4 })
+      .margin({ bottom: 4 })
+      .backgroundColor($r('app.color.bg_page'))
 
       Text(`已勾选 ${this.checkedCount} / 未勾选 ${this.unCheckedCount}  |  已标记 ${this.markedCount} / 未标记 ${this.unMarkedCount}`)
         .fontSize(12)
