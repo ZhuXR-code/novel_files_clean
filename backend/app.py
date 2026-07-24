@@ -261,10 +261,12 @@ def init_database():
 
     # 迁移：为 scan_configs 表添加 parse_on_scan 列（扫描时同步工程类解析）
     _migrate_scan_config_parse_on_scan()
+    _migrate_scan_config_scan_mode()
     # 迁移：为 scan_results 表添加 checked 列（勾选重复持久化）
     _migrate_scan_results_checked()
-    # 迁移：为 file_metadata 表添加拼音列
+    # 迁移：为 file_metadata 表添加拼音列和编码列
     _migrate_file_metadata_pinyin()
+    _migrate_file_metadata_encoding()
 
     # 第三步：初始化默认数据
     _init_default_data()
@@ -296,8 +298,10 @@ def _init_sqlite_database():
 
     # 迁移：为旧 SQLite 库补 parse_on_scan 列（create_all 不会给已存在的表加列）
     _migrate_scan_config_parse_on_scan()
+    _migrate_scan_config_scan_mode()
     _migrate_scan_results_checked()
     _migrate_file_metadata_pinyin()
+    _migrate_file_metadata_encoding()
 
     _init_default_data()
     logger.info(f'SQLite 初始化完成: {db_path}')
@@ -616,6 +620,49 @@ def _migrate_scan_config_parse_on_scan():
         logger.info('迁移: 添加列 scan_configs.parse_on_scan')
     except Exception as e:
         logger.warning(f'scan_configs parse_on_scan 迁移警告: {e}')
+
+
+def _migrate_scan_config_scan_mode():
+    """迁移：为 scan_configs 表添加 scan_mode 列（快速/完整扫描模式）。
+
+    旧库升级时补列，已有配置默认 quick（快速扫描），保持向后兼容。
+    """
+    try:
+        from sqlalchemy import inspect as sa_inspect
+        insp = sa_inspect(engine)
+        if 'scan_configs' not in insp.get_table_names():
+            return
+        existing_cols = {c['name'] for c in insp.get_columns('scan_configs')}
+        if 'scan_mode' in existing_cols:
+            return
+        with engine.begin() as conn:
+            if IS_SQLITE:
+                conn.execute(text("ALTER TABLE scan_configs ADD COLUMN scan_mode VARCHAR(20) NOT NULL DEFAULT 'quick'"))
+            else:
+                conn.execute(text("ALTER TABLE scan_configs ADD COLUMN scan_mode VARCHAR(20) NOT NULL DEFAULT 'quick' COMMENT '扫描模式: quick=快速扫描(仅文件名解析), full=完整扫描(含编码检测)'"))
+        logger.info('迁移: 添加列 scan_configs.scan_mode')
+    except Exception as e:
+        logger.warning(f'scan_configs scan_mode 迁移警告: {e}')
+
+
+def _migrate_file_metadata_encoding():
+    """迁移：为 file_metadata 表添加 encoding 列（文件编码）。"""
+    try:
+        from sqlalchemy import inspect as sa_inspect
+        insp = sa_inspect(engine)
+        if 'file_metadata' not in insp.get_table_names():
+            return
+        existing_cols = {c['name'] for c in insp.get_columns('file_metadata')}
+        if 'encoding' in existing_cols:
+            return
+        with engine.begin() as conn:
+            if IS_SQLITE:
+                conn.execute(text("ALTER TABLE file_metadata ADD COLUMN encoding VARCHAR(20)"))
+            else:
+                conn.execute(text("ALTER TABLE file_metadata ADD COLUMN encoding VARCHAR(20) COMMENT '文件编码（如 utf-8/gb18030/shift_jis）'"))
+        logger.info('迁移: 添加列 file_metadata.encoding')
+    except Exception as e:
+        logger.warning(f'file_metadata encoding 迁移警告: {e}')
 
 
 def _migrate_scan_results_checked():
@@ -1260,6 +1307,7 @@ def list_configs(db: Session = Depends(get_db)):
             'file_types': c.file_types,
             'excluded_folders': c.excluded_folders or '',
             'parse_on_scan': bool(c.parse_on_scan),
+            'scan_mode': (c.scan_mode or 'quick'),
             'created_at': c.created_at.isoformat() if c.created_at else None,
         }
         for c in configs
@@ -1270,21 +1318,25 @@ def list_configs(db: Session = Depends(get_db)):
 def create_config(data: dict, db: Session = Depends(get_db)):
     """创建扫描配置"""
     parse_on_scan = data.get('parse_on_scan', True)
+    scan_mode = (data.get('scan_mode') or 'quick')
+    if scan_mode not in ('quick', 'full'):
+        scan_mode = 'quick'
     config = ScanConfig(
         name=(data.get('name') or '').strip(),
         folder_path=data['folder_path'],
         file_types=data.get('file_types', 'txt'),
         excluded_folders=data.get('excluded_folders', ''),
         parse_on_scan=parse_on_scan if isinstance(parse_on_scan, bool) else str(parse_on_scan).lower() in ('1', 'true', 'yes', 'on'),
+        scan_mode=scan_mode,
     )
     db.add(config)
     db.commit()
     db.refresh(config)
-    logger.info(f'创建扫描配置: ID={config.id}, path={config.folder_path}, parse_on_scan={config.parse_on_scan}')
+    logger.info(f'创建扫描配置: ID={config.id}, path={config.folder_path}, parse_on_scan={config.parse_on_scan}, scan_mode={config.scan_mode}')
     try:
         from backend.operation_log import log_operation
         log_operation('创建扫描配置', detail=f'{config.name or config.folder_path}',
-                      config_id=config.id, path=config.folder_path, parse_on_scan=config.parse_on_scan)
+                      config_id=config.id, path=config.folder_path, parse_on_scan=config.parse_on_scan, scan_mode=config.scan_mode)
     except Exception:
         pass
     return {'id': config.id, 'message': '创建成功'}
@@ -1308,13 +1360,16 @@ def update_config(config_id: int, data: dict, db: Session = Depends(get_db)):
     if 'parse_on_scan' in data:
         v = data['parse_on_scan']
         config.parse_on_scan = v if isinstance(v, bool) else str(v).lower() in ('1', 'true', 'yes', 'on')
+    if 'scan_mode' in data:
+        mode = (data.get('scan_mode') or 'quick')
+        config.scan_mode = mode if mode in ('quick', 'full') else 'quick'
 
     db.commit()
-    logger.info(f'更新扫描配置: ID={config_id}, parse_on_scan={config.parse_on_scan}')
+    logger.info(f'更新扫描配置: ID={config_id}, parse_on_scan={config.parse_on_scan}, scan_mode={config.scan_mode}')
     try:
         from backend.operation_log import log_operation
         log_operation('更新扫描配置', detail=f'{config.name or config.folder_path}',
-                      config_id=config_id, parse_on_scan=config.parse_on_scan)
+                      config_id=config_id, parse_on_scan=config.parse_on_scan, scan_mode=config.scan_mode)
     except Exception:
         pass
     return {'message': '更新成功'}
@@ -1408,6 +1463,7 @@ def run_scan(config_id: int, db: Session = Depends(get_db)):
         # 后台任务，前端拿到 parse_task_id 后轮询解析进度，解析完成再重建合集，
         # 使合集/勾选重复立即可用，无需用户再手动点「文件名解析」。
         parse_task_id = None
+        summary_task_id = None
         if getattr(config, 'parse_on_scan', True) and total > 0:
             try:
                 parse_task_id = _start_parse_task(
@@ -1420,10 +1476,27 @@ def run_scan(config_id: int, db: Session = Depends(get_db)):
             except Exception:
                 logger.exception('扫描后自动启动工程文件名解析失败')
 
+            # 完整扫描模式（scan_mode='full'）：同步检测文件编码（读文件头 8KB）
+            scan_mode = getattr(config, 'scan_mode', 'quick') or 'quick'
+            if scan_mode == 'full':
+                try:
+                    from backend.regex_parser import detect_file_encodings
+                    summary_task_id = _start_parse_task(
+                        detect_file_encodings, f'扫描同步编码检测 ({total}个，完整模式)',
+                        SessionLocal, concurrency=8, force=False,
+                        config_id=config_id, forward_config_id=True,
+                        pymysql_factory=(None if IS_SQLITE else make_pymysql_conn),
+                    )
+                    logger.info(f'扫描后自动启动编码检测（完整模式）: config_id={config_id}, task_id={summary_task_id}, file_count={total}')
+                except Exception:
+                    logger.exception('扫描后自动启动编码检测失败')
+
         msg = f'扫描完成，共{total}个文件（新增{new_count}个，耗时{elapsed}秒）'
         if parse_task_id:
             msg += '，正在同步进行工程类解析...'
-        return {'new_count': new_count, 'total': total, 'parse_task_id': parse_task_id, 'message': msg}
+        if summary_task_id:
+            msg += '，正在同步检测文件编码（完整模式）...'
+        return {'new_count': new_count, 'total': total, 'parse_task_id': parse_task_id, 'summary_task_id': summary_task_id, 'message': msg}
     except FileNotFoundError as e:
         scanning_progress.pop(config_id, None)
         raise HTTPException(status_code=400, detail=str(e))
@@ -1830,6 +1903,7 @@ def list_results(
         FileMetadata.summary,
         FileMetadata.progress,
         FileMetadata.source,
+        FileMetadata.encoding,
         ScanResult.scan_config_id,
         ScanResult.checked,
     ).outerjoin(
@@ -2728,6 +2802,7 @@ def export_markdown(
         FileMetadata.summary,
         FileMetadata.progress,
         FileMetadata.source,
+        FileMetadata.encoding,
     ).outerjoin(
         FileMetadata, ScanResult.id == FileMetadata.scan_result_id
     )
@@ -2805,6 +2880,7 @@ def export_excel(ids: Optional[List[int]] = Query(None),
         FileMetadata.summary,
         FileMetadata.progress,
         FileMetadata.source,
+        FileMetadata.encoding,
     ).outerjoin(
         FileMetadata, ScanResult.id == FileMetadata.scan_result_id
     )
