@@ -132,6 +132,17 @@ class ParserTest {
     }
 
     @Test
+    fun `废文完结 作者含修同人后缀 书名作者进度来源全正确`() {
+        // [废文 完结]《危险关系》作者：Nnnr（【修】山海镜花 融共同人）.txt
+        // 期望：书名=危险关系 / 作者=Nnnr / 进度=完结 / 来源=废文
+        val r = parse("[废文 完结]《危险关系》作者：Nnnr（【修】山海镜花 融共同人）.txt")
+        assertEquals("危险关系", r.title)
+        assertEquals("Nnnr", r.author)
+        assertEquals("完结", r.progress)
+        assertEquals("废文", r.source)
+    }
+
+    @Test
     fun `双括号 起点+更200 来源=起点 进度=200`() {
         val r = parse("《诛仙》作者：萧鼎（起点）（更200）.txt")
         assertEquals("起点", r.source)

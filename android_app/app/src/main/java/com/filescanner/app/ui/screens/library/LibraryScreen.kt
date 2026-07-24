@@ -810,6 +810,14 @@ private fun GroupList(
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                    if (gChecked > 0) {
+                                        Spacer(Modifier.height(2.dp))
+                                        Text(
+                                            stringResource(R.string.group_checked, gChecked),
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                                 Icon(
                                     if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,

@@ -1,5 +1,6 @@
 package com.filescanner.app.ui.screens.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,27 +11,26 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -46,11 +46,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.filescanner.app.ui.components.AppButton
+import com.filescanner.app.ui.components.AppOutlinedButton
+import com.filescanner.app.ui.components.CardItem
 import com.filescanner.app.ui.components.TopBar
 import org.json.JSONArray
 import org.json.JSONObject
@@ -93,23 +95,23 @@ fun DupRuleConfigScreen(
         toastMsg?.let { viewModel.clearToast() }
     }
 
+    val openAdd = {
+        editId = null
+        dialogName = ""
+        dialogDesc = ""
+        dialogAction = "check"
+        dialogPatterns.clear()
+        dialogPatterns.add(PatternItem())
+        showDialog = true
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("勾选重复规则") },
-                navigationIcon = {
-                    TextButton(onClick = onBack) { Text("← 返回") }
-                },
+            TopBar(
+                title = "勾选重复规则",
+                onBack = onBack,
                 actions = {
-                    IconButton(onClick = {
-                        editId = null
-                        dialogName = ""
-                        dialogDesc = ""
-                        dialogAction = "check"
-                        dialogPatterns.clear()
-                        dialogPatterns.add(PatternItem())
-                        showDialog = true
-                    }) {
+                    IconButton(onClick = openAdd) {
                         Icon(Icons.Filled.Add, contentDescription = "添加自定义规则")
                     }
                 }
@@ -176,15 +178,7 @@ fun DupRuleConfigScreen(
             }
 
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = {
-                editId = null
-                dialogName = ""
-                dialogDesc = ""
-                dialogAction = "check"
-                dialogPatterns.clear()
-                dialogPatterns.add(PatternItem())
-                showDialog = true
-            }, modifier = Modifier.fillMaxWidth()) {
+            AppOutlinedButton(onClick = openAdd, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
                 Text("添加自定义规则")
             }
@@ -236,11 +230,7 @@ private fun RuleCard(
     onEdit: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
 ) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
+    CardItem {
         Row(
             modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -250,17 +240,14 @@ private fun RuleCard(
                     Text(rule.ruleName,
                         fontWeight = FontWeight.Medium,
                         fontSize = MaterialTheme.typography.titleSmall.fontSize)
-                    if (isBuiltin) {
-                        Spacer(Modifier.width(6.dp))
-                        Text("内置", fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold)
-                    } else {
-                        Spacer(Modifier.width(6.dp))
-                        Text("自定义", fontSize = 10.sp,
-                            color = Color(0xFFFF9800),
-                            fontWeight = FontWeight.Bold)
-                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        if (isBuiltin) "内置" else "自定义",
+                        fontSize = 10.sp,
+                        color = if (isBuiltin) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.tertiary,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
                 val descText = if (isBuiltin) rule.description
                 else "${if (rule.action == "protect") "🛡️保护" else "✓勾选"} - ${rule.description}"
@@ -270,11 +257,12 @@ private fun RuleCard(
             }
             if (!isBuiltin) {
                 IconButton(onClick = { onEdit?.invoke() }, modifier = Modifier.width(36.dp).height(36.dp)) {
-                    Icon(Icons.Filled.Edit, contentDescription = "编辑", modifier = Modifier.height(18.dp))
+                    Icon(Icons.Filled.Edit, contentDescription = "编辑",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.height(18.dp))
                 }
                 IconButton(onClick = { onDelete?.invoke() }, modifier = Modifier.width(36.dp).height(36.dp)) {
                     Icon(Icons.Filled.Delete, contentDescription = "删除",
-                        tint = Color(0xFFE53935), modifier = Modifier.height(18.dp))
+                        tint = MaterialTheme.colorScheme.error, modifier = Modifier.height(18.dp))
                 }
             }
             Switch(checked = rule.enabled, onCheckedChange = { onToggle() })
@@ -299,7 +287,7 @@ private fun UserRuleDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (editId != null) "编辑自定义规则" else "添加自定义规则") },
+        title = { Text(if (editId != null) "编辑自定义规则" else "添加自定义规则", fontWeight = FontWeight.Bold) },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -312,18 +300,18 @@ private fun UserRuleDialog(
                     label = { Text("备注说明（可选）") }, singleLine = true,
                     modifier = Modifier.fillMaxWidth())
 
-                Text("动作", fontSize = 13.sp)
-                Row {
-                    TextButton(onClick = { onActionChange("check") }) {
-                        Text(if (action == "check") "✓ 勾选该行" else "勾选该行",
-                            color = if (action == "check") MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    TextButton(onClick = { onActionChange("protect") }) {
-                        Text(if (action == "protect") "🛡️ 保护该行" else "保护该行",
-                            color = if (action == "protect") MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                Text("动作", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    SegmentedButton(
+                        selected = action == "check",
+                        onClick = { onActionChange("check") },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                    ) { Text("勾选") }
+                    SegmentedButton(
+                        selected = action == "protect",
+                        onClick = { onActionChange("protect") },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                    ) { Text("🛡️ 保护") }
                 }
                 Text(
                     "匹配条件：对所选「项」的内容用正则匹配，以下每条都需满足才命中本规则。",
@@ -351,7 +339,7 @@ private fun UserRuleDialog(
                         canRemove = patterns.size > 1
                     )
                 }
-                OutlinedButton(onClick = {
+                AppOutlinedButton(onClick = {
                     patterns.add(PatternItem())
                     onPatternsChange(patterns)
                 }, modifier = Modifier.fillMaxWidth()) {
@@ -360,12 +348,12 @@ private fun UserRuleDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onSave) {
+            AppButton(onClick = onSave) {
                 Text("保存")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            AppOutlinedButton(onClick = onDismiss) { Text("取消") }
         }
     )
 }
@@ -380,18 +368,17 @@ private fun PatternRow(
     canRemove: Boolean,
 ) {
     var testInput by remember { mutableStateOf("") }
+    var testResult by remember { mutableStateOf<Boolean?>(null) }
     val regexError = remember(pattern.regex) {
         if (pattern.regex.isBlank()) null
         else try { Regex(pattern.regex); null } catch (e: Exception) { e.message }
     }
-    val testMatch = remember(pattern.regex, testInput) {
-        if (pattern.regex.isBlank() || testInput.isBlank()) null
-        else try { Regex(pattern.regex).containsMatchIn(testInput) } catch (_: Exception) { null }
-    }
+    val canRun = pattern.regex.isNotBlank() && testInput.isNotBlank() && regexError == null
+
     Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -417,11 +404,16 @@ private fun PatternRow(
             }
             OutlinedTextField(
                 value = pattern.regex,
-                onValueChange = onRegexChange,
+                onValueChange = {
+                    onRegexChange(it)
+                    testResult = null
+                },
                 label = { Text("正则表达式") },
                 singleLine = true,
                 isError = regexError != null,
-                supportingText = regexError?.let { Text("正则无效：$it", fontSize = 11.sp) },
+                supportingText = if (regexError != null) {
+                    { Text("正则无效：$regexError", fontSize = 11.sp) }
+                } else null,
                 modifier = Modifier.fillMaxWidth()
             )
             Text(
@@ -429,23 +421,41 @@ private fun PatternRow(
                 fontSize = 10.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            // ── 即时测试区 ──
-            Text("测试（可选）：输入一段样例文本，看本正则是否命中",
+            // ── 测试区：输入样例文本，点「运行测试」查看本正则是否命中 ──
+            Text("测试本正则（可选）：输入一段样例文本，点「运行测试」查看是否命中",
                 fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedTextField(
                 value = testInput,
-                onValueChange = { testInput = it },
+                onValueChange = {
+                    testInput = it
+                    testResult = null
+                },
                 placeholder = { Text("例如：某某小说_水印.txt") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
-            when (testMatch) {
-                null -> Text("（输入样例文本后在此显示命中结果）", fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                true -> Text("✓ 命中", fontSize = 11.sp,
-                    color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
-                false -> Text("✗ 未命中", fontSize = 11.sp,
-                    color = Color(0xFFE53935), fontWeight = FontWeight.Medium)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                AppOutlinedButton(
+                    onClick = {
+                        testResult = try {
+                            Regex(pattern.regex).containsMatchIn(testInput)
+                        } catch (_: Exception) { null }
+                    },
+                    enabled = canRun
+                ) { Text("运行测试") }
+                when (testResult) {
+                    null -> Text(
+                        if (canRun) "（未运行）" else "（请先填正则与样例文本）",
+                        fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    true -> Text("✓ 命中", fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                    false -> Text("✗ 未命中", fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Medium)
+                }
             }
         }
     }

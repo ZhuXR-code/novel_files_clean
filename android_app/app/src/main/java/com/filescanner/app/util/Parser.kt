@@ -47,7 +47,12 @@ object Parser {
     private val RE_TITLE_BRACKET_END = Regex("""^(.+?)\s*\[([^\]]+)\]\s*$""")
 
     // 作者后缀清洗（对齐 PC 端 _name_worker 的两次正则替换）
-    private val AUTHOR_TRAIL_BRACKET = Regex("""\s*[\[（(【][^\]）)】]*?(?:\d+|[更完结番外npv1V]+)[^\]）)】]*?[\]）)】]\s*$""")
+    // 末尾括号清洗：含 数字 / 进度词 / 单字母标识 / 修订标记(修、校) 的括号整体剥离。
+    // 类型感知：圆括号(（)）只配圆括号、方括号(【[】])只配方括号，避免内部【】被误判为闭合，
+    // 从而正确剥离「《危险关系》作者：Nnnr（【修】山海镜花 融共同人）」→ 作者保留 Nnnr。
+    private val AUTHOR_TRAIL_BRACKET = Regex(
+        """\s*(?:[（(][^）)]*?(?:\d+|[更完结番外npv1V修校]+)[^）)]*?[）)]|[【\[][^】\]]*?(?:\d+|[更完结番外npv1V修校]+)[^】\]]*?[】\]])\s*$"""
+    )
     private val AUTHOR_TRAIL_DASH_NUM = Regex("""\s*-\d+\s*$""")
     // 作者尾部“更新至N / --更新至N / -更新至N”清洗，进度交由 extractSourceProgress 提取
     private val AUTHOR_TRAIL_UPDATE = Regex("""\s*[-—~]*更新至?\s*\d+\s*$""")

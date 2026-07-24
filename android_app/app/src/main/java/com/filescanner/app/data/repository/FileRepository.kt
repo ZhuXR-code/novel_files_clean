@@ -19,7 +19,6 @@ import androidx.paging.PagingData
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import androidx.sqlite.db.SimpleSQLiteQuery
-import org.json.JSONArray
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
@@ -167,17 +166,26 @@ class FileRepository(
     /** 幂等补齐缺失的默认勾选重复规则配置。 */
     suspend fun seedDefaultDupRules() {
         if (dupRuleDao == null) return
-        val now = System.currentTimeMillis()
+        // 先清理历史上因缺少 UNIQUE 约束、每次启动都重新插入而重复的内置规则（每个 rule_key 只保留一条）
+        try { dupRuleDao.dedupByKey() } catch (_: Exception) {}
         val defaults = listOf(
             DupRuleConfigEntity(ruleKey = "rule1", ruleName = "精确重复去重", enabled = true, description = "小说名+作者+进度+文件大小完全相等的文件，保留最新一个", isBuiltin = true, sortOrder = 0),
             DupRuleConfigEntity(ruleKey = "rule2", ruleName = "纯数字进度对比", enabled = true, description = "有纯数字进度的文件中，进度最高的不勾选，其余勾选", isBuiltin = true, sortOrder = 0),
             DupRuleConfigEntity(ruleKey = "rule3a", ruleName = "含中文进度保护", enabled = true, description = "含有中文进度（如\"更新至50\"）的文件不勾选", isBuiltin = true, sortOrder = 0),
-            DupRuleConfigEntity(ruleKey = "rule3b", ruleName = "完结特例", enabled = true, description = "中文进度保护的特例：数字进度文件更小且文件名含\"完结\"时，仍勾选最大进度文件", isBuiltin = true, sortOrder = 0),
+            DupRuleConfigEntity(ruleKey = "rule3b", ruleName = "完结特例", enabled = true, description = "同一本书若同时有『完结版』(文件名含『完结/全本』)与纯数字进度的文件：当数字进度最大的文件体积小于所有『完结字样』文件中最小的那个，说明它不完整，会勾选删除，只留下完结版。", isBuiltin = true, sortOrder = 0),
             DupRuleConfigEntity(ruleKey = "rule4", ruleName = "最大文件不勾选", enabled = true, description = "同一组内文件大小唯一最大的文件不勾选", isBuiltin = true, sortOrder = 0),
             DupRuleConfigEntity(ruleKey = "rule5", ruleName = "完结+N番外/番外N去重", enabled = true, description = "进度匹配\"完结+N番外\"或\"完结+番外N\"的组内，按番外数 N 排序，最大 N 不勾选，其余勾选", isBuiltin = true, sortOrder = 0),
         )
         for (rule in defaults) {
-            dupRuleDao.insertIfNotExists(rule)
+            // 按 key 计数判断，库中不存在才插入；不依赖 UNIQUE 冲突忽略，
+            // 避免全新安装（rule_key 无 UNIQUE 约束）时每次启动重复插入。
+            if (dupRuleDao.countByKey(rule.ruleKey) == 0) {
+                dupRuleDao.insertIfNotExists(rule)
+            } else {
+                // 记录已存在：同步内置规则的最新说明文案，
+                // 让存量库的「勾选重复规则」页面也能看到优化后的描述（不改动用户开关）。
+                dupRuleDao.refreshBuiltinDescription(rule.ruleKey, rule.description)
+            }
         }
     }
 
@@ -427,252 +435,17 @@ class FileRepository(
     suspend fun selectDuplicateIds(runId: Long, enabledRules: Set<String>? = null): List<Long> {
         val enabled = enabledRules ?: getEnabledDupRuleKeys()
         val rows = dao.getDuplicateRows(runId)
-        // 按 (作者 + 书名) 子分组
-        val subgroups = rows.groupBy { subKey(it.author, it.title) }
-        val allResult = mutableSetOf<Long>()
-        var subgroupsWithDups = 0
-        val detailLines = mutableListOf<String>()
-
-        for ((_, S) in subgroups) {
-            if (S.size < 2) continue
-
-            val c = mutableSetOf<Long>()   // 应勾选
-            val nc = mutableSetOf<Long>()  // 永不勾选（保护）
-            val fc = mutableSetOf<Long>()  // 强制勾选（覆盖保护）
-
-            // ── 规则 1：完全相等去重 ──
-            if ("rule1" in enabled) {
-                val exact = S.groupBy { it.fileSize to it.progress.trim() }
-                for ((_, g) in exact) {
-                    if (g.size < 2) continue
-                    val newest = g.maxWithOrNull(compareBy<DuplicateRow> { it.createdAt }.thenBy { it.id })!!
-                    nc.add(newest.id)
-                    for (f in g) if (f.id != newest.id) {
-                        c.add(f.id)
-                        fc.add(f.id)
-                    }
-                }
-            }
-
-            // 进度分类
-            val numericFiles = S.filter { progressValue(it.progress) != null }
-            val chineseFiles = S.filter { hasCjk(it.progress) }
-
-            // ── 规则 2：纯数字进度对比 ──
-            if ("rule2" in enabled) {
-                if (numericFiles.size >= 2) {
-                    val maxVal = numericFiles.maxOf { progressValue(it.progress)!! }
-                    val maxFiles = numericFiles.filter { progressValue(it.progress) == maxVal }
-                    maxFiles.forEach { nc.add(it.id) }
-                    for (f in numericFiles) {
-                        if (progressValue(f.progress) != maxVal) {
-                            c.add(f.id)
-                            fc.add(f.id)
-                        }
-                    }
-                }
-            }
-
-            // ── 规则 3A：含中文进度保护 ──
-            if ("rule3a" in enabled) {
-                chineseFiles.forEach { nc.add(it.id) }
-            }
-
-            // ── 规则 3B：完结特例 ──
-            if ("rule3b" in enabled) {
-                if (chineseFiles.isNotEmpty() && numericFiles.isNotEmpty()) {
-                    val maxNumVal = numericFiles.maxOf { progressValue(it.progress)!! }
-                    val maxNumFiles = numericFiles.filter { progressValue(it.progress) == maxNumVal }
-                    val hasCompletion = S.any { cf -> COMPLETION_KW.any { kw -> (cf.fileName).contains(kw) } }
-                    val minChineseSize = chineseFiles.minOf { it.fileSize }
-                    if (hasCompletion && maxNumFiles.all { mn -> mn.fileSize < minChineseSize }) {
-                        maxNumFiles.forEach { fc.add(it.id) }
-                    }
-                }
-            }
-
-            // 本组文件大小列表（规则4/5需要）
-            val maxSize = S.maxOf { it.fileSize }
-            val maxSizeCount = S.count { it.fileSize == maxSize }
-
-            // ── 规则 4：最大文件不勾选 ──
-            if ("rule4" in enabled) {
-                if (maxSizeCount == 1) {
-                    S.forEach { if (it.fileSize == maxSize) nc.add(it.id) }
-                }
-            }
-
-            // ── 规则 5：完结+N番外/完结+番外N去重 ──
-            if ("rule5" in enabled) {
-                val fanwai = S.filter { fanwaiValue(it.progress) != null }
-                if (fanwai.isNotEmpty()) {
-                    val maxN = fanwai.maxOf { fanwaiValue(it.progress)!! }
-                    val maxNIds = fanwai.filter { fanwaiValue(it.progress) == maxN }.map { it.id }.toSet()
-                    for (f in fanwai) {
-                        when {
-                            f.id in maxNIds -> { nc.add(f.id); fc.remove(f.id) }
-                            f.fileSize == maxSize && maxSizeCount == 1 -> { nc.add(f.id); fc.remove(f.id) }
-                            else -> { c.add(f.id); fc.add(f.id) }
-                        }
-                    }
-                }
-            }
-
-            val subResult = (c - nc) + fc
-            if (subResult.isNotEmpty()) {
-                subgroupsWithDups++
-                val nv = S[0].title.ifEmpty { "?" }
-                val au = S[0].author.ifEmpty { "?" }
-                detailLines.add(
-                    "勾选重复-重复子组 书名=$nv 作者=$au 共${S.size}本 -> 勾选${subResult.size}个: ${subResult.sorted()}"
-                )
-                allResult += subResult
-            }
-        }
-        // ── 用户自定义规则（条件-动作引擎） ──
         val userRules = dupRuleDao?.getEnabledUserRules() ?: emptyList()
-        if (userRules.isNotEmpty()) {
-            for (row in rows) {
-                for (ur in userRules) {
-                    if (evaluateUserRule(row, ur)) {
-                        val action = ur.action ?: "check"
-                        if (action == "check") {
-                            allResult.add(row.id)
-                        } else {
-                            allResult.remove(row.id)
-                        }
-                    }
-                }
-            }
-            LogUtil.i("Repo", "自定义规则参与去重: ${userRules.size} 条")
-        }
-
+        // 核心计算委托给纯函数 DupRuleLogic.computeDuplicateChecks（与扫描-勾选重复、一键清理共用同一逻辑）。
+        val (allResult, detailLines) = DupRuleLogic.computeDuplicateChecks(rows, enabled, userRules)
         LogUtil.i(
             "Repo",
-            "勾选重复 完成 run=$runId enabledRules=$enabled 重复子组=$subgroupsWithDups 应勾选=${allResult.size} 个"
+            "勾选重复 完成 run=$runId enabledRules=$enabled 重复子组=${detailLines.size} 应勾选=${allResult.size} 个"
         )
         if (detailLines.isNotEmpty()) LogUtil.i("Repo", detailLines.joinToString("\n"))
         if (allResult.isNotEmpty()) setCheckedForIds(allResult.toList(), true)
         return allResult.toList()
     }
-
-    /**
-     * 评估一条用户自定义规则是否命中该行。
-     * @param row 行数据
-     * @param rule 用户自定义规则实体，含 conditions JSON + action
-     */
-    private fun evaluateUserRule(row: DuplicateRow, rule: DupRuleConfigEntity): Boolean {
-        val conditionsJson = rule.conditions ?: return false
-        val conditions = parseUserConditions(conditionsJson) ?: return false
-        if (conditions.isEmpty()) return false
-        // 所有条件同时满足才算命中
-        for (cond in conditions) {
-            if (!evalSingleCondition(row, cond)) return false
-        }
-        return true
-    }
-
-    /**
-     * 解析用户自定义条件的 JSON 字符串。
-     * 新格式: [{"field":"file_name","regex":"水印"}, ...]（直接正则匹配）。
-     * 兼容旧格式: [{"field":"file_name","op":"contains","value":"水印"}, ...]，会尽量转正则。
-     */
-    private fun parseUserConditions(json: String): List<Map<String, String>>? {
-        if (json.isBlank() || json == "[]") return emptyList()
-        return try {
-            val arr = JSONArray(json)
-            val items = mutableListOf<Map<String, String>>()
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                val field = obj.optString("field", "")
-                if (field.isBlank()) continue
-                val regex = if (obj.has("regex")) {
-                    obj.optString("regex", "")
-                } else {
-                    oldOpToRegex(obj.optString("op", "eq"), obj.optString("value", ""))
-                }
-                items.add(mapOf("field" to field, "regex" to regex))
-            }
-            items
-        } catch (_: Exception) { null }
-    }
-
-    /** 把旧格式 op+value 尽量转成正则，兼容已有自定义规则。转换不出返回空串。 */
-    private fun oldOpToRegex(op: String, value: String): String {
-        if (value.isBlank()) return ""
-        val esc = Regex.escape(value)
-        return when (op) {
-            "contains" -> esc
-            "not_contains" -> "(?s)^(?:(?!$esc).)*$"
-            "starts_with" -> "^$esc"
-            "ends_with" -> "$esc$"
-            "eq" -> "^$esc$"
-            "neq" -> "(?s)^(?:(?!$esc).)*$"
-            "regex" -> value
-            else -> ""
-        }
-    }
-
-    /** 评估单条条件：对所选字段用正则匹配。 */
-    private fun evalSingleCondition(row: DuplicateRow, cond: Map<String, String>): Boolean {
-        val field = cond["field"] ?: return true
-        val pattern = cond["regex"] ?: return false
-        if (pattern.isBlank()) return false
-
-        // 获取实际值
-        val actual = when (field) {
-            "file_name" -> row.fileName
-            "novel_name" -> row.title
-            "author" -> row.author
-            "progress" -> row.progress
-            "source" -> row.source
-            "file_size" -> row.fileSize.toString()
-            "created_date" -> row.createdAt.toString()
-            else -> return true
-        } ?: ""
-
-        return try {
-            Regex(pattern).containsMatchIn(actual)
-        } catch (_: Exception) { false }
-    }
-
-    /** 文件名中代表"已完结/完整版"的关键词：用于规则 3 的特例判定。 */
-    private val COMPLETION_KW = listOf("完结", "完本", "全本", "全集", "完整", "全套", "全集版")
-
-    /** 进度【严格】匹配「完结+数字番外」或「完结+番外数字」正则（用于规则 5 的完结+N番外/完结+番外N 组合排序）。 */
-    private val FANWAI_RE = Regex("""^完结\+(?:(\d+(?:\.\d+)?)番外|番外(\d+(?:\.\d+)?))$""")
-
-    /** 判断字符串是否含有中文（CJK）字符。 */
-    private fun hasCjk(s: String?): Boolean {
-        if (s.isNullOrEmpty()) return false
-        for (c in s) {
-            val o = c.code
-            if (o in 0x4E00..0x9FFF || o in 0x3400..0x4DBF) return true
-        }
-        return false
-    }
-
-    /** 若进度为纯数字（可选小数、可选尾随 %），返回 Double 数值，否则返回 null。 */
-    private fun progressValue(s: String?): Double? {
-        val t = (s ?: "").trim()
-        if (t.isEmpty() || hasCjk(t)) return null
-        val m = Regex("""^(\d+(?:\.\d+)?)\s*%?$""").matchEntire(t) ?: return null
-        return m.groupValues[1].toDoubleOrNull()
-    }
-
-    /** 若进度匹配「完结+N番外」或「完结+番外N」（如「完结+3番外」「完结+番外5」），返回数字 N，否则 null。 */
-    private fun fanwaiValue(s: String?): Double? {
-        val t = (s ?: "").trim()
-        if (t.isEmpty()) return null
-        val m = FANWAI_RE.matchEntire(t) ?: return null
-        val n = m.groupValues[1].ifEmpty { m.groupValues[2] }
-        return n.toDoubleOrNull()
-    }
-
-    /** (作者 + 书名) 归一化子分组键（统一小写、去空格）。 */
-    private fun subKey(author: String, title: String): String =
-        "${author.trim().lowercase()}\u0000${title.trim().lowercase()}"
-
 
     /**
      * 导出已标记文件清单到应用私有外部目录，返回文件路径（失败返回 null）。

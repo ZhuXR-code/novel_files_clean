@@ -55,7 +55,7 @@ android {
                 configurations.getByName("debugUnitTestRuntimeClasspath"),
             )
             mainClass.set("org.junit.runner.JUnitCore")
-            args("com.filescanner.app.util.ParserTest", "com.filescanner.app.util.LibraryLogicTest")
+            args("com.filescanner.app.util.ParserTest", "com.filescanner.app.util.LibraryLogicTest", "com.filescanner.app.data.repository.DupRuleLogicTest", "com.filescanner.app.data.repository.DupRuleIntegrationTest")
         }
     }
 
@@ -127,4 +127,6 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:runner:1.6.2")
     testImplementation("androidx.test.ext:junit:1.2.1")
+    // JVM 单测需要 org.json 的真实实现（android.jar 中的是 stub）
+    testImplementation("org.json:json:20231013")
 }
