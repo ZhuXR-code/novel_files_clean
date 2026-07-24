@@ -48,6 +48,21 @@ struct FileDetail {
     );
   }
 
+  private previewContent(): void {
+    if (!this.file) {
+      return;
+    }
+    router.pushUrl({
+      url: 'pages/FilePreview',
+      params: {
+        fileName: this.file.fileName,
+        filePath: this.file.path
+      }
+    }).catch((err: Error) => {
+      LogUtil.e('FileDetail', `跳转预览失败: ${err.message}`);
+    });
+  }
+
   build() {
     Column() {
       Row() {
@@ -58,6 +73,9 @@ struct FileDetail {
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
           .fontColor($r('app.color.text_primary'))
+        Button('预览')
+          .backgroundColor($r('app.color.primary'))
+          .onClick(() => this.previewContent())
         Button('删除')
           .backgroundColor($r('app.color.danger'))
           .onClick(() => this.deleteThis())

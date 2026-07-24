@@ -46,7 +46,9 @@ export class Parser {
   private static readonly RE_TITLE_BRACKET_END: RegExp = /^(.+?)\s*\[([^\]]+)\]\s*$/;
 
   // 作者后缀清洗（支持【】、[]、（）、()）
-  private static readonly AUTHOR_TRAIL_BRACKET: RegExp = /\s*[\[（(【][^\]）)】]*?(?:\d+|[更完结番外npv1V]+)[^\]）)】]*?[\]）)】]\s*$/;
+  // 类型感知：圆括号（（））只配圆括号、方括号（【[]】）只配方括号，避免内部【】被误判为闭合，
+  // 从而正确剥离「Nnnr（【修】山海镜花 融共同人）」→ 作者保留 Nnnr。触发字符集含 数字 / 进度词 / 单字母 / 修 / 校。
+  private static readonly AUTHOR_TRAIL_BRACKET: RegExp = /\s*(?:[（(][^）)]*?(?:\d+|[更完结番外npv1V修校]+)[^）)]*?[）)]|[【\[][^】\]]*?(?:\d+|[更完结番外npv1V修校]+)[^】\]]*?[】\]])\s*$/;
   private static readonly AUTHOR_TRAIL_DASH_NUM: RegExp = /\s*-\d+\s*$/;
   // 作者尾部"更新至N / --更新至N / -更新至N"清洗，进度交由 extractSourceProgress 提取
   private static readonly AUTHOR_TRAIL_UPDATE: RegExp = /\s*[-—~]*更新至?\s*\d+\s*$/;
