@@ -19,8 +19,10 @@ struct FilePreview {
   @State firstVisibleIndex: number = 0;
   @State scrollbarTrackHeight: number = 0;
   @State dragStartY: number = 0;
+  @State scrollbarActive: boolean = false;
 
   private scroller: Scroller = new Scroller();
+  private scrollbarTimer: number | null = null;
 
   async aboutToAppear(): Promise<void> {
     const params = router.getParams() as Record<string, Object>;
@@ -124,6 +126,24 @@ struct FilePreview {
     this.displayCount = Math.min(this.displayCount + LOAD_MORE_LINES, this.lines.length);
   }
 
+  private activateScrollbar(): void {
+    if (this.scrollbarTimer !== null) {
+      clearTimeout(this.scrollbarTimer);
+      this.scrollbarTimer = null;
+    }
+    this.scrollbarActive = true;
+  }
+
+  private deactivateScrollbar(): void {
+    if (this.scrollbarTimer !== null) {
+      clearTimeout(this.scrollbarTimer);
+    }
+    this.scrollbarTimer = setTimeout(() => {
+      this.scrollbarActive = false;
+      this.scrollbarTimer = null;
+    }, 500);
+  }
+
   get getLoadedAll(): boolean {
     return this.displayCount >= this.lines.length;
   }
@@ -197,9 +217,19 @@ struct FilePreview {
 
           Column() {
             Column()
-              .width(4).height(this.getThumbHeight)
-              .backgroundColor('#666666').borderRadius(2)
+              .width(this.scrollbarActive ? 10 : 4)
+              .height(this.getThumbHeight)
+              .backgroundColor('#666666')
+              .borderRadius(this.scrollbarActive ? 5 : 2)
               .position({ y: this.getThumbOffset })
+              .animation({ duration: 150, curve: Curve.EaseInOut })
+              .onTouch((event: TouchEvent) => {
+                if (event.type === TouchType.Down) {
+                  this.activateScrollbar();
+                } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                  this.deactivateScrollbar();
+                }
+              })
               .gesture(
                 PanGesture({ direction: PanDirection.Vertical })
                   .onActionStart(() => { this.dragStartY = this.getThumbOffset; })
@@ -211,12 +241,20 @@ struct FilePreview {
                     const remaining: number = this.lines.length - this.displayCount;
                     this.scroller.scrollToIndex(Math.max(0, Math.round(ratio * remaining)), false, ScrollAlign.START);
                   })
+                  .onActionEnd(() => this.deactivateScrollbar())
               )
           }
           .width(20).height('100%')
           .alignItems(HorizontalAlign.Center)
           .position({ right: 0 })
           .backgroundColor('#F5F5F5')
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.activateScrollbar();
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.deactivateScrollbar();
+            }
+          })
           .onClick((event: ClickEvent) => {
             if (this.lines.length <= this.displayCount) return;
             const ratio: number = event.y / this.scrollbarTrackHeight;
