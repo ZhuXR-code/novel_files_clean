@@ -533,6 +533,11 @@ struct LibraryScreen {
                 Text(`${this.groupOf(title).length} 本`)
                   .fontSize(13)
                   .fontColor($r('app.color.text_secondary'))
+                if (this.groupCheckedCount(title) > 0) {
+                  Text(`已勾选 ${this.groupCheckedCount(title)} 个`)
+                    .fontSize(13)
+                    .fontColor('#3F7BFF')
+                }
                 Button(this.expandedTitle === title ? '收起' : '展开')
                   .fontSize(12)
                   .height(30)
@@ -642,6 +647,11 @@ struct LibraryScreen {
     }
     this.groupCache.set(key, list);
     return list;
+  }
+
+  // 统计某个合集（按书名分组）内已勾选的文件数，用于合集汇总卡片显示「已勾选 X 个」
+  private groupCheckedCount(title: string): number {
+    return this.allFiles.filter((f) => (f.title || '') === title && f.checked === 1).length;
   }
 
   private changeFilter(f: FilterKind): void {
