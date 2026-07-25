@@ -10,30 +10,39 @@ interface EditCond {
   value: string
 }
 
-const FIELD_OPTIONS: Array<SelectOption> = [
-  { value: 'file_name', label: '文件名' },
-  { value: 'novel_name', label: '书名' },
-  { value: 'author', label: '作者' },
-  { value: 'progress', label: '进度' },
-  { value: 'source', label: '来源站点' },
-  { value: 'file_size', label: '文件大小(KB)' },
-  { value: 'created_date', label: '创建时间(时间戳)' }
+interface OptionChoice {
+  key: string
+  label: string
+}
+
+const FIELD_CHOICES: OptionChoice[] = [
+  { key: 'file_name', label: '文件名' },
+  { key: 'novel_name', label: '书名' },
+  { key: 'author', label: '作者' },
+  { key: 'progress', label: '进度' },
+  { key: 'source', label: '来源站点' },
+  { key: 'file_size', label: '文件大小(KB)' },
+  { key: 'created_date', label: '创建时间(时间戳)' }
 ]
 
-const OP_OPTIONS: Array<SelectOption> = [
-  { value: 'eq', label: '等于' },
-  { value: 'neq', label: '不等于' },
-  { value: 'contains', label: '包含' },
-  { value: 'not_contains', label: '不包含' },
-  { value: 'starts_with', label: '开头为' },
-  { value: 'ends_with', label: '结尾为' },
-  { value: 'regex', label: '正则匹配' },
-  { value: 'gt', label: '大于' },
-  { value: 'gte', label: '大于等于' },
-  { value: 'lt', label: '小于' },
-  { value: 'lte', label: '小于等于' },
-  { value: 'between', label: '介于(逗号分隔)' }
+const OP_CHOICES: OptionChoice[] = [
+  { key: 'eq', label: '等于' },
+  { key: 'neq', label: '不等于' },
+  { key: 'contains', label: '包含' },
+  { key: 'not_contains', label: '不包含' },
+  { key: 'starts_with', label: '开头为' },
+  { key: 'ends_with', label: '结尾为' },
+  { key: 'regex', label: '正则匹配' },
+  { key: 'gt', label: '大于' },
+  { key: 'gte', label: '大于等于' },
+  { key: 'lt', label: '小于' },
+  { key: 'lte', label: '小于等于' },
+  { key: 'between', label: '介于(逗号分隔)' }
 ]
+
+// 本 SDK 的 SelectOption 仅含 value(即下拉显示文本)，故用单独数组保存内部 key
+const FIELD_OPTIONS: Array<SelectOption> = FIELD_CHOICES.map((c): SelectOption => ({ value: c.label }))
+const OP_OPTIONS: Array<SelectOption> = OP_CHOICES.map((c): SelectOption => ({ value: c.label }))
 
 /**
  * 勾选重复规则配置页（对齐安卓端 DupRuleConfigScreen）。
@@ -82,58 +91,62 @@ struct DupRuleSettings {
   }
 
   build() {
-    Column({ space: 8 }) {
-      Row() {
-        Button('返回').onClick(() => router.back())
-        Text('勾选重复规则').fontSize(18).fontWeight(FontWeight.Bold).margin({ left: 8 })
-      }
-      .width('100%')
-      .padding(12)
-      .alignItems(VerticalAlign.Center)
-
-      Text('选择「勾选重复」时应用的重复检测规则。内置规则为系统预设，自定义规则可灵活组合条件。')
-        .fontSize(12).fontColor('#888')
-        .width('100%').padding({ left: 16, right: 16 })
-
-      Scroll() {
-        Column({ space: 6 }) {
-          Text('内置规则').fontSize(14).fontWeight(FontWeight.Bold)
-            .width('100%').padding({ left: 4, top: 4 })
-
-          ForEach(this.builtinRules, (r: DupRuleConfig) => {
-            this.ruleToggle(r.ruleName, r.description, r.enabled === 1, (v: boolean) => {
-              this.toggleBuiltin(r, v)
-            })
-          }, (r: DupRuleConfig) => `b_${r.id.toString()}`)
-
-          Row() {
-            Text('自定义规则').fontSize(14).fontWeight(FontWeight.Bold)
-            Blank()
-            Button('+ 新增').fontSize(12).height(30).backgroundColor('#007aff').fontColor(Color.White)
-              .onClick(() => this.openAdd())
-          }
-          .width('100%').padding({ left: 4, top: 12, right: 4 })
-
-          if (this.customRules.length === 0) {
-            Text('暂无自定义规则').fontSize(12).fontColor('#aaa').padding(8)
-          }
-
-          ForEach(this.customRules, (r: DupRuleConfig) => {
-            this.customCard(r)
-          }, (r: DupRuleConfig) => `c_${r.id.toString()}`)
+    Stack() {
+      Column({ space: 8 }) {
+        Row() {
+          Button('返回').onClick(() => router.back())
+          Text('勾选重复规则').fontSize(18).fontWeight(FontWeight.Bold).margin({ left: 8 })
         }
         .width('100%')
-        .padding(16)
+        .padding(12)
+        .alignItems(VerticalAlign.Center)
+
+        Text('选择「勾选重复」时应用的重复检测规则。内置规则为系统预设，自定义规则可灵活组合条件。')
+          .fontSize(12).fontColor('#888')
+          .width('100%').padding({ left: 16, right: 16 })
+
+        Scroll() {
+          Column({ space: 6 }) {
+            Text('内置规则').fontSize(14).fontWeight(FontWeight.Bold)
+              .width('100%').padding({ left: 4, top: 4 })
+
+            ForEach(this.builtinRules, (r: DupRuleConfig) => {
+              this.ruleToggle(r.ruleName, r.description, r.enabled === 1, (v: boolean) => {
+                this.toggleBuiltin(r, v)
+              })
+            }, (r: DupRuleConfig) => `b_${r.id.toString()}`)
+
+            Row() {
+              Text('自定义规则').fontSize(14).fontWeight(FontWeight.Bold)
+              Blank()
+              Button('+ 新增').fontSize(12).height(30).backgroundColor('#007aff').fontColor(Color.White)
+                .onClick(() => this.openAdd())
+            }
+            .width('100%').padding({ left: 4, top: 12, right: 4 })
+
+            if (this.customRules.length === 0) {
+              Text('暂无自定义规则').fontSize(12).fontColor('#aaa').padding(8)
+            }
+
+            ForEach(this.customRules, (r: DupRuleConfig) => {
+              this.customCard(r)
+            }, (r: DupRuleConfig) => `c_${r.id.toString()}`)
+          }
+          .width('100%')
+          .padding(16)
+        }
+        .layoutWeight(1)
       }
-      .layoutWeight(1)
+      .width('100%')
+      .height('100%')
+      .backgroundColor('#f5f5f5')
+
+      if (this.showEditor) {
+        this.editorPanel()
+      }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#f5f5f5')
-
-    if (this.showEditor) {
-      this.editorPanel()
-    }
   }
 
   @Builder
@@ -197,18 +210,18 @@ struct DupRuleSettings {
   }
 
   private fieldLabel(f: string): string {
-    for (const o of FIELD_OPTIONS) {
-      if (o.value === f) {
-        return o.label as string
+    for (const o of FIELD_CHOICES) {
+      if (o.key === f) {
+        return o.label
       }
     }
     return f
   }
 
   private opLabel(o: string): string {
-    for (const p of OP_OPTIONS) {
-      if (p.value === o) {
-        return p.label as string
+    for (const p of OP_CHOICES) {
+      if (p.key === o) {
+        return p.label
       }
     }
     return o
@@ -332,12 +345,12 @@ struct DupRuleSettings {
   condEditor(c: EditCond, idx: number) {
     Column({ space: 6 }) {
       Row({ space: 6 }) {
-        Text('如果').fontSize(12).fontWeight(FontWeight.Medium).alignSelf(VerticalAlign.Center)
+        Text('如果').fontSize(12).fontWeight(FontWeight.Medium).alignSelf(ItemAlign.Center)
         Select(FIELD_OPTIONS)
           .value(this.fieldLabel(c.field))
           .layoutWeight(1)
           .onSelect((i: number) => {
-            c.field = FIELD_OPTIONS[i].value as string
+            c.field = FIELD_CHOICES[i].key
             this.editConds = [...this.editConds]
           })
         Button('删')
@@ -356,7 +369,7 @@ struct DupRuleSettings {
           .value(this.opLabel(c.op))
           .layoutWeight(1)
           .onSelect((i: number) => {
-            c.op = OP_OPTIONS[i].value as string
+            c.op = OP_CHOICES[i].key
             this.editConds = [...this.editConds]
           })
         TextInput({ placeholder: '值', text: c.value })
@@ -375,9 +388,7 @@ struct DupRuleSettings {
   }
 
   private condsToJson(conds: EditCond[]): string {
-    const items: Array<Record<string, string>> = conds
-      .filter((c) => c.value.trim().length > 0)
-      .map((c) => ({ field: c.field, op: c.op, value: c.value }))
+    const items: EditCond[] = conds.filter((c) => c.value.trim().length > 0)
     return JSON.stringify(items)
   }
 

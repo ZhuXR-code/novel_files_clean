@@ -53,6 +53,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -68,6 +69,7 @@ import com.filescanner.app.ui.components.AppOutlinedButton
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -88,6 +90,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -102,6 +105,7 @@ import com.filescanner.app.ui.components.TopBar
 import com.filescanner.app.ui.components.AppButton
 import com.filescanner.app.util.FormatUtil
 import com.filescanner.app.util.LogUtil
+import com.filescanner.app.ui.theme.fontScaled
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -277,6 +281,11 @@ private fun RunFilesScreen(
     // 分页导航条用的总数：合集模式=分组数，列表模式=文件数
     val totalCount = if (groupMode) groupPageState.total else listPageState.total
 
+    // M3 SegmentedButton 默认 minHeight 40dp，已内建文字+图标的安全高度；
+    // 之前强压 28/32dp 导致小字号/部分系统字体下底部被裁切，故不再覆盖高度。
+    val segBarHeight = 40.dp
+
+
     var sortMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
     var showGroupSettings by remember { mutableStateOf(false) }
@@ -407,40 +416,58 @@ private fun RunFilesScreen(
                 title = runName,
                 onBack = onBackToList,
                 actions = {
-                    IconButton(onClick = { searchVisible = !searchVisible }) {
-                        Icon(
-                            if (searchVisible) Icons.Filled.Close else Icons.Filled.Search,
-                            contentDescription = stringResource(R.string.search),
-                            tint = if (searchVisible) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    // 收起/展开"模式切换 + 筛选"工具栏（放在搜索按钮旁）
-                    IconButton(onClick = { toolbarExpanded = !toolbarExpanded }) {
-                        Icon(
-                            if (toolbarExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                            contentDescription = stringResource(R.string.toggle_toolbar)
-                        )
-                    }
-                    IconButton(onClick = { sortMenu = true }) {
-                        Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.sort_time))
-                    }
-                    // 方案 B：合集模式下，"勾选重复"作为常驻主按钮（不再藏在 ⋮ 菜单里）
-                    if (groupMode) {
-                        IconButton(
-                            onClick = { viewModel.selectDuplicates() },
-                            enabled = duplicateProgress < 0
+                    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.DoneAll,
-                                contentDescription = stringResource(R.string.mark_duplicates),
-                                tint = if (duplicateProgress < 0) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outline
-                            )
+                            IconButton(modifier = Modifier.size(34.dp), onClick = { searchVisible = !searchVisible }) {
+                                Icon(
+                                    if (searchVisible) Icons.Filled.Close else Icons.Filled.Search,
+                                    contentDescription = stringResource(R.string.search),
+                                    tint = if (searchVisible) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            // 收起/展开"模式切换 + 筛选"工具栏（放在搜索按钮旁）
+                            IconButton(modifier = Modifier.size(34.dp), onClick = { toolbarExpanded = !toolbarExpanded }) {
+                                Icon(
+                                    if (toolbarExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                    contentDescription = stringResource(R.string.toggle_toolbar)
+                                )
+                            }
+                            IconButton(modifier = Modifier.size(34.dp), onClick = { sortMenu = true }) {
+                                Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.sort_time))
+                            }
+                            // 方案 B：合集模式下，"勾选重复"作为常驻主按钮（不再藏在 ⋮ 菜单里）
+                            if (groupMode) {
+                                IconButton(
+                                    modifier = Modifier.size(34.dp),
+                                    onClick = { viewModel.selectDuplicates() },
+                                    enabled = duplicateProgress < 0
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.DoneAll,
+                                        contentDescription = stringResource(R.string.mark_duplicates),
+                                        tint = if (duplicateProgress < 0) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                            // 删除（仅在已勾选时显示），从底部导航条上移而来
+                            if (checkedCount > 0) {
+                                IconButton(modifier = Modifier.size(34.dp), onClick = { showDeleteChoice = true }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Delete,
+                                        contentDescription = stringResource(R.string.delete_selected),
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                            IconButton(modifier = Modifier.size(34.dp), onClick = { moreMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = null)
+                            }
                         }
-                    }
-                    IconButton(onClick = { moreMenu = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = null)
                     }
                     DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                         DropdownMenuItem(text = { Text(stringResource(R.string.sort_time)) },
@@ -457,12 +484,12 @@ private fun RunFilesScreen(
                             DropdownMenuItem(text = { Text(stringResource(R.string.group_sort)) },
                                 onClick = { showGroupSort = true; moreMenu = false })
                         }
-                        DropdownMenuItem(text = { Text(stringResource(R.string.mark_duplicates_name)) },
-                            onClick = { viewModel.markDuplicatesByName(); moreMenu = false })
-                        DropdownMenuItem(text = { Text(stringResource(R.string.clear_marked)) },
-                            onClick = { viewModel.clearMarked(); moreMenu = false })
-                        DropdownMenuItem(text = { Text(stringResource(R.string.clear_checked)) },
-                            onClick = { viewModel.clearChecked(); moreMenu = false })
+    DropdownMenuItem(text = { Text(stringResource(R.string.mark_duplicates_name)) },
+        onClick = { viewModel.markDuplicatesByName(); moreMenu = false })
+    DropdownMenuItem(text = { Text(stringResource(R.string.clear_marked)) },
+        onClick = { viewModel.clearMarked(); moreMenu = false })
+    DropdownMenuItem(text = { Text(stringResource(R.string.clear_checked)) },
+        onClick = { viewModel.clearChecked(); moreMenu = false })
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.delete_selected)) },
                             onClick = { showDeleteChoice = true; moreMenu = false }
@@ -499,8 +526,7 @@ private fun RunFilesScreen(
                         selected = !groupMode,
                         onClick = { viewModel.setGroupMode(false) },
                         shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                        // 缩小整体高度，文字与边框的上下距离随之收窄（仍能完整显示）
-                        modifier = Modifier.height(32.dp)
+                        modifier = Modifier.height(segBarHeight)
                     ) {
                         Text(stringResource(R.string.list_mode), fontSize = 13.sp)
                     }
@@ -508,7 +534,7 @@ private fun RunFilesScreen(
                         selected = groupMode,
                         onClick = { viewModel.setGroupMode(true) },
                         shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                        modifier = Modifier.height(32.dp)
+                        modifier = Modifier.height(segBarHeight)
                     ) {
                         Text(stringResource(R.string.group_mode), fontSize = 13.sp)
                     }
@@ -645,7 +671,6 @@ private fun RunFilesScreen(
                 onPageSizeChange = { viewModel.setPageSize(it) },
                 onJumpToPage = { page -> viewModel.goToPage(page) },
                 checkedCount = checkedCount,
-                onClearChecked = { viewModel.clearChecked() },
                 onDeleteSelected = { showDeleteChoice = true }
             )
                 // 关闭内部 Column，使下方悬浮按钮成为外层 Box 的直接子项（可使用 BoxScope.align）
@@ -725,7 +750,7 @@ private fun FlatList(
                     top = 12.dp,
                     bottom = if (checkedCount > 0) 136.dp else 72.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items(
                     items = items,
@@ -781,7 +806,7 @@ private fun GroupList(
                     top = 12.dp,
                     bottom = if (checkedCount > 0) 136.dp else 72.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 groups.forEach { g ->
                     val titleKey = g.title.ifBlank { "__unparsed__" }
@@ -803,7 +828,7 @@ private fun GroupList(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { onToggleExpand(g.title) }
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 TriStateCheckbox(
@@ -816,20 +841,23 @@ private fun GroupList(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         fontWeight = MaterialTheme.typography.titleSmall.fontWeight,
-                                        fontSize = MaterialTheme.typography.titleSmall.fontSize
+                                        fontSize = MaterialTheme.typography.titleSmall.fontSize,
+                                        lineHeight = 18.sp
                                     )
-                                    Spacer(Modifier.height(1.dp))
                                     Text(
                                         stringResource(R.string.group_summary, g.fileCount, FormatUtil.formatSize(g.totalSize)),
                                         fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        lineHeight = 16.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(top = 1.dp)
                                     )
                                     if (gChecked > 0) {
-                                        Spacer(Modifier.height(1.dp))
                                         Text(
                                             stringResource(R.string.group_checked, gChecked),
                                             fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.primary
+                                            lineHeight = 16.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(top = 1.dp)
                                         )
                                     }
                                 }
@@ -899,9 +927,9 @@ private fun FileRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     fontWeight = MaterialTheme.typography.titleSmall.fontWeight,
-                    fontSize = MaterialTheme.typography.titleSmall.fontSize
+                    fontSize = MaterialTheme.typography.titleSmall.fontSize,
+                    lineHeight = 18.sp
                 )
-                Spacer(Modifier.height(1.dp))
                 // 原文件名（物理文件名），与解析书名不同时才显示，避免冗余
                 if (f.fileName.isNotBlank() && f.fileName != f.title) {
                     Text(
@@ -909,24 +937,27 @@ private fun FileRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.outline
+                        lineHeight = 14.sp,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(top = 1.dp)
                     )
-                    Spacer(Modifier.height(1.dp))
                 }
-                val sub = buildList {
+                // 元信息行：作者·大小·进度·来源·编码·日期（一行放不下自动换行）
+                val info = buildList {
                     if (f.author.isNotBlank()) add(f.author)
                     add(FormatUtil.formatSize(f.fileSize))
                     if (f.progress.isNotBlank()) add(f.progress)
-                    add(FormatUtil.formatFileDate(f.fileDate))
-                    if (f.encoding.isNotBlank()) add(f.encoding)
                     if (f.source.isNotBlank()) add(stringResource(R.string.source_label) + "：" + f.source)
+                    if (f.encoding.isNotBlank()) add(f.encoding)
+                    add(FormatUtil.formatFileDate(f.fileDate))
                 }.joinToString(" · ")
                 Text(
-                    sub,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    info,
+                    softWrap = true,
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    lineHeight = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 1.dp)
                 )
             }
             IconButton(onClick = { LogUtil.i("FileRow", "mark click id=${f.id}"); onToggleMark() }) {
@@ -954,7 +985,7 @@ private fun GroupFileRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onOpen() }
-            .padding(start = 24.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            .padding(start = 24.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(checked = selected, onCheckedChange = { onToggleSelect() })
@@ -965,7 +996,8 @@ private fun GroupFileRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 fontSize = 13.sp,
-                fontWeight = MaterialTheme.typography.titleSmall.fontWeight
+                fontWeight = MaterialTheme.typography.titleSmall.fontWeight,
+                lineHeight = 16.sp
             )
             // 原文件名（与书名不同时显示）
             if (f.fileName.isNotBlank() && f.fileName != f.title) {
@@ -974,26 +1006,28 @@ private fun GroupFileRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.outline
+                    lineHeight = 14.sp,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(top = 1.dp)
                 )
             }
-            val sub = buildList {
+            // 元信息行：作者·大小·进度·来源·编码·日期（一行放不下自动换行）
+            val info = buildList {
                 if (f.author.isNotBlank()) add(f.author)
                 add(FormatUtil.formatSize(f.fileSize))
                 if (f.progress.isNotBlank()) add(f.progress)
-                add(FormatUtil.formatFileDate(f.fileDate))
-                if (f.encoding.isNotBlank()) add(f.encoding)
                 if (f.source.isNotBlank()) add(stringResource(R.string.source_label) + "：" + f.source)
+                if (f.encoding.isNotBlank()) add(f.encoding)
+                add(FormatUtil.formatFileDate(f.fileDate))
             }.joinToString(" · ")
-            if (sub.isNotBlank()) {
-                Text(
-                    sub,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                info,
+                softWrap = true,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 1.dp)
+            )
         }
         IconButton(onClick = onToggleMark) {
             Icon(
@@ -1134,7 +1168,6 @@ private fun PageNavBar(
     onPageSizeChange: (Int) -> Unit,
     onJumpToPage: (Int) -> Unit,
     checkedCount: Int = 0,
-    onClearChecked: (() -> Unit)? = null,
     onDeleteSelected: (() -> Unit)? = null
 ) {
     val pageCount = ((totalCount + pageSize - 1) / pageSize.coerceAtLeast(1)).coerceAtLeast(1)
@@ -1168,7 +1201,7 @@ private fun PageNavBar(
             AppOutlinedButton(
                 onClick = { onJumpToPage(0) },
                 enabled = page > 0,
-                modifier = Modifier.height(26.dp).width(28.dp),
+                modifier = Modifier.height(26.dp.fontScaled()).width(28.dp),
                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
             ) {
                 Text(
@@ -1181,7 +1214,7 @@ private fun PageNavBar(
             AppOutlinedButton(
                 onClick = { onJumpToPage((page - 1).coerceAtLeast(0)) },
                 enabled = page > 0,
-                modifier = Modifier.height(26.dp).width(28.dp),
+                modifier = Modifier.height(26.dp.fontScaled()).width(28.dp),
                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
             ) {
                 Text(
@@ -1200,7 +1233,7 @@ private fun PageNavBar(
             AppOutlinedButton(
                 onClick = { onJumpToPage((page + 1).coerceAtMost(pageCount - 1)) },
                 enabled = page < pageCount - 1,
-                modifier = Modifier.height(26.dp).width(28.dp),
+                modifier = Modifier.height(26.dp.fontScaled()).width(28.dp),
                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
             ) {
                 Text(
@@ -1213,7 +1246,7 @@ private fun PageNavBar(
             AppOutlinedButton(
                 onClick = { onJumpToPage(pageCount - 1) },
                 enabled = page < pageCount - 1,
-                modifier = Modifier.height(26.dp).width(28.dp),
+                modifier = Modifier.height(26.dp.fontScaled()).width(28.dp),
                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
             ) {
                 Text(
@@ -1240,7 +1273,7 @@ private fun PageNavBar(
                 Box(
                     modifier = Modifier
                         .width(64.dp)
-                        .height(32.dp)
+                        .height(32.dp.fontScaled())
                         .border(1.dp, MaterialTheme.colorScheme.outline, tfShape)
                         .padding(horizontal = 6.dp, vertical = 4.dp),
                     contentAlignment = Alignment.Center
@@ -1261,14 +1294,14 @@ private fun PageNavBar(
                         pageSizeText = clamped.toString()
                         onPageSizeChange(clamped)
                     },
-                    modifier = Modifier.height(30.dp),
+                    modifier = Modifier.height(30.dp.fontScaled()),
                     contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)
                 ) { Text("✓", fontSize = 13.sp) }
                 Text("跳转", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Box(
                     modifier = Modifier
                         .width(64.dp)
-                        .height(32.dp)
+                        .height(32.dp.fontScaled())
                         .border(1.dp, MaterialTheme.colorScheme.outline, tfShape)
                         .padding(horizontal = 6.dp, vertical = 4.dp),
                     contentAlignment = Alignment.Center
@@ -1288,38 +1321,17 @@ private fun PageNavBar(
                         if (p != null && p >= 1 && p <= pageCount) onJumpToPage(p - 1)
                     },
                     enabled = jumpText.isNotBlank(),
-                    modifier = Modifier.height(30.dp),
+                    modifier = Modifier.height(30.dp.fontScaled()),
                     contentPadding = PaddingValues(horizontal = 3.dp, vertical = 0.dp)
                 ) { Text("✓", fontSize = 13.sp) }
             }
-            // 右侧：清除勾选、删除、已选数量
+            // 右侧：已选数量（删除已移至顶部操作栏；清除勾选在右上角更多菜单）
             if (checkedCount > 0) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    AppOutlinedButton(
-                        onClick = { onClearChecked?.invoke() },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(stringResource(R.string.clear_checked), fontSize = 11.sp)
-                    }
-                    AppButton(
-                        onClick = { onDeleteSelected?.invoke() },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = stringResource(R.string.batch_delete_selected),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Text(
-                        stringResource(R.string.selected_count, checkedCount),
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    stringResource(R.string.selected_count, checkedCount),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -1401,7 +1413,7 @@ private fun StepIndicator(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         steps.forEachIndexed { idx, step ->

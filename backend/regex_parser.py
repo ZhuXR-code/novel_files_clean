@@ -1074,7 +1074,7 @@ def detect_file_encodings(
     concurrency: int = 8,
     force: bool = False,
 ) -> dict:
-    """快速扫描-完整模式：批量检测文件编码（读文件头 8KB，不读摘要）。
+    """深度扫描模式：批量检测文件编码（读文件头 8KB，不读摘要）。
 
     仅检测编码并写入 file_metadata.encoding，不读取文件全文/摘要。
     已检测过编码的文件（force=False）会跳过。

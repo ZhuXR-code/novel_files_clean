@@ -77,6 +77,8 @@
                                 <button class="checked-filter-btn active" data-filter="all" onclick="setCheckedFilter('all')">全部</button>
                                 <button class="checked-filter-btn" data-filter="checked" onclick="setCheckedFilter('checked')">已勾选</button>
                                 <button class="checked-filter-btn" data-filter="unchecked" onclick="setCheckedFilter('unchecked')">未勾选</button>
+                                <button class="checked-filter-btn" data-filter="group_checked" id="checkedFilterGroupBtn" onclick="setCheckedFilter('group_checked')">合集有勾选</button>
+                                <button class="checked-filter-btn" data-filter="group_unchecked" id="checkedFilterGroupUncheckedBtn" onclick="setCheckedFilter('group_unchecked')">合集无勾选</button>
                             </div>
                             <div class="filter-wrapper">
                                 <button class="btn" id="filterBtn" onclick="toggleFilterDropdown()" title="小说名筛选">
@@ -458,8 +460,8 @@
                             <small style="color:var(--text-secondary);display:block">仅扫描文件名，不读文件内容，秒级完成</small>
                         </label>
                         <label style="cursor:pointer;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;display:flex;align-items:center;gap:6px">
-                            <input type="radio" name="cfgScanMode" value="full" onchange="updateScanModeDesc()">
-                            <span style="font-weight:600">完整扫描</span>
+                            <input type="radio" name="cfgScanMode" value="deep" onchange="updateScanModeDesc()">
+                            <span style="font-weight:600">深度扫描</span>
                             <small style="color:var(--text-secondary);display:block">含文件编码检测（读文件头 8KB），比快速模式略慢</small>
                         </label>
                     </div>
@@ -564,6 +566,6 @@
         <button class="back-nav-btn" id="backToBottomBtn" title="回到底部" onclick="scrollToBottom()">↓</button>
     </div>
 
-    <script src="/static/js/app.js?v=20260724h"></script>
+    <script src="/static/js/app.js?v=20260725d"></script>
 </body>
 </html>

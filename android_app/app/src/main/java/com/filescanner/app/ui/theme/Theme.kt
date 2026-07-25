@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import com.filescanner.app.FileScannerApp
 
@@ -121,10 +123,20 @@ fun FileScannerTheme(
         }
     }
 
-    CompositionLocalProvider(LocalDensity provides scaledDensity) {
+    CompositionLocalProvider(
+        LocalDensity provides scaledDensity
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             content = content
         )
     }
 }
+
+/**
+ * 让固定 dp 尺寸随总字体缩放比例缩放，与 sp 文本保持恒定比例。
+ * 总比例 = 系统字体缩放 × APP 设置字号（小/标准/大），读取自 LocalDensity.fontScale。
+ * 用于避免用户把系统字体或 APP 字号调大后，固定 dp 高度的文本容器被裁切。
+ */
+@Composable
+fun Dp.fontScaled(): Dp = (this.value * LocalDensity.current.fontScale).dp

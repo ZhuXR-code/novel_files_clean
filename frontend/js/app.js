@@ -36,7 +36,7 @@ let state = {
     showFilterDropdown: false,  // 筛选面板是否显示
     activeNovelNames: new Set(),// 当前生效的筛选（已应用的）
     filterPage: 1,              // 筛选面板当前页码
-    checkedFilter: 'all',       // 勾选状态筛选: 'all' | 'checked' | 'unchecked'
+    checkedFilter: 'all',       // 勾选状态筛选: 'all' | 'checked' | 'unchecked' | 'group_checked'(仅含已勾选的合集) | 'group_unchecked'(仅无已勾选的合集)
     filterTotalPages: 1,       // 筛选面板总页数
     filterTotalItems: 0,       // 筛选面板总条数
     filterPageSize: 100,       // 筛选面板每页条数
@@ -888,6 +888,7 @@ function renderGroupedTableBody() {
         const isExpanded = state.expandedGroups.has(groupKey);
         const allSelected = group.items.every(item => state.selectedIds.has(item.id));
         const someSelected = group.items.some(item => state.selectedIds.has(item.id));
+        const checkedCount = group.items.filter(item => state.selectedIds.has(item.id)).length;
 
         html += `
         <tr class="group-header-row" data-group="${escapeHtml(groupKey)}">
@@ -902,7 +903,7 @@ function renderGroupedTableBody() {
                 <div class="group-info">
                     <span class="file-name" title="${escapeHtml(groupKey)}">${escapeHtml(groupKey)}</span>
                     <span class="group-count">${(group.count != null ? group.count : (group.items ? group.items.length : 0))}个文件</span>
-                    <span class="group-checked" style="color:var(--accent,#4a90d9);font-weight:500">${group.checked_count ?? 0}个已勾选</span>
+                    <span class="group-checked" style="color:var(--accent,#4a90d9);font-weight:500">${checkedCount}个已勾选</span>
                     <span class="group-size">${formatFileSize(group.total_size)}</span>
                 </div>
             </td>
@@ -911,6 +912,8 @@ function renderGroupedTableBody() {
 
     body.innerHTML = html;
     body._dataRendered = true;
+    // 将 data-indeterminate 落地为真实半选状态，否则部分勾选的合集会显示为空（无 '-'/'√'）
+    updateAllGroupHeaderCheckboxes();
 
     // 仅对“已展开”的合集插入其文件行（懒加载）
     state.groups.forEach(group => {
@@ -1317,6 +1320,31 @@ function updateHeaderCheckbox() {
             toolbarCb.checked = state.selectedIds.size === state.results.length;
         }
     }
+    // 同步每个合集头行的复选框状态（'√' 全选 / '-' 部分 / 空 未选）
+    updateAllGroupHeaderCheckboxes();
+}
+
+// 根据 state.selectedIds 同步单个合集头行复选框的 勾选/半选 状态
+function updateGroupHeaderCheckbox(groupName) {
+    if (!state.groups) return;
+    const group = state.groups.find(g => g.novel_name === groupName);
+    if (!group) return;
+    const headerRow = document.querySelector(`tr.group-header-row[data-group="${cssEscapeAttr(groupName)}"]`);
+    if (!headerRow) return;
+    const cb = headerRow.querySelector('input.group-select-all');
+    if (!cb) return;
+    const total = group.items.length;
+    const sel = group.items.filter(item => state.selectedIds.has(item.id)).length;
+    cb.checked = total > 0 && sel === total;
+    cb.indeterminate = sel > 0 && sel < total;
+    const cntSpan = headerRow.querySelector('.group-checked');
+    if (cntSpan) cntSpan.textContent = `${sel}个已勾选`;
+}
+
+// 同步全部合集头行复选框状态
+function updateAllGroupHeaderCheckboxes() {
+    if (!state.groups) return;
+    state.groups.forEach(g => updateGroupHeaderCheckbox(g.novel_name));
 }
 
 // ===================== 事件委托（表格操作，统一处理普通/合集两种模式） =====================
@@ -2133,6 +2161,14 @@ async function confirmGroupMode() {
     }
     if (clearChecksBtn) {
         clearChecksBtn.style.display = state.groupByFileName ? '' : 'none';
+    }
+
+    // 合集维度筛选始终可见；退出合集模式时若正使用合集筛选则重置为"全部"，避免列表模式下静默无效
+    if (!state.groupByFileName && (state.checkedFilter === 'group_checked' || state.checkedFilter === 'group_unchecked')) {
+        state.checkedFilter = 'all';
+        document.querySelectorAll('.checked-filter-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.filter === 'all');
+        });
     }
 
     // 进入合集模式时自动重建分组（按小说名聚合），确保从任意入口进入都能看到最新合集，

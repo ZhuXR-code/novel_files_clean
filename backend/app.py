@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi import Request
-from sqlalchemy import create_engine, text, func
+from sqlalchemy import create_engine, text, func, Integer
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.logger import logger
@@ -623,7 +623,7 @@ def _migrate_scan_config_parse_on_scan():
 
 
 def _migrate_scan_config_scan_mode():
-    """迁移：为 scan_configs 表添加 scan_mode 列（快速/完整扫描模式）。
+    """迁移：为 scan_configs 表添加 scan_mode 列（快速/深度扫描模式）。
 
     旧库升级时补列，已有配置默认 quick（快速扫描），保持向后兼容。
     """
@@ -639,7 +639,7 @@ def _migrate_scan_config_scan_mode():
             if IS_SQLITE:
                 conn.execute(text("ALTER TABLE scan_configs ADD COLUMN scan_mode VARCHAR(20) NOT NULL DEFAULT 'quick'"))
             else:
-                conn.execute(text("ALTER TABLE scan_configs ADD COLUMN scan_mode VARCHAR(20) NOT NULL DEFAULT 'quick' COMMENT '扫描模式: quick=快速扫描(仅文件名解析), full=完整扫描(含编码检测)'"))
+                conn.execute(text("ALTER TABLE scan_configs ADD COLUMN scan_mode VARCHAR(20) NOT NULL DEFAULT 'quick' COMMENT '扫描模式: quick=快速扫描(仅文件名解析), deep=深度扫描(含编码检测)'"))
         logger.info('迁移: 添加列 scan_configs.scan_mode')
     except Exception as e:
         logger.warning(f'scan_configs scan_mode 迁移警告: {e}')
@@ -1319,7 +1319,7 @@ def create_config(data: dict, db: Session = Depends(get_db)):
     """创建扫描配置"""
     parse_on_scan = data.get('parse_on_scan', True)
     scan_mode = (data.get('scan_mode') or 'quick')
-    if scan_mode not in ('quick', 'full'):
+    if scan_mode not in ('quick', 'deep'):
         scan_mode = 'quick'
     config = ScanConfig(
         name=(data.get('name') or '').strip(),
@@ -1362,7 +1362,7 @@ def update_config(config_id: int, data: dict, db: Session = Depends(get_db)):
         config.parse_on_scan = v if isinstance(v, bool) else str(v).lower() in ('1', 'true', 'yes', 'on')
     if 'scan_mode' in data:
         mode = (data.get('scan_mode') or 'quick')
-        config.scan_mode = mode if mode in ('quick', 'full') else 'quick'
+        config.scan_mode = mode if mode in ('quick', 'deep') else 'quick'
 
     db.commit()
     logger.info(f'更新扫描配置: ID={config_id}, parse_on_scan={config.parse_on_scan}, scan_mode={config.scan_mode}')
@@ -1476,18 +1476,18 @@ def run_scan(config_id: int, db: Session = Depends(get_db)):
             except Exception:
                 logger.exception('扫描后自动启动工程文件名解析失败')
 
-            # 完整扫描模式（scan_mode='full'）：同步检测文件编码（读文件头 8KB）
+            # 深度扫描模式（scan_mode='deep'）：同步检测文件编码（读文件头 8KB）
             scan_mode = getattr(config, 'scan_mode', 'quick') or 'quick'
-            if scan_mode == 'full':
+            if scan_mode == 'deep':
                 try:
                     from backend.regex_parser import detect_file_encodings
                     summary_task_id = _start_parse_task(
-                        detect_file_encodings, f'扫描同步编码检测 ({total}个，完整模式)',
+                        detect_file_encodings, f'扫描同步编码检测 ({total}个，深度模式)',
                         SessionLocal, concurrency=8, force=False,
                         config_id=config_id, forward_config_id=True,
                         pymysql_factory=(None if IS_SQLITE else make_pymysql_conn),
                     )
-                    logger.info(f'扫描后自动启动编码检测（完整模式）: config_id={config_id}, task_id={summary_task_id}, file_count={total}')
+                    logger.info(f'扫描后自动启动编码检测（深度模式）: config_id={config_id}, task_id={summary_task_id}, file_count={total}')
                 except Exception:
                     logger.exception('扫描后自动启动编码检测失败')
 
@@ -1495,7 +1495,7 @@ def run_scan(config_id: int, db: Session = Depends(get_db)):
         if parse_task_id:
             msg += '，正在同步进行工程类解析...'
         if summary_task_id:
-            msg += '，正在同步检测文件编码（完整模式）...'
+            msg += '，正在同步检测文件编码（深度模式）...'
         return {'new_count': new_count, 'total': total, 'parse_task_id': parse_task_id, 'summary_task_id': summary_task_id, 'message': msg}
     except FileNotFoundError as e:
         scanning_progress.pop(config_id, None)
@@ -1952,6 +1952,7 @@ def list_results(
         base_query = base_query.filter(ScanResult.checked == True)
     elif checked_filter == 'unchecked':
         base_query = base_query.filter(ScanResult.checked == False)
+    # 'group_checked' 仅在合集模式下生效（见下方 group_by_file_name 分支）
 
     if group_by_file_name:
         # 合集模式：按小说名分组（未解析的放在最后，其余按出现次数降序、作者重复数降序、总大小降序）
@@ -1978,6 +1979,12 @@ def list_results(
             group_query = group_query.having(count_expr >= min_group_count)
         if max_group_count is not None:
             group_query = group_query.having(count_expr <= max_group_count)
+        if checked_filter == 'group_checked':
+            # 仅保留含已勾选文件的合集
+            group_query = group_query.having(checked_count_expr > 0)
+        elif checked_filter == 'group_unchecked':
+            # 仅保留不含已勾选文件的合集
+            group_query = group_query.having(checked_count_expr == 0)
         group_query = group_query.order_by(
             checked_count_expr.desc(),
             count_expr.desc(),
@@ -2124,6 +2131,28 @@ def list_groups(
     group_query = group_query.outerjoin(
         author_dup_sub, FileGroup.novel_name == author_dup_sub.c.group_name
     )
+
+    # 合集维度筛选：仅保留含已勾选 / 不含已勾选的合集
+    if checked_filter in ('group_checked', 'group_unchecked'):
+        checked_grp_sub = db.query(
+            func.coalesce(FileMetadata.novel_name, '').label('gn'),
+            func.coalesce(
+                func.sum(func.cast(ScanResult.checked, Integer)), 0
+            ).label('cc')
+        ).outerjoin(
+            ScanResult, FileMetadata.scan_result_id == ScanResult.id
+        ).filter(
+            ScanResult.scan_config_id == config_id
+        ).group_by(
+            func.coalesce(FileMetadata.novel_name, '')
+        ).subquery()
+        group_query = group_query.outerjoin(
+            checked_grp_sub, FileGroup.novel_name == checked_grp_sub.c.gn
+        )
+        if checked_filter == 'group_checked':
+            group_query = group_query.filter(checked_grp_sub.c.cc > 0)
+        else:  # group_unchecked
+            group_query = group_query.filter(checked_grp_sub.c.cc == 0)
 
     # 总数（分页前）
     total_groups = group_query.count()
