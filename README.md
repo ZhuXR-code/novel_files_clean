@@ -35,6 +35,7 @@ txt文件清理-单工程清理/
 │  ├─ models.py            #   ORM 数据模型
 │  ├─ scanner.py           #   文件扫描
 │  ├─ regex_parser.py      #   文件名 / 内容正则解析
+│  ├─ dup_logic.py         #   重复判定核心算法（PC 参考实现，APP 端对齐）
 │  ├─ keyword_replace.py   #   关键词替换规则
 │  ├─ pipeline.py          #   解析流水线
 │  ├─ logger.py            #   多进程安全日志（轮转落盘 logs/app.log）
@@ -45,6 +46,10 @@ txt文件清理-单工程清理/
 │  └─ css/
 ├─ android_app/            # Android APP（Kotlin + Jetpack Compose + Room）
 ├─ harmony_app/            # HarmonyOS NEXT 原生 APP（ArkTS + ArkUI + relationalStore）
+├─ tests/                  # 测试脚本与独立测试工程（从仓库根目录运行）
+│  ├─ test_*.py            #   PC 端功能 / 算法验证脚本
+│  ├─ check_mysql_table.py #   MySQL 表结构核查脚本
+│  └─ android_standalone/  #   Android 端解析逻辑独立编译测试（Kotlin / Java）
 ├─ 安装部署/               # 各端安装/使用/运维手册
 │  ├─ PC网页版/
 │  ├─ PC桌面软件版/
@@ -53,7 +58,6 @@ txt文件清理-单工程清理/
 ├─ launcher.py             # 本地软件版启动器（SQLite）
 ├─ start.py                # 网页版一键启动脚本（MySQL）
 ├─ migrate_to_new_db.py    # 数据迁移脚本
-├─ 文件名数据清洗.py       # 文件名数据清洗辅助脚本
 └─ requirements.txt        # Python 依赖
 ```
 

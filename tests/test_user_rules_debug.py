@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """用户自定义规则引擎调试"""
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.dup_logic import compute_duplicate_ids, _eval_user_condition, _eval_user_rule, _apply_user_rules
 
 rows = [

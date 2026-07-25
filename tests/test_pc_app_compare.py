@@ -12,7 +12,7 @@
 """
 import os, sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.regex_parser import _extract_source_progress as pc_extract_source_progress
 
 # APP 侧取值来自真实编译产物 Parser.kt（ParserDriver 实测，见 .app_out.log）。

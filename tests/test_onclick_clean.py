@@ -10,6 +10,7 @@
 import os, sys, time, shutil, json, logging, tempfile, atexit
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(PROJECT_ROOT))
 TEMP_DIR = tempfile.mkdtemp(prefix='clean_test_', dir=PROJECT_ROOT)
 DB_PATH = os.path.join(TEMP_DIR, 'clean_test.db')
 RESULT_PATH = os.path.join(TEMP_DIR, 'result.json')

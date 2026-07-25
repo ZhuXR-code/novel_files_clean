@@ -15,7 +15,7 @@ APP 的 FileRepository.selectDuplicateIds 注释声明与 dup_logic.compute_dupl
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.dup_logic import compute_duplicate_ids
 
 PASS = []

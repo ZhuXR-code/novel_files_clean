@@ -11,6 +11,7 @@
 import os, sys, time, shutil, json, logging, tempfile, datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(PROJECT_ROOT))
 TEMP_DIR = tempfile.mkdtemp(prefix='.del_src_')
 DB_PATH = os.path.join(TEMP_DIR, 'del_test.db')
 RESULT_PATH = os.path.join(TEMP_DIR, 'result.json')

@@ -72,7 +72,17 @@ parse_b.log
 # 截图（如需展示可单独放 docs/ 并确认无隐私）
 screen1.png
 
-# 独立测试编译产物
-app_standalone_test/jout/
-app_standalone_test/jout2/
-app_standalone_test/khome/
+# 独立测试编译产物（已迁移到 tests/android_standalone/）
+tests/android_standalone/jout/
+tests/android_standalone/jout2/
+tests/android_standalone/khome/
+
+# 本地 UI 自动化快照 / 测试产物（含私有数据，不入库，仅本机保留）
+settings.yaml
+after_add.yaml
+dialog.yaml
+home.yaml
+
+# 测试用扫描数据库（含真实书名等隐私数据，不入库）
+clean_test_*.db
+clean_test_*/
