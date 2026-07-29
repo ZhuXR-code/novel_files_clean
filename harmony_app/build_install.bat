@@ -30,7 +30,7 @@ if not defined HAP (echo 未找到 HAP 产物 & goto :fail)
 echo 找到 HAP: %HAP%
 "%HDC%" install "%HAP%"
 if errorlevel 1 goto :fail
-echo 安装完成，请在设备上启动 "TXT文件清理" App
+echo 安装完成，请在设备上启动 "文包清理助手" App
 goto :eof
 
 :fail

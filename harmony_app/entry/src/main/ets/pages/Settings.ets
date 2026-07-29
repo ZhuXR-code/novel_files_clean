@@ -38,6 +38,7 @@ struct Settings {
         this.item('勾选重复规则', 'pages/DupRuleSettings')
         this.item('操作日志', 'pages/LogViewer')
         this.item('帮助', 'pages/Help')
+        this.item('隐私协议', 'pages/PrivacyPolicy')
       }
       .width('100%')
       .backgroundColor($r('app.color.bg_card'))
@@ -61,7 +62,7 @@ struct Settings {
         .fontColor($r('app.color.text_hint'))
         .margin({ top: 24, left: 16 })
       Column({ space: 1 }) {
-        this.infoItem('应用名称', '文件清理与内容识别')
+        this.infoItem('应用名称', '文包清理助手')
         this.infoItem('版本', '1.0.0')
         this.infoItem('运行形态', '纯本地（不联网）')
       }

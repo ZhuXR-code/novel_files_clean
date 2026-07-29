@@ -10,6 +10,6 @@ set DB_PASS=你的密码
 set DB_HOST=127.0.0.1
 REM DB_PORT / DB_NAME / CORS_ORIGINS 不填则用 backend/app.py 中的默认值
 
-echo [文件清理助手-网页版] 正在启动（默认 http://localhost:8000）...
+echo [文包清理助手-网页版] 正在启动（默认 http://localhost:8000）...
 python start.py
 endlocal

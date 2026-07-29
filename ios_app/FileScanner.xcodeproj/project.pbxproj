@@ -1,0 +1,444 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		000000000000000000000200 /* App/FileScannerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000100 /* App/FileScannerApp.swift */; };
+		000000000000000000000201 /* App/AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000101 /* App/AppState.swift */; };
+		000000000000000000000202 /* Core/RegexExt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000102 /* Core/RegexExt.swift */; };
+		000000000000000000000203 /* Core/Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000103 /* Core/Models.swift */; };
+		000000000000000000000204 /* Core/FormatUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000104 /* Core/FormatUtil.swift */; };
+		000000000000000000000205 /* Core/LibraryLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000105 /* Core/LibraryLogic.swift */; };
+		000000000000000000000206 /* Core/LogUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000106 /* Core/LogUtil.swift */; };
+		000000000000000000000207 /* Core/Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000107 /* Core/Preferences.swift */; };
+		000000000000000000000208 /* Core/Parser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000108 /* Core/Parser.swift */; };
+		000000000000000000000209 /* Core/DupRuleLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000109 /* Core/DupRuleLogic.swift */; };
+		00000000000000000000020A /* Core/KeywordReplace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010A /* Core/KeywordReplace.swift */; };
+		00000000000000000000020B /* Core/EncodingUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010B /* Core/EncodingUtil.swift */; };
+		00000000000000000000020C /* Core/ChineseConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010C /* Core/ChineseConverter.swift */; };
+		00000000000000000000020D /* Core/DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010D /* Core/DatabaseManager.swift */; };
+		00000000000000000000020E /* Core/FileRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010E /* Core/FileRepository.swift */; };
+		00000000000000000000020F /* Services/ScanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010F /* Services/ScanService.swift */; };
+		000000000000000000000210 /* UI/Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000110 /* UI/Theme.swift */; };
+		000000000000000000000211 /* UI/Common.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000111 /* UI/Common.swift */; };
+		000000000000000000000212 /* UI/HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000112 /* UI/HomeView.swift */; };
+		000000000000000000000213 /* UI/ConfigViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000113 /* UI/ConfigViews.swift */; };
+		000000000000000000000214 /* UI/LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000114 /* UI/LibraryView.swift */; };
+		000000000000000000000215 /* UI/DeleteViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000115 /* UI/DeleteViews.swift */; };
+		000000000000000000000216 /* UI/OneClickCleanupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000116 /* UI/OneClickCleanupView.swift */; };
+		000000000000000000000217 /* UI/SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000117 /* UI/SettingsViews.swift */; };
+		000000000000000000000218 /* UI/HelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000118 /* UI/HelpView.swift */; };
+		000000000000000000000219 /* UI/ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000119 /* UI/ContentView.swift */; };
+		00000000000000000000021A /* UI/PrivacyPolicyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011A /* UI/PrivacyPolicyView.swift */; };
+		000000000000000000000300 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011C /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		00000000000000000000001B /* FileScanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FileScanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000100 /* App/FileScannerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/FileScannerApp.swift; sourceTree = "<group>"; };
+		000000000000000000000101 /* App/AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppState.swift; sourceTree = "<group>"; };
+		000000000000000000000102 /* Core/RegexExt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/RegexExt.swift; sourceTree = "<group>"; };
+		000000000000000000000103 /* Core/Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Models.swift; sourceTree = "<group>"; };
+		000000000000000000000104 /* Core/FormatUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/FormatUtil.swift; sourceTree = "<group>"; };
+		000000000000000000000105 /* Core/LibraryLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/LibraryLogic.swift; sourceTree = "<group>"; };
+		000000000000000000000106 /* Core/LogUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/LogUtil.swift; sourceTree = "<group>"; };
+		000000000000000000000107 /* Core/Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Preferences.swift; sourceTree = "<group>"; };
+		000000000000000000000108 /* Core/Parser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Parser.swift; sourceTree = "<group>"; };
+		000000000000000000000109 /* Core/DupRuleLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DupRuleLogic.swift; sourceTree = "<group>"; };
+		00000000000000000000010A /* Core/KeywordReplace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/KeywordReplace.swift; sourceTree = "<group>"; };
+		00000000000000000000010B /* Core/EncodingUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/EncodingUtil.swift; sourceTree = "<group>"; };
+		00000000000000000000010C /* Core/ChineseConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ChineseConverter.swift; sourceTree = "<group>"; };
+		00000000000000000000010D /* Core/DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseManager.swift; sourceTree = "<group>"; };
+		00000000000000000000010E /* Core/FileRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/FileRepository.swift; sourceTree = "<group>"; };
+		00000000000000000000010F /* Services/ScanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ScanService.swift; sourceTree = "<group>"; };
+		000000000000000000000110 /* UI/Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/Theme.swift; sourceTree = "<group>"; };
+		000000000000000000000111 /* UI/Common.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/Common.swift; sourceTree = "<group>"; };
+		000000000000000000000112 /* UI/HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/HomeView.swift; sourceTree = "<group>"; };
+		000000000000000000000113 /* UI/ConfigViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ConfigViews.swift; sourceTree = "<group>"; };
+		000000000000000000000114 /* UI/LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/LibraryView.swift; sourceTree = "<group>"; };
+		000000000000000000000115 /* UI/DeleteViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/DeleteViews.swift; sourceTree = "<group>"; };
+		000000000000000000000116 /* UI/OneClickCleanupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/OneClickCleanupView.swift; sourceTree = "<group>"; };
+		000000000000000000000117 /* UI/SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/SettingsViews.swift; sourceTree = "<group>"; };
+		000000000000000000000118 /* UI/HelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/HelpView.swift; sourceTree = "<group>"; };
+		000000000000000000000119 /* UI/ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ContentView.swift; sourceTree = "<group>"; };
+		00000000000000000000011A /* UI/PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/PrivacyPolicyView.swift; sourceTree = "<group>"; };
+		00000000000000000000011B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		00000000000000000000011C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		000000000000000000000013 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		00000000000000000000000C = {
+			isa = PBXGroup;
+			children = (
+				00000000000000000000000E /* FileScanner */,
+				00000000000000000000000D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		00000000000000000000000D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				00000000000000000000001B /* FileScanner.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		00000000000000000000000E /* FileScanner */ = {
+			isa = PBXGroup;
+			children = (
+				00000000000000000000000F /* Core */,
+				000000000000000000000010 /* Services */,
+				000000000000000000000011 /* UI */,
+				000000000000000000000100 /* App/FileScannerApp.swift */,
+				000000000000000000000101 /* App/AppState.swift */,
+				00000000000000000000011B /* Info.plist */,
+				00000000000000000000011C /* Assets.xcassets */,
+			);
+			path = FileScanner;
+			sourceTree = "<group>";
+		};
+		00000000000000000000000F /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000102 /* RegexExt.swift */,
+				000000000000000000000103 /* Models.swift */,
+				000000000000000000000104 /* FormatUtil.swift */,
+				000000000000000000000105 /* LibraryLogic.swift */,
+				000000000000000000000106 /* LogUtil.swift */,
+				000000000000000000000107 /* Preferences.swift */,
+				000000000000000000000108 /* Parser.swift */,
+				000000000000000000000109 /* DupRuleLogic.swift */,
+				00000000000000000000010A /* KeywordReplace.swift */,
+				00000000000000000000010B /* EncodingUtil.swift */,
+				00000000000000000000010C /* ChineseConverter.swift */,
+				00000000000000000000010D /* DatabaseManager.swift */,
+				00000000000000000000010E /* FileRepository.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		000000000000000000000010 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				00000000000000000000010F /* ScanService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		000000000000000000000011 /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000110 /* Theme.swift */,
+				000000000000000000000111 /* Common.swift */,
+				000000000000000000000112 /* HomeView.swift */,
+				000000000000000000000113 /* ConfigViews.swift */,
+				000000000000000000000114 /* LibraryView.swift */,
+				000000000000000000000115 /* DeleteViews.swift */,
+				000000000000000000000116 /* OneClickCleanupView.swift */,
+				000000000000000000000117 /* SettingsViews.swift */,
+				000000000000000000000118 /* HelpView.swift */,
+				000000000000000000000119 /* ContentView.swift */,
+				00000000000000000000011A /* PrivacyPolicyView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		00000000000000000000000B /* FileScanner */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000016 /* Build configuration list for PBXNativeTarget "FileScanner" */;
+			buildPhases = (
+				000000000000000000000012 /* Sources */,
+				000000000000000000000013 /* Frameworks */,
+				000000000000000000000014 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FileScanner;
+			productName = FileScanner;
+			productReference = 00000000000000000000001B /* FileScanner.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		00000000000000000000000A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					00000000000000000000000B = {
+						CreatedOnToolsVersion = 15.0;
+					};
+				};
+			};
+			buildConfigurationList = 000000000000000000000015 /* Build configuration list for PBXProject "FileScanner" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				"zh-Hans",
+			);
+			mainGroup = 00000000000000000000000C;
+			productRefGroup = 00000000000000000000000D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				00000000000000000000000B /* FileScanner */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		000000000000000000000014 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000300 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		000000000000000000000012 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000200 /* App/FileScannerApp.swift in Sources */,
+				000000000000000000000201 /* App/AppState.swift in Sources */,
+				000000000000000000000202 /* Core/RegexExt.swift in Sources */,
+				000000000000000000000203 /* Core/Models.swift in Sources */,
+				000000000000000000000204 /* Core/FormatUtil.swift in Sources */,
+				000000000000000000000205 /* Core/LibraryLogic.swift in Sources */,
+				000000000000000000000206 /* Core/LogUtil.swift in Sources */,
+				000000000000000000000207 /* Core/Preferences.swift in Sources */,
+				000000000000000000000208 /* Core/Parser.swift in Sources */,
+				000000000000000000000209 /* Core/DupRuleLogic.swift in Sources */,
+				00000000000000000000020A /* Core/KeywordReplace.swift in Sources */,
+				00000000000000000000020B /* Core/EncodingUtil.swift in Sources */,
+				00000000000000000000020C /* Core/ChineseConverter.swift in Sources */,
+				00000000000000000000020D /* Core/DatabaseManager.swift in Sources */,
+				00000000000000000000020E /* Core/FileRepository.swift in Sources */,
+				00000000000000000000020F /* Services/ScanService.swift in Sources */,
+				000000000000000000000210 /* UI/Theme.swift in Sources */,
+				000000000000000000000211 /* UI/Common.swift in Sources */,
+				000000000000000000000212 /* UI/HomeView.swift in Sources */,
+				000000000000000000000213 /* UI/ConfigViews.swift in Sources */,
+				000000000000000000000214 /* UI/LibraryView.swift in Sources */,
+				000000000000000000000215 /* UI/DeleteViews.swift in Sources */,
+				000000000000000000000216 /* UI/OneClickCleanupView.swift in Sources */,
+				000000000000000000000217 /* UI/SettingsViews.swift in Sources */,
+				000000000000000000000218 /* UI/HelpView.swift in Sources */,
+				000000000000000000000219 /* UI/ContentView.swift in Sources */,
+				00000000000000000000021A /* UI/PrivacyPolicyView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		000000000000000000000017 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_LOOP_BODIES = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		000000000000000000000018 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_LOOP_BODIES = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		000000000000000000000019 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FileScanner/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.booksclean.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		00000000000000000000001A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FileScanner/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.booksclean.app;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		000000000000000000000015 /* Build configuration list for PBXProject "FileScanner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000017 /* Debug */,
+				000000000000000000000018 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000016 /* Build configuration list for PBXNativeTarget "FileScanner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000019 /* Debug */,
+				00000000000000000000001A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 00000000000000000000000A /* Project object */;
+}

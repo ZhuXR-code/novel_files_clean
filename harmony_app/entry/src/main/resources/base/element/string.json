@@ -1,7 +1,7 @@
 {
   "string": [
-    { "name": "module_desc", "value": "文件清理与内容识别" },
+    { "name": "module_desc", "value": "文包清理与内容识别" },
     { "name": "EntryAbility_desc", "value": "主入口" },
-    { "name": "EntryAbility_label", "value": "文件清理" }
+    { "name": "EntryAbility_label", "value": "文包清理助手" }
   ]
 }

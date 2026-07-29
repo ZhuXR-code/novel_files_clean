@@ -1,13 +1,13 @@
 # ===== Room Database =====
--keep class com.filescanner.app.data.database.entity.** { *; }
--keep class com.filescanner.app.data.database.dao.** { *; }
+-keep class com.booksclean.app.data.database.entity.** { *; }
+-keep class com.booksclean.app.data.database.dao.** { *; }
 
 # ===== Gson =====
 -keepattributes Signature
 -keepattributes *Annotation*
 -dontwarn sun.misc.**
 -keep class com.google.gson.** { *; }
--keep class com.filescanner.app.data.model.** { *; }
+-keep class com.booksclean.app.data.model.** { *; }
 
 
 # ===== Compose =====

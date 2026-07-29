@@ -6,12 +6,12 @@ plugins {
 }
 
 android {
-    namespace = "com.filescanner.app"
+    namespace = "com.booksclean.app"
     compileSdk = 35
     buildToolsVersion = "36.1.0"
 
     defaultConfig {
-        applicationId = "com.filescanner.app"
+        applicationId = "com.booksclean.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -55,7 +55,7 @@ android {
                 configurations.getByName("debugUnitTestRuntimeClasspath"),
             )
             mainClass.set("org.junit.runner.JUnitCore")
-            args("com.filescanner.app.util.ParserTest", "com.filescanner.app.util.LibraryLogicTest", "com.filescanner.app.data.repository.DupRuleLogicTest", "com.filescanner.app.data.repository.DupRuleIntegrationTest")
+            args("com.booksclean.app.util.ParserTest", "com.booksclean.app.util.LibraryLogicTest", "com.booksclean.app.data.repository.DupRuleLogicTest", "com.booksclean.app.data.repository.DupRuleIntegrationTest")
         }
     }
 

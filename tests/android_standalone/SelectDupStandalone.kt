@@ -1,4 +1,4 @@
-package com.filescanner.app.util
+package com.booksclean.app.util
 
 /**
  * 合集模式「勾选重复」核心逻辑的独立测试。

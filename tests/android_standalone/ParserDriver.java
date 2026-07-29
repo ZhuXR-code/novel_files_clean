@@ -1,5 +1,5 @@
-import com.filescanner.app.util.Parser;
-import com.filescanner.app.util.ParsedName;
+import com.booksclean.app.util.Parser;
+import com.booksclean.app.util.ParsedName;
 
 public class ParserDriver {
     static int pass = 0;

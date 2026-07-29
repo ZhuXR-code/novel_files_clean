@@ -1,4 +1,5 @@
 import { router } from '@kit.ArkUI';
+import { PreferencesUtil } from '../utils/PreferencesUtil';
 import { ScannedFileDao } from '../database/ScannedFileDao';
 import { ScanRunDao } from '../database/ScanRunDao';
 import { ScanConfigDao } from '../database/ScanConfigDao';
@@ -13,6 +14,11 @@ struct Index {
   @State configCount: number = 0;
 
   async aboutToAppear(): Promise<void> {
+    // 首次启动必须主动同意隐私协议
+    if (!PreferencesUtil.getBoolean('privacy_agreed', false)) {
+      router.replaceUrl({ url: 'pages/PrivacyPolicy', params: { mode: 'agree' } });
+      return;
+    }
     try {
       this.totalFiles = await ScannedFileDao.countAll();
       this.markedCount = await ScannedFileDao.countMarked();
@@ -31,7 +37,7 @@ struct Index {
 
   build() {
     Column() {
-      Text('文件清理与内容识别')
+      Text('文包清理助手')
         .fontSize(22)
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))

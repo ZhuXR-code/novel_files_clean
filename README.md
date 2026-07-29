@@ -6,7 +6,7 @@
 > **方法一：配置扫描路径→扫描→工程类全部解析→合集模式→勾选重复→批量删除选中**  
 > **方法二：配置扫描路径→一键清理→确认要删除的文件**
 
-项目同时提供 **PC 端**（网页版 / 本地软件版）与 **Android APP 端** 两套形态，核心解析与清理逻辑保持一致。
+项目同时提供 **PC 端**（网页版 / 本地软件版）与 **移动 APP 端**（Android / HarmonyOS NEXT / iOS）多套形态，核心解析与清理逻辑保持一致。
 
 ---
 
@@ -18,6 +18,7 @@
 | PC 本地软件版 | 独立窗口应用（pywebview + WebView2），不打开浏览器、不联网 | 内置 SQLite | `python launcher.py` / 打包后的 `FileScanner.exe` |
 | Android APP | 原生移动端 | Room（SQLite） | `android_app/`（Android Studio 构建） |
 | HarmonyOS NEXT | 纯血鸿蒙原生端 | relationalStore（SQLite） | `harmony_app/`（DevEco Studio 构建） |
+| iOS APP | 原生 iOS 端（Swift + SwiftUI），功能对齐 Android 端 | SQLite（系统 sqlite3） | `ios_app/`（macOS + Xcode 15 构建） |
 
 > APP 端新增**预览页滚动条模式选择**（设置 → 阅读设置），支持竖向/横向（顶部）两种滚动条；触摸时自动加粗，0.5 秒不操作恢复。底部操作栏仅保留「清除勾选」和「删除」按钮，其他功能移至右上角菜单，界面更简洁。
 
@@ -46,6 +47,7 @@ txt文件清理-单工程清理/
 │  └─ css/
 ├─ android_app/            # Android APP（Kotlin + Jetpack Compose + Room）
 ├─ harmony_app/            # HarmonyOS NEXT 原生 APP（ArkTS + ArkUI + relationalStore）
+├─ ios_app/                # iOS 原生 APP（Swift + SwiftUI + SQLite），功能对齐 Android 端
 ├─ tests/                  # 测试脚本与独立测试工程（从仓库根目录运行）
 │  ├─ test_*.py            #   PC 端功能 / 算法验证脚本
 │  ├─ check_mysql_table.py #   MySQL 表结构核查脚本
@@ -110,22 +112,33 @@ python launcher.py
 cd android_app
 ./gradlew assembleDebug
 ```
-调试版包名 `com.filescanner.app.debug`，主 Activity `com.filescanner.app.MainActivity`。
+调试版包名 `com.booksclean.app.debug`，主 Activity `com.booksclean.app.MainActivity`。
 
 ---
 
-## 六、核心功能
+## 六、iOS APP
+
+源码位于 `ios_app/`，使用 Swift 5 + SwiftUI，数据层为系统 sqlite3（库文件 `Documents/file_scanner.db`），功能与 Android 端 1:1 对齐（文件名解析、合集归并、勾选重复规则、关键词替换、一键清理、操作日志、隐私政策门禁等）。
+
+- 构建环境：macOS + Xcode 15+，部署目标 iOS 16+（NavigationStack 依赖）。
+- 打开 `ios_app/FileScanner.xcodeproj` 直接构建运行。
+- 目录访问采用 Document Picker + security-scoped bookmark（对应 Android 的 SAF 授权目录）。
+- 详细说明见 `ios_app/README.md`。
+
+---
+
+## 七、核心功能
 
 - **文件扫描**：批量扫描指定目录下的 TXT 文件。
 - **结构化解析**：基于正则从文件名/内容识别书名、作者等字段，支持关键词替换规则。
 - **合集模式**：按「书名+作者」归并成合集，识别重复文件，并提供计算进度条。
-- **勾选重复**（APP 端）：在「同一合集内、按 (作者+小说名) 子分组」套用规则自动勾选待删重复项（核心算法见 `android_app/.../data/repository/DupRuleLogic.kt` 与 `FileRepository.selectDuplicateIds`）。每条规则可在「设置 → 勾选重复规则」中**独立开关**，**勾选才生效、取消不生效**；内置规则不可删除，自定义规则可增删改。规则明细见 [6.1 勾选重复规则详解](#61-勾选重复规则详解)。
+- **勾选重复**（APP 端）：在「同一合集内、按 (作者+小说名) 子分组」套用规则自动勾选待删重复项（核心算法见 `android_app/.../data/repository/DupRuleLogic.kt` 与 `FileRepository.selectDuplicateIds`）。每条规则可在「设置 → 勾选重复规则」中**独立开关**，**勾选才生效、取消不生效**；内置规则不可删除，自定义规则可增删改。规则明细见 [7.1 勾选重复规则详解](#71-勾选重复规则详解)。
 - **清理**：勾选重复项批量清理/删除。
 - **日志**：PC 与 APP 两端均内置日志模块与关键节点，便于调试与问题定位。
   - PC 端：`logs/app.log` 为流水线调试日志（轮转落盘）；`logs/operation.log` 为**操作日志**（记录勾选重复、删除记录、清空配置、一键清理删除等用户关键操作），前端「调试日志」面板可切换「操作日志 / 调试日志」并一键复制。
   - APP 端：统一日志工具同时写入 logcat、内存（最近 1000 条）与私有目录 `debug.log`；「设置 → 调试日志」可查看、刷新、复制、清空。
 
-### 6.1 勾选重复规则详解
+### 7.1 勾选重复规则详解
 
 「勾选重复」与「一键清理」两条 UI 路径共用同一套规则计算逻辑（APP 端为 `DupRuleLogic.computeDuplicateChecks` → `FileRepository.selectDuplicateIds`）。规则按「(作者 + 小说名)」子分组逐组计算，最终给出**应勾选删除**的文件集合。
 
@@ -160,7 +173,7 @@ cd android_app
 
 ---
 
-## 七、更多文档
+## 八、更多文档
 
 各端的安装部署、使用指南与运维手册见 `安装部署/` 目录：
 - `安装部署/PC网页版/`：安装部署手册、用户使用手册、产品功能操作介绍、运维手册
@@ -169,7 +182,7 @@ cd android_app
 
 ---
 
-## 八、致谢
+## 九、致谢
 
 感谢以下老师在测试与优化方面的帮助：
 
