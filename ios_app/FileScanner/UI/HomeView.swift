@@ -39,7 +39,7 @@ struct HomeView: View {
                             .contextMenu {
                                 // 注意：swipeActions 只在 List 中生效，这里是 ScrollView，故用长按菜单
                                 Button(role: .destructive) {
-                                    FileRepository.shared.deleteScanRun(run.id)
+                                    FileRepository.shared.deleteScanRun(runId: run.id)
                                     reload()
                                 } label: { Label("删除文库", systemImage: "trash") }
                             }

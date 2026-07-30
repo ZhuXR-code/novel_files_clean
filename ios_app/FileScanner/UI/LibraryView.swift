@@ -320,7 +320,7 @@ struct FileDetailView: View {
                         Button { router.navigate(.filePreview(id: f.id, all: false)) } label: { Label("预览内容", systemImage: "eye") }
                         Button { newName = f.fileName; showRename = true } label: { Label("重命名", systemImage: "pencil") }
                         Button(f.marked == 1 ? "取消标记" : "标记为已读") {
-                            FileRepository.shared.setMarked(id: f.id, marked: f.marked == 1 ? 0 : 1)
+                            FileRepository.shared.setMarked(id: f.id, marked: f.marked == 1)
                             file = FileRepository.shared.getById(f.id)
                         }
                     }

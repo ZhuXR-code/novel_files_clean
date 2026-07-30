@@ -12,7 +12,7 @@ enum EncodingUtil {
         case "UTF-16LE": return .utf16LittleEndian
         case "UTF-16BE": return .utf16BigEndian
         case "GB18030":
-            let cf = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(kCFStringEncodingGB_18030_2000))
+            let cf = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(0x06320000)) // kCFStringEncodingGB_18030_2000
             return String.Encoding(rawValue: cf)
         default: return .utf8
         }

@@ -49,7 +49,7 @@ final class FileRepository {
     @discardableResult
     func selectDuplicateIds(runId: Int64, exactHash: Bool = false) -> Set<Int64> {
         let enabled = db.getEnabledBuiltinRuleKeys()
-        let rows = db.getDuplicateRows(runId)
+        let rows = db.getDuplicateRows(runId: runId)
         let userRules = db.getEnabledUserRules()
         let (result, detailLines) = DupRuleLogic.computeDuplicateChecks(rows, enabled, userRules)
         let sample = detailLines.prefix(10).joined(separator: "；")
@@ -63,12 +63,12 @@ final class FileRepository {
     /// 一键清理确认页所需的分组明细：同 (作者+书名) 子组内，存在待删（已勾选重复）的子组。
     func getDupDetails(runId: Int64) -> [DuplicateDetail] {
         let enabled = db.getEnabledBuiltinRuleKeys()
-        let rows = db.getDuplicateRows(runId)
+        let rows = db.getDuplicateRows(runId: runId)
         let userRules = db.getEnabledUserRules()
         let (result, _) = DupRuleLogic.computeDuplicateChecks(rows, enabled, userRules)
         guard !result.isEmpty else { return [] }
         // 按 (作者|书名) 子组聚合
-        let subgroups = Dictionary(grouping: rows) { "\($0.author)\u{0000}\(($0.title))" }
+        let subgroups = Dictionary(grouping: rows) { "\($0.author)\u{0000}\($0.title)" }
         var details: [DuplicateDetail] = []
         for (key, S) in subgroups {
             let dupIdsInGroup = S.filter { result.contains($0.id) }
