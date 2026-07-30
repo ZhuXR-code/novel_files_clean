@@ -29,26 +29,36 @@ jobs:
       - name: 设置版本号
         run: |
           cd ios_app/FileScanner
-          # 更新 Info.plist 版本号
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ github.event.inputs.version || '1.0' }}" Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%s)" Info.plist
 
-      - name: Archive 构建
+      - name: Clean 构建目录
         run: |
           cd ios_app
-          xcodebuild clean archive \
+          xcodebuild clean \
             -project FileScanner.xcodeproj \
             -scheme FileScanner \
-            -sdk iphoneos \
             -configuration Release \
-            -archivePath ./build/FileScanner.xcarchive \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            -sdk iphoneos
 
-      - name: 导出 IPA（不含签名）
+      - name: Archive 构建（无签名）
         run: |
           cd ios_app
+          xcodebuild archive \
+            -project FileScanner.xcodeproj \
+            -scheme FileScanner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination generic/platform=iOS \
+            -archivePath ${{ runner.temp }}/FileScanner.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
+
+      - name: 导出 IPA（无签名）
+        run: |
           mkdir -p build/ipa
           cat > build/ExportOptions.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -67,14 +77,13 @@ jobs:
           </plist>
           EOF
           xcodebuild -exportArchive \
-            -archivePath ./build/FileScanner.xcarchive \
-            -exportPath ./build/ipa \
-            -exportOptionsPlist ./build/ExportOptions.plist \
-            -allowProvisioningUpdates
+            -archivePath ${{ runner.temp }}/FileScanner.xcarchive \
+            -exportPath build/ipa \
+            -exportOptionsPlist build/ExportOptions.plist
 
       - name: 上传 IPA 产物
         uses: actions/upload-artifact@v4
         with:
           name: FileScanner-iOS-${{ github.event.inputs.version || 'latest' }}
-          path: ios_app/build/ipa/*.ipa
+          path: build/ipa/*.ipa
           if-no-files-found: error

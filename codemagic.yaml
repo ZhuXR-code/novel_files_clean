@@ -16,22 +16,34 @@ workflows:
         script: |
           xcodebuild -version
           swift --version
-      - name: Clean and Archive
+      - name: Clean
         script: |
           cd ios_app
-          xcodebuild clean archive \
+          xcodebuild clean \
             -project FileScanner.xcodeproj \
             -scheme FileScanner \
-            -sdk iphoneos \
             -configuration Release \
+            -sdk iphoneos
+      - name: Archive（无签名）
+        script: |
+          cd ios_app
+          mkdir -p $CM_BUILD_DIR/build
+          xcodebuild archive \
+            -project FileScanner.xcodeproj \
+            -scheme FileScanner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination generic/platform=iOS \
             -archivePath $CM_BUILD_DIR/build/FileScanner.xcarchive \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER=""
       - name: Export IPA
         script: |
-          cd ios_app
-          cat > $CM_BUILD_DIR/build/ExportOptions.plist << EOF
+          mkdir -p build/ipa
+          cat > build/ExportOptions.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -40,14 +52,17 @@ workflows:
               <string>development</string>
               <key>signingStyle</key>
               <string>manual</string>
+              <key>signingCertificate</key>
+              <string>-</string>
+              <key>provisioningProfiles</key>
+              <dict/>
           </dict>
           </plist>
           EOF
           xcodebuild -exportArchive \
             -archivePath $CM_BUILD_DIR/build/FileScanner.xcarchive \
-            -exportPath $CM_BUILD_DIR/build/ipa \
-            -exportOptionsPlist $CM_BUILD_DIR/build/ExportOptions.plist \
-            -allowProvisioningUpdates
+            -exportPath build/ipa \
+            -exportOptionsPlist build/ExportOptions.plist
     artifacts:
       - build/ipa/*.ipa
     publishing:
