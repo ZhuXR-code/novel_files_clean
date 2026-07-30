@@ -1,0 +1,56 @@
+workflows:
+  build-ios:
+    name: Build iOS IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      xcode: 16.0
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: master
+          include: false  # 手动触发，不自动构建
+    scripts:
+      - name: 显示构建信息
+        script: |
+          xcodebuild -version
+          swift --version
+      - name: Clean and Archive
+        script: |
+          cd ios_app
+          xcodebuild clean archive \
+            -project FileScanner.xcodeproj \
+            -scheme FileScanner \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath $CM_BUILD_DIR/build/FileScanner.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Export IPA
+        script: |
+          cd ios_app
+          cat > $CM_BUILD_DIR/build/ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath $CM_BUILD_DIR/build/FileScanner.xcarchive \
+            -exportPath $CM_BUILD_DIR/build/ipa \
+            -exportOptionsPlist $CM_BUILD_DIR/build/ExportOptions.plist \
+            -allowProvisioningUpdates
+    artifacts:
+      - build/ipa/*.ipa
+    publishing:
+      email:
+        recipients:
+          - your@email.com
