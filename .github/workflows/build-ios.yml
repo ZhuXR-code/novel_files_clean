@@ -1,0 +1,80 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:        # 仅手动触发（每次构建约 $0.5，省钱）
+    inputs:
+      version:
+        description: '版本号 (例如 1.0.1)'
+        required: true
+        default: '1.0'
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 显示构建信息
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: 显示可用 Scheme
+        run: |
+          cd ios_app
+          xcodebuild -list
+
+      - name: 设置版本号
+        run: |
+          cd ios_app/FileScanner
+          # 更新 Info.plist 版本号
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ github.event.inputs.version || '1.0' }}" Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(date +%s)" Info.plist
+
+      - name: Archive 构建
+        run: |
+          cd ios_app
+          xcodebuild clean archive \
+            -project FileScanner.xcodeproj \
+            -scheme FileScanner \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath ./build/FileScanner.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: 导出 IPA（不含签名）
+        run: |
+          cd ios_app
+          mkdir -p build/ipa
+          cat > build/ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>-</string>
+              <key>provisioningProfiles</key>
+              <dict/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath ./build/FileScanner.xcarchive \
+            -exportPath ./build/ipa \
+            -exportOptionsPlist ./build/ExportOptions.plist \
+            -allowProvisioningUpdates
+
+      - name: 上传 IPA 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: FileScanner-iOS-${{ github.event.inputs.version || 'latest' }}
+          path: ios_app/build/ipa/*.ipa
+          if-no-files-found: error

@@ -86,3 +86,11 @@ home.yaml
 # 测试用扫描数据库（含真实书名等隐私数据，不入库）
 clean_test_*.db
 clean_test_*/
+
+# 测试运行结果文件（非源码，每次跑测试会重新生成）
+tests/*.txt
+tests/android_standalone/*.kt
+
+# 安装包和截图重复输出
+安装部署/安装包/
+应用截图/output/
