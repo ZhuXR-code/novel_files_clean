@@ -9,31 +9,31 @@
 /* Begin PBXBuildFile section */
 		000000000000000000000200 /* App/FileScannerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000100 /* App/FileScannerApp.swift */; };
 		000000000000000000000201 /* App/AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000101 /* App/AppState.swift */; };
-		000000000000000000000202 /* Core/RegexExt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000102 /* Core/RegexExt.swift */; };
-		000000000000000000000203 /* Core/Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000103 /* Core/Models.swift */; };
-		000000000000000000000204 /* Core/FormatUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000104 /* Core/FormatUtil.swift */; };
-		000000000000000000000205 /* Core/LibraryLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000105 /* Core/LibraryLogic.swift */; };
-		000000000000000000000206 /* Core/LogUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000106 /* Core/LogUtil.swift */; };
-		000000000000000000000207 /* Core/Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000107 /* Core/Preferences.swift */; };
-		000000000000000000000208 /* Core/Parser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000108 /* Core/Parser.swift */; };
-		000000000000000000000209 /* Core/DupRuleLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000109 /* Core/DupRuleLogic.swift */; };
-		00000000000000000000020A /* Core/KeywordReplace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010A /* Core/KeywordReplace.swift */; };
-		00000000000000000000020B /* Core/EncodingUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010B /* Core/EncodingUtil.swift */; };
-		00000000000000000000020C /* Core/ChineseConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010C /* Core/ChineseConverter.swift */; };
-		00000000000000000000020D /* Core/DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010D /* Core/DatabaseManager.swift */; };
-		00000000000000000000020E /* Core/FileRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010E /* Core/FileRepository.swift */; };
-		00000000000000000000020F /* Services/ScanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010F /* Services/ScanService.swift */; };
-		000000000000000000000210 /* UI/Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000110 /* UI/Theme.swift */; };
-		000000000000000000000211 /* UI/Common.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000111 /* UI/Common.swift */; };
-		000000000000000000000212 /* UI/HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000112 /* UI/HomeView.swift */; };
-		000000000000000000000213 /* UI/ConfigViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000113 /* UI/ConfigViews.swift */; };
-		000000000000000000000214 /* UI/LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000114 /* UI/LibraryView.swift */; };
-		000000000000000000000215 /* UI/DeleteViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000115 /* UI/DeleteViews.swift */; };
-		000000000000000000000216 /* UI/OneClickCleanupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000116 /* UI/OneClickCleanupView.swift */; };
-		000000000000000000000217 /* UI/SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000117 /* UI/SettingsViews.swift */; };
-		000000000000000000000218 /* UI/HelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000118 /* UI/HelpView.swift */; };
-		000000000000000000000219 /* UI/ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000119 /* UI/ContentView.swift */; };
-		00000000000000000000021A /* UI/PrivacyPolicyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011A /* UI/PrivacyPolicyView.swift */; };
+		000000000000000000000202 /* RegexExt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000102 /* RegexExt.swift */; };
+		000000000000000000000203 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000103 /* Models.swift */; };
+		000000000000000000000204 /* FormatUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000104 /* FormatUtil.swift */; };
+		000000000000000000000205 /* LibraryLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000105 /* LibraryLogic.swift */; };
+		000000000000000000000206 /* LogUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000106 /* LogUtil.swift */; };
+		000000000000000000000207 /* Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000107 /* Preferences.swift */; };
+		000000000000000000000208 /* Parser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000108 /* Parser.swift */; };
+		000000000000000000000209 /* DupRuleLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000109 /* DupRuleLogic.swift */; };
+		00000000000000000000020A /* KeywordReplace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010A /* KeywordReplace.swift */; };
+		00000000000000000000020B /* EncodingUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010B /* EncodingUtil.swift */; };
+		00000000000000000000020C /* ChineseConverter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010C /* ChineseConverter.swift */; };
+		00000000000000000000020D /* DatabaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010D /* DatabaseManager.swift */; };
+		00000000000000000000020E /* FileRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010E /* FileRepository.swift */; };
+		00000000000000000000020F /* ScanService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000010F /* ScanService.swift */; };
+		000000000000000000000210 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000110 /* Theme.swift */; };
+		000000000000000000000211 /* Common.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000111 /* Common.swift */; };
+		000000000000000000000212 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000112 /* HomeView.swift */; };
+		000000000000000000000213 /* ConfigViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000113 /* ConfigViews.swift */; };
+		000000000000000000000214 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000114 /* LibraryView.swift */; };
+		000000000000000000000215 /* DeleteViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000115 /* DeleteViews.swift */; };
+		000000000000000000000216 /* OneClickCleanupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000116 /* OneClickCleanupView.swift */; };
+		000000000000000000000217 /* SettingsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000117 /* SettingsViews.swift */; };
+		000000000000000000000218 /* HelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000118 /* HelpView.swift */; };
+		000000000000000000000219 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000119 /* ContentView.swift */; };
+		00000000000000000000021A /* PrivacyPolicyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011A /* PrivacyPolicyView.swift */; };
 		000000000000000000000300 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011C /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -41,31 +41,31 @@
 		00000000000000000000001B /* FileScanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FileScanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000100 /* App/FileScannerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/FileScannerApp.swift; sourceTree = "<group>"; };
 		000000000000000000000101 /* App/AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppState.swift; sourceTree = "<group>"; };
-		000000000000000000000102 /* Core/RegexExt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/RegexExt.swift; sourceTree = "<group>"; };
-		000000000000000000000103 /* Core/Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Models.swift; sourceTree = "<group>"; };
-		000000000000000000000104 /* Core/FormatUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/FormatUtil.swift; sourceTree = "<group>"; };
-		000000000000000000000105 /* Core/LibraryLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/LibraryLogic.swift; sourceTree = "<group>"; };
-		000000000000000000000106 /* Core/LogUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/LogUtil.swift; sourceTree = "<group>"; };
-		000000000000000000000107 /* Core/Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Preferences.swift; sourceTree = "<group>"; };
-		000000000000000000000108 /* Core/Parser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/Parser.swift; sourceTree = "<group>"; };
-		000000000000000000000109 /* Core/DupRuleLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DupRuleLogic.swift; sourceTree = "<group>"; };
-		00000000000000000000010A /* Core/KeywordReplace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/KeywordReplace.swift; sourceTree = "<group>"; };
-		00000000000000000000010B /* Core/EncodingUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/EncodingUtil.swift; sourceTree = "<group>"; };
-		00000000000000000000010C /* Core/ChineseConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/ChineseConverter.swift; sourceTree = "<group>"; };
-		00000000000000000000010D /* Core/DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/DatabaseManager.swift; sourceTree = "<group>"; };
-		00000000000000000000010E /* Core/FileRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core/FileRepository.swift; sourceTree = "<group>"; };
-		00000000000000000000010F /* Services/ScanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ScanService.swift; sourceTree = "<group>"; };
-		000000000000000000000110 /* UI/Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/Theme.swift; sourceTree = "<group>"; };
-		000000000000000000000111 /* UI/Common.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/Common.swift; sourceTree = "<group>"; };
-		000000000000000000000112 /* UI/HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/HomeView.swift; sourceTree = "<group>"; };
-		000000000000000000000113 /* UI/ConfigViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ConfigViews.swift; sourceTree = "<group>"; };
-		000000000000000000000114 /* UI/LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/LibraryView.swift; sourceTree = "<group>"; };
-		000000000000000000000115 /* UI/DeleteViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/DeleteViews.swift; sourceTree = "<group>"; };
-		000000000000000000000116 /* UI/OneClickCleanupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/OneClickCleanupView.swift; sourceTree = "<group>"; };
-		000000000000000000000117 /* UI/SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/SettingsViews.swift; sourceTree = "<group>"; };
-		000000000000000000000118 /* UI/HelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/HelpView.swift; sourceTree = "<group>"; };
-		000000000000000000000119 /* UI/ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ContentView.swift; sourceTree = "<group>"; };
-		00000000000000000000011A /* UI/PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/PrivacyPolicyView.swift; sourceTree = "<group>"; };
+		000000000000000000000102 /* RegexExt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegexExt.swift; sourceTree = "<group>"; };
+		000000000000000000000103 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		000000000000000000000104 /* FormatUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormatUtil.swift; sourceTree = "<group>"; };
+		000000000000000000000105 /* LibraryLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryLogic.swift; sourceTree = "<group>"; };
+		000000000000000000000106 /* LogUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogUtil.swift; sourceTree = "<group>"; };
+		000000000000000000000107 /* Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preferences.swift; sourceTree = "<group>"; };
+		000000000000000000000108 /* Parser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Parser.swift; sourceTree = "<group>"; };
+		000000000000000000000109 /* DupRuleLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DupRuleLogic.swift; sourceTree = "<group>"; };
+		00000000000000000000010A /* KeywordReplace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeywordReplace.swift; sourceTree = "<group>"; };
+		00000000000000000000010B /* EncodingUtil.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncodingUtil.swift; sourceTree = "<group>"; };
+		00000000000000000000010C /* ChineseConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChineseConverter.swift; sourceTree = "<group>"; };
+		00000000000000000000010D /* DatabaseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseManager.swift; sourceTree = "<group>"; };
+		00000000000000000000010E /* FileRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileRepository.swift; sourceTree = "<group>"; };
+		00000000000000000000010F /* ScanService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanService.swift; sourceTree = "<group>"; };
+		000000000000000000000110 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		000000000000000000000111 /* Common.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Common.swift; sourceTree = "<group>"; };
+		000000000000000000000112 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		000000000000000000000113 /* ConfigViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigViews.swift; sourceTree = "<group>"; };
+		000000000000000000000114 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		000000000000000000000115 /* DeleteViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeleteViews.swift; sourceTree = "<group>"; };
+		000000000000000000000116 /* OneClickCleanupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OneClickCleanupView.swift; sourceTree = "<group>"; };
+		000000000000000000000117 /* SettingsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViews.swift; sourceTree = "<group>"; };
+		000000000000000000000118 /* HelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpView.swift; sourceTree = "<group>"; };
+		000000000000000000000119 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		00000000000000000000011A /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
 		00000000000000000000011B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		00000000000000000000011C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -229,31 +229,31 @@
 			files = (
 				000000000000000000000200 /* App/FileScannerApp.swift in Sources */,
 				000000000000000000000201 /* App/AppState.swift in Sources */,
-				000000000000000000000202 /* Core/RegexExt.swift in Sources */,
-				000000000000000000000203 /* Core/Models.swift in Sources */,
-				000000000000000000000204 /* Core/FormatUtil.swift in Sources */,
-				000000000000000000000205 /* Core/LibraryLogic.swift in Sources */,
-				000000000000000000000206 /* Core/LogUtil.swift in Sources */,
-				000000000000000000000207 /* Core/Preferences.swift in Sources */,
-				000000000000000000000208 /* Core/Parser.swift in Sources */,
-				000000000000000000000209 /* Core/DupRuleLogic.swift in Sources */,
-				00000000000000000000020A /* Core/KeywordReplace.swift in Sources */,
-				00000000000000000000020B /* Core/EncodingUtil.swift in Sources */,
-				00000000000000000000020C /* Core/ChineseConverter.swift in Sources */,
-				00000000000000000000020D /* Core/DatabaseManager.swift in Sources */,
-				00000000000000000000020E /* Core/FileRepository.swift in Sources */,
-				00000000000000000000020F /* Services/ScanService.swift in Sources */,
-				000000000000000000000210 /* UI/Theme.swift in Sources */,
-				000000000000000000000211 /* UI/Common.swift in Sources */,
-				000000000000000000000212 /* UI/HomeView.swift in Sources */,
-				000000000000000000000213 /* UI/ConfigViews.swift in Sources */,
-				000000000000000000000214 /* UI/LibraryView.swift in Sources */,
-				000000000000000000000215 /* UI/DeleteViews.swift in Sources */,
-				000000000000000000000216 /* UI/OneClickCleanupView.swift in Sources */,
-				000000000000000000000217 /* UI/SettingsViews.swift in Sources */,
-				000000000000000000000218 /* UI/HelpView.swift in Sources */,
-				000000000000000000000219 /* UI/ContentView.swift in Sources */,
-				00000000000000000000021A /* UI/PrivacyPolicyView.swift in Sources */,
+				000000000000000000000202 /* RegexExt.swift in Sources */,
+				000000000000000000000203 /* Models.swift in Sources */,
+				000000000000000000000204 /* FormatUtil.swift in Sources */,
+				000000000000000000000205 /* LibraryLogic.swift in Sources */,
+				000000000000000000000206 /* LogUtil.swift in Sources */,
+				000000000000000000000207 /* Preferences.swift in Sources */,
+				000000000000000000000208 /* Parser.swift in Sources */,
+				000000000000000000000209 /* DupRuleLogic.swift in Sources */,
+				00000000000000000000020A /* KeywordReplace.swift in Sources */,
+				00000000000000000000020B /* EncodingUtil.swift in Sources */,
+				00000000000000000000020C /* ChineseConverter.swift in Sources */,
+				00000000000000000000020D /* DatabaseManager.swift in Sources */,
+				00000000000000000000020E /* FileRepository.swift in Sources */,
+				00000000000000000000020F /* ScanService.swift in Sources */,
+				000000000000000000000210 /* Theme.swift in Sources */,
+				000000000000000000000211 /* Common.swift in Sources */,
+				000000000000000000000212 /* HomeView.swift in Sources */,
+				000000000000000000000213 /* ConfigViews.swift in Sources */,
+				000000000000000000000214 /* LibraryView.swift in Sources */,
+				000000000000000000000215 /* DeleteViews.swift in Sources */,
+				000000000000000000000216 /* OneClickCleanupView.swift in Sources */,
+				000000000000000000000217 /* SettingsViews.swift in Sources */,
+				000000000000000000000218 /* HelpView.swift in Sources */,
+				000000000000000000000219 /* ContentView.swift in Sources */,
+				00000000000000000000021A /* PrivacyPolicyView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
