@@ -146,15 +146,16 @@ interface ScannedFileDao {
 
     /**
      * 复刻 PC 端“勾选重复”：取某文库全部文件的
-     * (id, 文件名, 书名, 作者, 进度, 大小, 创建时间) 投影，
+     * (id, 文件名, 书名, 作者, 进度, 大小, 创建时间, 文件修改时间) 投影，
      * 由 Repository 在 Kotlin 端按 (书名+作者+大小+进度) 四元组分组（不再比较文件名）、
-     * 比较创建时间后计算待删 id。
-     * 别名 file_name AS fileName、file_size AS fileSize、created_at AS createdAt 以匹配字段名。
+     * 比较文件修改时间后计算待删 id。
+     * 别名 file_name AS fileName、file_size AS fileSize、created_at AS createdAt、file_date AS fileDate 以匹配字段名。
      */
     @Query("""
         SELECT s.id, s.file_name AS fileName, s.title, s.author, s.progress,
                COALESCE(s.source, '') AS source,
-               s.file_size AS fileSize, s.created_at AS createdAt
+               s.file_size AS fileSize, s.created_at AS createdAt,
+               COALESCE(s.file_date, 0) AS fileDate
         FROM scanned_file s
         WHERE s.scan_run_id = :runId
     """)

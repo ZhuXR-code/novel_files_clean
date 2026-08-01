@@ -164,7 +164,9 @@ internal object DupRuleLogic {
                 val exact = S.groupBy { it.fileSize to it.progress.trim() }
                 for ((_, g) in exact) {
                     if (g.size < 2) continue
-                    val newest = g.maxWithOrNull(compareBy<DuplicateRow> { it.createdAt }.thenBy { it.id })!!
+                    // 优先按文件真实修改时间(fileDate)判断最新；缺失时回退到扫描入库时间(createdAt)。
+                    val newest = g.maxWithOrNull(compareBy<DuplicateRow> { if (it.fileDate != 0L) it.fileDate else it.createdAt }.thenBy { it.id })!!
+
                     nc.add(newest.id)
                     for (f in g) if (f.id != newest.id) {
                         c.add(f.id)

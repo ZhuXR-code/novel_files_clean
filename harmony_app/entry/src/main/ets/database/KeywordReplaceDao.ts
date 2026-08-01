@@ -161,7 +161,7 @@ export class KeywordReplaceDao {
     const rs = await KeywordReplaceDao.store.querySql(sql, []);
     let n: number = 0;
     if (rs.goToFirstRow()) {
-      n = KeywordReplaceDao.colNum(rs, 'c');
+      n = Number(rs.getLong(0));
     }
     rs.close();
     return n;

@@ -83,6 +83,8 @@ struct DuplicateRow {
     let source: String
     let fileSize: Int64
     let createdAt: Int64
+    /// 文件在文件系统中的最后修改时间（毫秒时间戳）。判断“新旧”时优先使用，避免扫描入库顺序干扰。
+    let fileDate: Int64
 }
 
 /// 合集分组头（按书名+作者聚合的统计结果，非数据库实体）。

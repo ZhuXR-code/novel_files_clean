@@ -72,6 +72,8 @@ struct LibraryScreen {
   @State showSortMenu: boolean = false;
   @State savedScrollIndex: number = 0;
   @State firstVisibleIndex: number = 0;
+  // 从详情页返回时置 true：本次 reload 不清空合集展开状态、不把列表/合集回顶
+  @State keepExpandedOnReload: boolean = false;
   // FAB 可见性追踪（局部可见索引，用于判断列表是否可滚动，对齐安卓 FAB 仅在可滚动时显示）
   @State listFirstVisible: number = 0;
   @State listLastVisible: number = 0;
@@ -177,9 +179,12 @@ struct LibraryScreen {
         this.runId, this.filter, this.query, this.colMinCount, this.colMaxCount, this.colExcludeNames,
         this.groupSort, this.checkedSortToFront, this.pageSize, offset
       );
-      // 翻页/筛选后清空已展开合集（旧页的展开不再有效）
-      this.expandedTitle = '';
-      this.expandedGroupFiles = new Map<string, ScannedFile[]>();
+      // 翻页/筛选后清空已展开合集（旧页的展开不再有效）。
+      // 但从详情页返回（keepExpandedOnReload=true）时需保留展开状态，仅刷新当前页，不折叠。
+      if (!this.keepExpandedOnReload) {
+        this.expandedTitle = '';
+        this.expandedGroupFiles = new Map<string, ScannedFile[]>();
+      }
     } catch (e) {
       LogUtil.e('LibraryScreen', `加载合集页失败: ${(e as Error).message}`);
     }
@@ -1616,10 +1621,18 @@ struct LibraryScreen {
   }
 
   // ===== 滚动位置保存/恢复 =====
-  onPageShow(): void {
-    // 从详情页返回时重新加载当前页（文件可能被删除/修改）
-    this.loadStats();
-    this.reload();
+  async onPageShow(): Promise<void> {
+    // 从详情页返回：保留合集展开状态与滚动位置，仅静默刷新数据（文件可能已被详情页修改/删除）。
+    // keepExpandedOnReload=true 让 loadGroups 不折叠已展开合集；reload 后按保存的页内相对索引恢复滚动。
+    this.keepExpandedOnReload = true;
+    await this.loadStats();
+    await this.reload();
+    this.keepExpandedOnReload = false;
+    // 若详情页修改了某合集内的文件状态，重新懒加载该合集内容（不折叠），保证行内 Toggle 与 DB 一致
+    if (this.mode === 'collection' && this.expandedTitle.length > 0) {
+      this.expandedGroupFiles.delete(this.expandedTitle);
+      await this.toggleExpand(this.expandedTitle);
+    }
     if (this.savedScrollIndex > 0) {
       setTimeout(() => {
         if (this.mode === 'list') {
@@ -1632,7 +1645,7 @@ struct LibraryScreen {
   }
 
   onPageHide(): void {
-    // 记录当前滚动位置，返回时恢复
-    this.savedScrollIndex = this.firstVisibleIndex;
+    // 记录当前滚动位置（转成「页内相对索引」，因为 scrollToIndex 的 index 是 List 内数组的 0-based 局部下标）
+    this.savedScrollIndex = Math.max(0, this.firstVisibleIndex - this.page * this.pageSize);
   }
 }

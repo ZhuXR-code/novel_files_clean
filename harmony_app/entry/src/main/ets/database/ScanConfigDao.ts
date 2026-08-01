@@ -109,7 +109,10 @@ export class ScanConfigDao {
 
   public static async count(): Promise<number> {
     const rs = await ScanConfigDao.store.querySql('SELECT COUNT(*) AS cnt FROM scan_config', []);
-    const c = rs.rowCount > 0 ? ScanConfigDao.colNum(rs, 'cnt') : 0;
+    let c: number = 0;
+    if (rs.goToFirstRow()) {
+      c = Number(rs.getLong(0));
+    }
     rs.close();
     return c;
   }

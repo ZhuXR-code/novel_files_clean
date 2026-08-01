@@ -144,15 +144,10 @@ export class DupLogic {
       for (const f of S) {
         maxSize = Math.max(maxSize, f.fileSize);
       }
+      const maxSizeCount: number = S.filter((f) => f.fileSize === maxSize).length;
 
       // ── 规则 4：最大文件不勾选 ──
       if (enabled.has('rule4')) {
-        let maxSizeCount: number = 0;
-        for (const f of S) {
-          if (f.fileSize === maxSize) {
-            maxSizeCount++;
-          }
-        }
         if (maxSizeCount === 1) {
           for (const f of S) {
             if (f.fileSize === maxSize) {
@@ -414,7 +409,10 @@ export class DupLogic {
   private static findNewest(g: DuplicateRow[]): DuplicateRow {
     let newest: DuplicateRow = g[0];
     for (const f of g) {
-      if (f.createdAt > newest.createdAt || (f.createdAt === newest.createdAt && f.id > newest.id)) {
+      // 优先按文件真实修改时间(fileDate)判断新旧；缺失时回退到扫描入库时间(createdAt)，最后按 id 稳定兜底。
+      const fKey: number = f.fileDate || f.createdAt || 0;
+      const nKey: number = newest.fileDate || newest.createdAt || 0;
+      if (fKey > nKey || (fKey === nKey && f.id > newest.id)) {
         newest = f;
       }
     }

@@ -118,7 +118,9 @@ enum DupRuleLogic {
                 let exact = Dictionary(grouping: S) { "\($0.fileSize)\u{0000}\($0.progress.trimmingCharacters(in: .whitespaces))" }
                 for (_, g) in exact where g.count >= 2 {
                     let newest = g.max { a, b in
-                        let ca = a.createdAt, cb = b.createdAt
+                        // 优先按文件真实修改时间(fileDate)判断最新；缺失时回退到扫描入库时间(createdAt)。
+                        let ca = a.fileDate != 0 ? a.fileDate : a.createdAt
+                        let cb = b.fileDate != 0 ? b.fileDate : b.createdAt
                         return ca < cb || (ca == cb && a.id < b.id)
                     }!
                     nc.insert(newest.id)

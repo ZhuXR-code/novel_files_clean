@@ -81,6 +81,7 @@ export class ScannedFileDao {
     r.source = ScannedFileDao.colStr(rs, 'source');
     r.fileSize = ScannedFileDao.colNum(rs, 'file_size');
     r.createdAt = ScannedFileDao.colNum(rs, 'created_at');
+    r.fileDate = ScannedFileDao.colNum(rs, 'file_date');
     return r;
   }
 
@@ -187,8 +188,8 @@ export class ScannedFileDao {
     const rs = await ScannedFileDao.store.querySql(
       'SELECT COUNT(*) AS cnt FROM scanned_file WHERE scan_run_id = ?', [scanRunId]);
     let c: number = 0;
-    if (rs.goToNextRow()) {
-      c = ScannedFileDao.colNum(rs, 'cnt');
+    if (rs.goToFirstRow()) {
+      c = Number(rs.getLong(0));
     }
     rs.close();
     return c;
@@ -198,8 +199,8 @@ export class ScannedFileDao {
     const rs = await ScannedFileDao.store.querySql(
       'SELECT COUNT(*) AS cnt FROM scanned_file WHERE scan_run_id = ? AND checked = 1', [scanRunId]);
     let c: number = 0;
-    if (rs.goToNextRow()) {
-      c = ScannedFileDao.colNum(rs, 'cnt');
+    if (rs.goToFirstRow()) {
+      c = Number(rs.getLong(0));
     }
     rs.close();
     return c;
@@ -210,7 +211,7 @@ export class ScannedFileDao {
     const predicates = new relationalStore.RdbPredicates('scanned_file');
     predicates.equalTo('scan_run_id', scanRunId);
     predicates.orderByDesc('id');
-    const columns: string[] = ['id', 'file_name', 'title', 'author', 'progress', 'source', 'file_size', 'created_at'];
+    const columns: string[] = ['id', 'file_name', 'title', 'author', 'progress', 'source', 'file_size', 'created_at', 'file_date'];
     const rs = await ScannedFileDao.store.query(predicates, columns);
     const list: DuplicateRow[] = [];
     while (rs.goToNextRow()) {
@@ -288,8 +289,8 @@ export class ScannedFileDao {
   public static async countAll(): Promise<number> {
     const rs = await ScannedFileDao.store.querySql('SELECT COUNT(*) AS cnt FROM scanned_file', []);
     let c: number = 0;
-    if (rs.goToNextRow()) {
-      c = ScannedFileDao.colNum(rs, 'cnt');
+    if (rs.goToFirstRow()) {
+      c = Number(rs.getLong(0));
     }
     rs.close();
     return c;
@@ -299,8 +300,8 @@ export class ScannedFileDao {
     const rs = await ScannedFileDao.store.querySql(
       'SELECT COUNT(*) AS cnt FROM scanned_file WHERE marked = 1', []);
     let c: number = 0;
-    if (rs.goToNextRow()) {
-      c = ScannedFileDao.colNum(rs, 'cnt');
+    if (rs.goToFirstRow()) {
+      c = Number(rs.getLong(0));
     }
     rs.close();
     return c;
@@ -424,8 +425,8 @@ export class ScannedFileDao {
     await ScannedFileDao.store.executeSql(sql, [scanRunId, scanRunId, scanRunId]);
     const rs = await ScannedFileDao.store.querySql('SELECT changes() AS changed', []);
     let changed: number = 0;
-    if (rs.goToNextRow()) {
-      changed = ScannedFileDao.colNum(rs, 'changed');
+    if (rs.goToFirstRow()) {
+      changed = Number(rs.getLong(0));
     }
     rs.close();
     return changed;
@@ -493,8 +494,8 @@ export class ScannedFileDao {
     sql += ScannedFileDao.searchClause(query, args);
     const rs = await ScannedFileDao.store.querySql(sql, args);
     let count: number = 0;
-    if (rs.goToNextRow()) {
-      count = ScannedFileDao.colNum(rs, 'cnt');
+    if (rs.goToFirstRow()) {
+      count = Number(rs.getLong(0));
     }
     rs.close();
     return count;
@@ -586,8 +587,8 @@ export class ScannedFileDao {
     sql += ')';
     const rs = await ScannedFileDao.store.querySql(sql, args);
     let count: number = 0;
-    if (rs.goToNextRow()) {
-      count = ScannedFileDao.colNum(rs, 'cnt');
+    if (rs.goToFirstRow()) {
+      count = Number(rs.getLong(0));
     }
     rs.close();
     // 客户端排除书名关键词后的近似计数（排除仅影响少量合集，误差可接受）
@@ -603,8 +604,8 @@ export class ScannedFileDao {
     const rs = await ScannedFileDao.store.querySql(
       'SELECT COUNT(*) AS cnt FROM scanned_file WHERE scan_run_id = ? AND marked = 1', [scanRunId]);
     let c: number = 0;
-    if (rs.goToNextRow()) {
-      c = ScannedFileDao.colNum(rs, 'cnt');
+    if (rs.goToFirstRow()) {
+      c = Number(rs.getLong(0));
     }
     rs.close();
     return c;

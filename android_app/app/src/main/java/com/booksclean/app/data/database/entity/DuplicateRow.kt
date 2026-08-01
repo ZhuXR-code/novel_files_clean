@@ -4,7 +4,7 @@ import androidx.room.ColumnInfo
 
 /**
  * 复刻 PC 端"勾选重复"逻辑所需的轻量投影：
- * id / 文件名(fileName) / 书名(title) / 作者(author) / 进度(progress) / 来源(source) / 大小(fileSize) / 创建时间(createdAt)。
+ * id / 文件名(fileName) / 书名(title) / 作者(author) / 进度(progress) / 来源(source) / 大小(fileSize) / 创建时间(createdAt) / 文件修改时间(fileDate)。
  */
 data class DuplicateRow(
     val id: Long,
@@ -14,5 +14,6 @@ data class DuplicateRow(
     val progress: String,
     @ColumnInfo(name = "source") val source: String = "",
     @ColumnInfo(name = "fileSize") val fileSize: Long,
-    @ColumnInfo(name = "createdAt") val createdAt: Long
+    @ColumnInfo(name = "createdAt") val createdAt: Long,
+    @ColumnInfo(name = "fileDate") val fileDate: Long = 0
 )

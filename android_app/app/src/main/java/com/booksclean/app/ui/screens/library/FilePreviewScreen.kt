@@ -148,7 +148,9 @@ internal class PreviewLoader(
      */
     fun readLines(maxLines: Int): List<String> {
         val r = reader ?: return emptyList()
-        val out = ArrayList<String>(maxLines)
+        // 注意：maxLines 可能为 Int.MAX_VALUE（读到文件末尾），预分配容量必须设上限，
+        // 否则 ArrayList(Int.MAX_VALUE) 会直接抛 OutOfMemoryError。
+        val out = ArrayList<String>(maxLines.coerceAtMost(BATCH_LINES))
         while (out.size < maxLines) {
             val nl = carry.indexOf("\n")
             if (nl in 0..MAX_LINE_CHARS) {
@@ -178,6 +180,31 @@ internal class PreviewLoader(
             if (n < 0) eofReached = true else carry.append(buf, 0, n)
         }
         return out
+    }
+
+    /**
+     * 流式读取文件末尾至多 [maxLines] 行。
+     *
+     * 用固定大小的环形缓冲区，全程只驻留最后 [maxLines] 行，
+     * 内存占用与文件体积无关（不会因大文件 OOM）。
+     */
+    fun readTailLines(maxLines: Int): List<String> {
+        if (maxLines <= 0) return emptyList()
+        val ring = arrayOfNulls<String>(maxLines)
+        var count = 0
+        while (true) {
+            val batch = readLines(BATCH_LINES)
+            if (batch.isEmpty()) break
+            for (line in batch) {
+                ring[count % maxLines] = line
+                count++
+            }
+            if (eofReached && carry.isEmpty()) break
+        }
+        if (count == 0) return emptyList()
+        val size = minOf(count, maxLines)
+        val start = if (count > maxLines) count % maxLines else 0
+        return List(size) { ring[(start + it) % maxLines]!! }
     }
 
     override fun close() {
@@ -240,7 +267,7 @@ fun FilePreviewScreen(
                 val loader = PreviewLoader(context.applicationContext, f.path)
                 loader.open()
                 val first = when (previewMode) {
-                    "tail" -> loader.readLines(Int.MAX_VALUE)   // 读完整个文件，再截取末尾 100 行
+                    "tail" -> loader.readTailLines(TAIL_LINES)  // 流式扫描，只保留末尾 100 行
                     "all" -> loader.readLines(BATCH_LINES)
                     else -> loader.readLines(HEAD_LINES)        // head：前 50 行
                 }
@@ -249,15 +276,7 @@ fun FilePreviewScreen(
             fileTitle = result.first.title.ifBlank { result.first.fileName }
             loaderHolder.value = result.second
             charsetName = result.second.charsetName
-            val loaded = when (previewMode) {
-                "tail" -> {
-                    // 仅保留文件末尾 100 行
-                    val src = result.third
-                    if (src.size > TAIL_LINES) src.subList(src.size - TAIL_LINES, src.size) else src
-                }
-                else -> result.third
-            }
-            lines.addAll(loaded)
+            lines.addAll(result.third)
             // head / tail 模式为固定范围，读后即关流释放文件句柄；all 模式保留流以便滚动加载
             val closeAfterFirst = previewMode != "all"
             eof = result.second.isEof || closeAfterFirst
@@ -266,6 +285,10 @@ fun FilePreviewScreen(
             }
         } catch (e: Exception) {
             error = e.message ?: context.getString(R.string.error)
+        } catch (e: OutOfMemoryError) {
+            // OOM 属于 Error 而非 Exception，不兜住会直接闪退
+            loaderHolder.value?.let { runCatching { it.close() } }
+            error = context.getString(R.string.error)
         } finally {
             loading = false
         }

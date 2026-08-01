@@ -176,114 +176,120 @@ export struct LibraryTab {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      if (this.selectMode) {
-        // 多选模式顶部栏
-        Row() {
-          Text('取消')
-            .fontSize(this.fs(15))
-            .fontColor($r('app.color.primary'))
-            .padding({ left: 12, top: 14, bottom: 14 })
-            .onClick(() => this.exitSelectMode())
-          Text('已选 ' + this.selectedIds.length + ' 个')
-            .fontSize(this.fs(15))
-            .fontColor($r('app.color.text_primary'))
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-          Text(this.selectedIds.length === this.runs.length ? '取消全选' : '全选')
-            .fontSize(this.fs(15))
-            .fontColor($r('app.color.primary'))
-            .padding({ right: 12, top: 14, bottom: 14 })
-            .onClick(() => this.toggleSelectAll())
+      // 主体用 Column：顶栏在顶、列表自然铺满剩余区域。
+      // 注意：Stack 子组件的 .layoutWeight(1) 无效（原方案 List 不会撑满且会被 TopBar 覆盖），
+      // 因此把顶栏 + 内容放进一个 Column，让 layoutWeight(1) 在 List 上正确生效。
+      Column() {
+        if (this.selectMode) {
+          // 多选模式顶部栏
+          Row() {
+            Text('取消')
+              .fontSize(this.fs(15))
+              .fontColor($r('app.color.primary'))
+              .padding({ left: 12, top: 14, bottom: 14 })
+              .onClick(() => this.exitSelectMode())
+            Text('已选 ' + this.selectedIds.length + ' 个')
+              .fontSize(this.fs(15))
+              .fontColor($r('app.color.text_primary'))
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+            Text(this.selectedIds.length === this.runs.length ? '取消全选' : '全选')
+              .fontSize(this.fs(15))
+              .fontColor($r('app.color.primary'))
+              .padding({ right: 12, top: 14, bottom: 14 })
+              .onClick(() => this.toggleSelectAll())
+          }
+          .width('100%')
+          .backgroundColor($r('app.color.bg_card'))
+          .border({ width: { bottom: 1 }, color: $r('app.color.divider') })
+        } else {
+          TopBar({
+            title: '文库',
+            showBack: false,
+            rightText: '选择',
+            onRight: () => this.enterSelectMode()
+          })
         }
-        .width('100%')
-        .backgroundColor($r('app.color.bg_card'))
-        .border({ width: { bottom: 1 }, color: $r('app.color.divider') })
-      } else {
-        TopBar({
-          title: '文库',
-          showBack: false,
-          rightText: '选择',
-          onRight: () => this.enterSelectMode()
-        })
-      }
 
-      if (this.runs.length === 0) {
-        Column() {
-          Text('暂无文库')
-            .fontSize(this.fs(16))
-            .fontColor($r('app.color.text_hint'))
-          Text('点击右上角「新建扫描」开始')
-            .fontSize(this.fs(13))
-            .fontColor($r('app.color.text_hint'))
-            .margin({ top: 8 })
-        }
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
-      } else {
-        Refresh({ refreshing: $$this.refreshing }) {
-          List({ space: 10 }) {
-            ForEach(
-              this.runs,
-              (run: ScanRun) => {
-                ListItem() {
-                  Row() {
-                    if (this.selectMode) {
-                      this.checkBox(run)
-                    }
-                    Column({ space: 4 }) {
-                      Text(run.name || '未命名文库')
-                        .fontSize(this.fs(16))
-                        .fontColor($r('app.color.text_primary'))
-                      Text(`目录: ${run.folderName}   文件: ${run.fileCount}`)
-                        .fontSize(this.fs(12))
-                        .fontColor($r('app.color.text_secondary'))
-                      Text(FormatUtil.formatTimestamp(run.createdAt))
-                        .fontSize(this.fs(11))
-                        .fontColor($r('app.color.text_hint'))
-                    }
-                    .layoutWeight(1)
-                    .alignItems(HorizontalAlign.Start)
+        if (this.runs.length === 0) {
+          Column() {
+            Text('暂无文库')
+              .fontSize(this.fs(16))
+              .fontColor($r('app.color.text_hint'))
+            Text('点击右上角「新建扫描」开始')
+              .fontSize(this.fs(13))
+              .fontColor($r('app.color.text_hint'))
+              .margin({ top: 8 })
+          }
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+        } else {
+          Refresh({ refreshing: $$this.refreshing }) {
+            List({ space: 10 }) {
+              ForEach(
+                this.runs,
+                (run: ScanRun) => {
+                  ListItem() {
+                    Row() {
+                      if (this.selectMode) {
+                        this.checkBox(run)
+                      }
+                      Column({ space: 4 }) {
+                        Text(run.name || '未命名文库')
+                          .fontSize(this.fs(16))
+                          .fontColor($r('app.color.text_primary'))
+                        Text(`目录: ${run.folderName}   文件: ${run.fileCount}`)
+                          .fontSize(this.fs(12))
+                          .fontColor($r('app.color.text_secondary'))
+                        Text(FormatUtil.formatTimestamp(run.createdAt))
+                          .fontSize(this.fs(11))
+                          .fontColor($r('app.color.text_hint'))
+                      }
+                      .layoutWeight(1)
+                      .alignItems(HorizontalAlign.Start)
 
-                    if (!this.selectMode) {
-                      Text(' >')
-                        .fontSize(this.fs(16))
-                        .fontColor($r('app.color.text_hint'))
+                      if (!this.selectMode) {
+                        Text(' >')
+                          .fontSize(this.fs(16))
+                          .fontColor($r('app.color.text_hint'))
+                      }
                     }
+                    .width('100%')
+                    .padding(16)
+                    .backgroundColor($r('app.color.bg_card'))
+                    .borderRadius(10)
+                    .onClick(() => {
+                      if (this.selectMode) {
+                        this.toggleSelect(run.id);
+                      } else {
+                        this.openRun(run.id);
+                      }
+                    })
                   }
-                  .width('100%')
-                  .padding(16)
-                  .backgroundColor($r('app.color.bg_card'))
-                  .borderRadius(10)
-                  .onClick(() => {
-                    if (this.selectMode) {
-                      this.toggleSelect(run.id);
-                    } else {
-                      this.openRun(run.id);
+                  .swipeAction({
+                    end: {
+                      builder: () => {
+                        this.swipeDeleteAction(run);
+                      }
                     }
                   })
-                }
-                .swipeAction({
-                  end: {
-                    builder: () => {
-                      this.swipeDeleteAction(run);
-                    }
-                  }
-                })
-                .padding({ left: 12, right: 12 })
+                  .padding({ left: 12, right: 12 })
               },
               (run: ScanRun) => run.id.toString()
             )
           }
           .width('100%')
           .layoutWeight(1)
-        }
-        .layoutWeight(1)
-        .onRefreshing(() => {
-          this.load().then(() => {
-            this.refreshing = false;
-          });
-        })
-      }
+          .layoutWeight(1)
+          .onRefreshing(() => {
+            this.load().then(() => {
+              this.refreshing = false;
+            });
+          })
+        } // 闭合 else(runs.length===0)
+      } // 闭合 Column(主体)
+      .width('100%')
+      .height('100%')
 
       // 多选模式删除栏：固定在距页面顶部 20% 处（不再贴底）
       if (this.selectMode && this.selectedIds.length > 0) {

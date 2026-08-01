@@ -484,20 +484,20 @@ final class DatabaseManager {
     }
 
     func getDuplicateRows(runId: Int64) -> [DuplicateRow] {
-        fetchAll("SELECT id,file_name,title,author,progress,source,file_size,created_at FROM scanned_file WHERE scan_run_id=?", [runId]).map { r in
+        fetchAll("SELECT id,file_name,title,author,progress,source,file_size,created_at,COALESCE(file_date,0) FROM scanned_file WHERE scan_run_id=?", [runId]).map { r in
             DuplicateRow(id: (r[0] as? Int64) ?? 0, fileName: (r[1] as? String) ?? "", title: (r[2] as? String) ?? "",
                         author: (r[3] as? String) ?? "", progress: (r[4] as? String) ?? "", source: (r[5] as? String) ?? "",
-                        fileSize: (r[6] as? Int64) ?? 0, createdAt: (r[7] as? Int64) ?? 0)
+                        fileSize: (r[6] as? Int64) ?? 0, createdAt: (r[7] as? Int64) ?? 0, fileDate: (r[8] as? Int64) ?? 0)
         }
     }
 
     /// 分批取全部文件详情（用于勾选重复的内存分组计算），避免一次性 SELECT 20w 行。
     func getDuplicateRowsPaged(runId: Int64, offset: Int, limit: Int) -> [DuplicateRow] {
-        fetchAll("SELECT id,file_name,title,author,progress,source,file_size,created_at FROM scanned_file WHERE scan_run_id=? ORDER BY id LIMIT ? OFFSET ?",
+        fetchAll("SELECT id,file_name,title,author,progress,source,file_size,created_at,COALESCE(file_date,0) FROM scanned_file WHERE scan_run_id=? ORDER BY id LIMIT ? OFFSET ?",
                  [runId, limit, offset]).map { r in
             DuplicateRow(id: (r[0] as? Int64) ?? 0, fileName: (r[1] as? String) ?? "", title: (r[2] as? String) ?? "",
                         author: (r[3] as? String) ?? "", progress: (r[4] as? String) ?? "", source: (r[5] as? String) ?? "",
-                        fileSize: (r[6] as? Int64) ?? 0, createdAt: (r[7] as? Int64) ?? 0)
+                        fileSize: (r[6] as? Int64) ?? 0, createdAt: (r[7] as? Int64) ?? 0, fileDate: (r[8] as? Int64) ?? 0)
         }
     }
 
