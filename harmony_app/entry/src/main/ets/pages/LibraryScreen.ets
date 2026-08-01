@@ -18,6 +18,12 @@ type GroupSortMode =
   | 'NAME_ASC' | 'NAME_DESC'
   | 'DATE_NEWEST' | 'DATE_OLDEST';
 
+/**
+ * 合集三态勾选框（对齐安卓 Material TriStateCheckbox）。
+ * 已改为 @Builder 直接绘制在父组件 build 中，实时读取 group.checkedCount，
+ * 彻底避免子组件在 ForEach key 复用场景下状态不刷新的问题。
+ */
+
 @Entry
 @Component
 struct LibraryScreen {
@@ -29,8 +35,12 @@ struct LibraryScreen {
   @State groupItems: GroupInfo[] = [];
   // 已展开合集的文件缓存（书名 -> 文件列表，懒加载）
   @State expandedGroupFiles: Map<string, ScannedFile[]> = new Map<string, ScannedFile[]>();
-  @State page: number = 0;
+  // 当前页（0 基）：同步驱动跳转输入框默认显示「第 N 页」（对齐安卓 jumpText = page + 1）
+  @State @Watch('onPageChanged') page: number = 0;
   @State pageCount: number = 1;
+  // 当前筛选条件下的总数（分页指示器「共 N 条」用，对齐安卓 listPageState.total / groupPageState.total）
+  // 与 totalCount（运行全集数，用于统计栏）区分：筛选/搜索后只显示匹配条数
+  @State pageTotal: number = 0;
   @State filter: FilterKind = 'ALL';
   @State sort: SortKind = 'TIME';
   @State query: string = '';
@@ -62,6 +72,11 @@ struct LibraryScreen {
   @State showSortMenu: boolean = false;
   @State savedScrollIndex: number = 0;
   @State firstVisibleIndex: number = 0;
+  // FAB 可见性追踪（局部可见索引，用于判断列表是否可滚动，对齐安卓 FAB 仅在可滚动时显示）
+  @State listFirstVisible: number = 0;
+  @State listLastVisible: number = 0;
+  @State colFirstVisible: number = 0;
+  @State colLastVisible: number = 0;
   // 对齐安卓端：搜索框切换、工具栏收起、删除选择弹窗
   @State searchVisible: boolean = false;
   @State toolbarExpanded: boolean = true;
@@ -130,6 +145,7 @@ struct LibraryScreen {
       // 列表模式下 HAS_CHECKED 退化为 CHECKED
       const listFilter: string = this.filter === 'HAS_CHECKED' ? 'CHECKED' : this.filter;
       const total: number = await ScannedFileDao.countFiltered(this.runId, listFilter, this.query);
+      this.pageTotal = total;
       this.pageCount = Math.max(1, Math.ceil(total / this.pageSize));
       if (this.page >= this.pageCount) {
         this.page = this.pageCount - 1;
@@ -151,6 +167,7 @@ struct LibraryScreen {
       const total: number = await ScannedFileDao.countGroupsFiltered(
         this.runId, this.filter, this.query, this.colMinCount, this.colMaxCount, this.colExcludeNames
       );
+      this.pageTotal = total;
       this.pageCount = Math.max(1, Math.ceil(total / this.pageSize));
       if (this.page >= this.pageCount) {
         this.page = this.pageCount - 1;
@@ -350,8 +367,12 @@ struct LibraryScreen {
     if (!files) return;
     const idx: number = files.findIndex((f) => f.id === file.id);
     if (idx >= 0) {
-      files[idx] = file;
+      // 必须创建新数组（而非原地修改 files[idx]=file），否则数组引用不变，
+      // ForEach 检测不到变化，Toggle 的 isOn 不会重新渲染。
+      const newFiles: ScannedFile[] = files.slice();
+      newFiles[idx] = file;
       const newMap: Map<string, ScannedFile[]> = new Map(this.expandedGroupFiles);
+      newMap.set(this.expandedTitle, newFiles);
       this.expandedGroupFiles = newMap;
     }
   }
@@ -361,7 +382,10 @@ struct LibraryScreen {
     const title: string = file.title || '';
     const idx: number = this.groupItems.findIndex((g) => g.title === title);
     if (idx >= 0) {
-      this.groupItems[idx].checkedCount += delta;
+      const g: GroupInfo = this.groupItems[idx];
+      g.checkedCount += delta;
+      if (g.checkedCount < 0) g.checkedCount = 0;
+      if (g.checkedCount > g.fileCount) g.checkedCount = g.fileCount;
       this.groupItems = this.groupItems.slice();
     }
   }
@@ -380,14 +404,20 @@ struct LibraryScreen {
       this.unCheckedCount = this.totalCount - this.checkedCount;
       // 步骤条联动：标记重复后推进到第3步
       this.currentStep = Math.max(this.currentStep, 3);
-      // 合集模式下保存展开状态，reload 后恢复（让用户能看到文件级勾选变化）
+      // 合集模式下保留展开状态，reload 后恢复（让用户能看到文件级勾选变化）。
+      // 不再自动展开任意合集：尊重用户当前视图，勾选变化通过「勾选排前」排序后即可看到。
       const savedExpandedTitle: string = this.expandedTitle;
       await this.reload();
       if (this.mode === 'collection' && savedExpandedTitle.length > 0) {
-        // 重新展开之前展开的合集（从数据库重新加载，checked 状态已更新）
         await this.toggleExpand(savedExpandedTitle);
       }
-      ToastUtil.show(`已标记 ${ids.length} 个重复文件`);
+      // 对齐安卓 selectDuplicates 文案：这里写的是 checked（勾选）字段，不是 marked（星标），
+      // 因此用"勾选"而非"标记"；ids 为空说明没有重复文件，给单独提示避免"已勾选 0 个"误导。
+      if (ids.length > 0) {
+        ToastUtil.show(`已勾选 ${ids.length} 个重复文件`);
+      } else {
+        ToastUtil.show('未找到重复文件，无需勾选');
+      }
     } catch (e) {
       LogUtil.e('LibraryScreen', `勾选重复失败: ${(e as Error).message}`);
       ToastUtil.show('勾选重复失败');
@@ -401,6 +431,33 @@ struct LibraryScreen {
       this.checkedCount = 0;
       this.unCheckedCount = this.totalCount;
       await this.reload();
+      // 防御性兜底：reload 已按 DB 重新聚合（checked_count=0），但若 UI 因 ForEach
+      // 复用未刷新，这里显式把合集 checkedCount 归零并强制刷新数组引用（触发 @Prop 重算）。
+      const rebuilt: GroupInfo[] = this.groupItems.map((g) => {
+        const ng: GroupInfo = new GroupInfo();
+        ng.title = g.title;
+        ng.fileCount = g.fileCount;
+        ng.totalSize = g.totalSize;
+        ng.checkedCount = 0;
+        return ng;
+      });
+      this.groupItems = rebuilt;
+      // 强制刷新 viewItems 中每个文件的 checked 状态，确保 Toggle 重新渲染
+      for (const f of this.viewItems) {
+        f.checked = 0;
+      }
+      this.viewItems = this.viewItems.slice();
+      // 重置已展开合集文件缓存的 checked（reload 已清空 map，这里仅防御）
+      const newMap: Map<string, ScannedFile[]> = new Map<string, ScannedFile[]>();
+      this.expandedGroupFiles.forEach((files: ScannedFile[], title: string) => {
+        const newFiles: ScannedFile[] = files.map((f) => {
+          const nf: ScannedFile = f;
+          nf.checked = 0;
+          return nf;
+        });
+        newMap.set(title, newFiles);
+      });
+      this.expandedGroupFiles = newMap;
       ToastUtil.show('已清空勾选');
     } catch (e) {
       LogUtil.e('LibraryScreen', `清空勾选失败: ${(e as Error).message}`);
@@ -507,6 +564,9 @@ struct LibraryScreen {
   // 更多菜单（对齐安卓 moreMenu：合集筛选/合集排序/按书名标重/清空标记/清空勾选/删除已勾选）
   private buildMoreMenu(): Array<MenuElement> {
     const items: Array<MenuElement> = [];
+    // 勾选重复置顶（列表模式无独立 ✓ 按钮，故在更多菜单提供入口；合集模式亦有此入口，与 ✓ 按钮等价）
+    // 复用 onStepClick(3)：自动切到合集模式再标记，与步骤条「勾选重复」节点行为一致
+    items.push({ value: '勾选重复', action: () => this.onStepClick(3) });
     if (this.mode === 'collection') {
       items.push({ value: '合集筛选', action: () => { this.showCollectionFilter = !this.showCollectionFilter; } });
       items.push({ value: '合集排序', action: () => { this.showGroupSort = true; } });
@@ -521,7 +581,8 @@ struct LibraryScreen {
   // 删除选择弹窗（对齐安卓 showDeleteChoice：仅记录 / 记录+源文件）
   @Builder
   deleteChoiceDialog() {
-    Stack() {
+    Stack({ alignContent: Alignment.Center }) {
+      // 遮罩：覆盖整个屏幕，吸收点击关闭
       Column()
         .width('100%')
         .height('100%')
@@ -591,10 +652,11 @@ struct LibraryScreen {
       .padding(16)
       .backgroundColor($r('app.color.bg_card'))
       .borderRadius(12)
+      // 弹窗卡片居中：依赖外层 Stack 的 alignContent(Alignment.Center)，
+      // 比 position + markAnchor 组合在 HarmonyOS 上更可靠（后者在部分版本/分辨率下会偏到底部）
     }
     .width('100%')
     .height('100%')
-    .alignContent(Alignment.Center)
   }
 
   // 多选模式下按返回键退出多选，而非退出页面
@@ -721,10 +783,10 @@ struct LibraryScreen {
           ['扫描', '合集', '勾选重复', '确认', '删除'],
           (label: string, index: number) => {
             Row() {
-              this.stepDot(index + 1, this.currentStep >= index + 1)
+              this.stepDot(index)
               Text(label)
                 .fontSize(this.fs(11))
-                .fontColor(this.currentStep >= index + 1 ? $r('app.color.primary') : $r('app.color.text_hint'))
+                .fontColor(this.isStepActive(index) ? $r('app.color.primary') : $r('app.color.text_hint'))
                 .margin({ left: 4 })
               // 节点间短横线连接（最后一个不显示），对齐安卓版本
               if (index < 4) {
@@ -738,9 +800,9 @@ struct LibraryScreen {
           },
           (_label: string, index: number) => index.toString()
         )
-        Blank()
       }
       .width('100%')
+      .justifyContent(FlexAlign.Center)
       .padding({ left: 12, right: 12, top: 4, bottom: 4 })
       .backgroundColor($r('app.color.bg_card'))
 
@@ -896,93 +958,118 @@ struct LibraryScreen {
       })
       .layoutWeight(1)
 
-      // 底部分页（列表+合集模式均显示：每页条数可调 + 首页/上一页/跳转/下一页/末页）
-      if (this.pageCount > 1) {
-        Column({ space: 4 }) {
+      // 底部分页导航条（对齐安卓 PageNavBar：有数据即显示，两行布局适配窄屏）
+      // 第1行：« ‹ 第X/Y页(共N条) › »
+      // 第2行：每页[input]✓  跳转[input]✓      已勾选N个
+      // 注意：不再用 pageCount>1 隐藏——单页时也要露出「每页条数」与「共N条」，否则用户以为缺分页
+      if (this.pageTotal > 0) {
+        Column({ space: 6 }) {
+          // 第1行：翻页导航（首页 / 上一页 / 页码 / 下一页 / 末页）
+          // 注意：与顶栏图标按钮一致加 .padding(0)，避免鸿蒙 Button 默认内边距把 32vp 宽度的内容压扁/消失
           Row({ space: 4 }) {
             Button('«')
               .fontSize(this.fs(14))
-              .height(32)
-              .width(36)
+              .height(28)
+              .width(32)
+              .padding(0)
               .enabled(this.page > 0)
               .backgroundColor($r('app.color.bg_card'))
               .fontColor(this.page > 0 ? $r('app.color.text_primary') : $r('app.color.text_hint'))
               .onClick(() => this.jumpToPage(0))
             Button('‹')
               .fontSize(this.fs(14))
-              .height(32)
-              .width(36)
+              .height(28)
+              .width(32)
+              .padding(0)
               .enabled(this.page > 0)
               .backgroundColor($r('app.color.bg_card'))
               .fontColor(this.page > 0 ? $r('app.color.text_primary') : $r('app.color.text_hint'))
               .onClick(() => this.jumpToPage(this.page - 1))
-            Text(`${this.page + 1}/${this.pageCount}`)
-              .fontSize(this.fs(13))
+            Text(`第 ${this.page + 1} / ${this.pageCount} 页（共 ${this.pageTotal} 条）`)
+              .fontSize(this.fs(11))
               .fontColor($r('app.color.text_secondary'))
               .margin({ left: 4, right: 4 })
             Button('›')
               .fontSize(this.fs(14))
-              .height(32)
-              .width(36)
+              .height(28)
+              .width(32)
+              .padding(0)
               .enabled(this.page < this.pageCount - 1)
               .backgroundColor($r('app.color.bg_card'))
               .fontColor(this.page < this.pageCount - 1 ? $r('app.color.text_primary') : $r('app.color.text_hint'))
               .onClick(() => this.jumpToPage(this.page + 1))
             Button('»')
               .fontSize(this.fs(14))
-              .height(32)
-              .width(36)
+              .height(28)
+              .width(32)
+              .padding(0)
               .enabled(this.page < this.pageCount - 1)
               .backgroundColor($r('app.color.bg_card'))
               .fontColor(this.page < this.pageCount - 1 ? $r('app.color.text_primary') : $r('app.color.text_hint'))
               .onClick(() => this.jumpToPage(this.pageCount - 1))
-            Blank()
-            // 每页条数可调
-            Text('每页')
-              .fontSize(this.fs(11))
-              .fontColor($r('app.color.text_secondary'))
-            TextInput({ text: this.pageSizeInput })
-              .type(InputType.Number)
-              .fontSize(this.fs(12))
-              .height(30)
-              .width(56)
-              .onChange((v: string) => (this.pageSizeInput = v))
-            Button('✓')
-              .fontSize(this.fs(13))
-              .height(30)
-              .width(36)
-              .backgroundColor($r('app.color.primary'))
-              .fontColor($r('app.color.text_on_primary'))
-              .onClick(() => this.applyPageSize())
-            Text('跳')
-              .fontSize(this.fs(11))
-              .fontColor($r('app.color.text_secondary'))
-              .margin({ left: 6 })
-            TextInput({ text: this.jumpPage, placeholder: '页' })
-              .type(InputType.Number)
-              .fontSize(this.fs(12))
-              .height(30)
-              .width(48)
-              .onChange((v: string) => (this.jumpPage = v))
-            Button('Go')
-              .fontSize(this.fs(11))
-              .height(30)
-              .width(36)
-              .backgroundColor($r('app.color.primary_dark'))
-              .fontColor($r('app.color.text_on_primary'))
-              .onClick(() => {
-                const n: number = Number.parseInt(this.jumpPage, 10);
-                if (!isNaN(n) && n >= 1 && n <= this.pageCount) {
-                  this.jumpToPage(n - 1);
-                }
-              })
           }
           .width('100%')
           .justifyContent(FlexAlign.Center)
+
+          // 第2行：每页条数 + 跳到指定页（左） / 已勾选数（右）
+          Row() {
+            Row({ space: 6 }) {
+              Text('每页')
+                .fontSize(this.fs(12))
+                .fontColor($r('app.color.text_secondary'))
+              TextInput({ text: this.pageSizeInput })
+                .type(InputType.Number)
+                .fontSize(this.fs(12))
+                .height(30)
+                .width(60)
+                .onChange((v: string) => (this.pageSizeInput = v))
+              Button('✓')
+                .fontSize(this.fs(13))
+                .height(30)
+                .width(40)
+                .borderRadius(4)
+                .backgroundColor($r('app.color.primary'))
+                .fontColor($r('app.color.text_on_primary'))
+                .onClick(() => this.applyPageSize())
+              Text('跳转')
+                .fontSize(this.fs(12))
+                .fontColor($r('app.color.text_secondary'))
+                .margin({ left: 6 })
+              // 跳转输入框：不加 placeholder（前面的"跳转"标签已说明用途），避免被误认为默认填入文字
+              TextInput({ text: this.jumpPage })
+                .type(InputType.Number)
+                .fontSize(this.fs(12))
+                .height(30)
+                .width(48)
+                .onChange((v: string) => (this.jumpPage = v))
+              Button('✓')
+                .fontSize(this.fs(13))
+                .height(30)
+                .width(40)
+                .borderRadius(4)
+                .backgroundColor($r('app.color.primary_dark'))
+                .fontColor($r('app.color.text_on_primary'))
+                .onClick(() => {
+                  const n: number = Number.parseInt(this.jumpPage, 10);
+                  if (!isNaN(n) && n >= 1 && n <= this.pageCount) {
+                    this.jumpToPage(n - 1);
+                  }
+                })
+            }
+            Blank()
+            if (this.checkedCount > 0) {
+              Text(`已勾选 ${this.checkedCount} 个`)
+                .fontSize(this.fs(11))
+                .fontColor($r('app.color.text_secondary'))
+            }
+          }
+          .width('100%')
           .padding({ left: 6, right: 6 })
         }
         .width('100%')
         .padding({ top: 4, bottom: 4 })
+        .backgroundColor($r('app.color.bg_card'))
+        .border({ width: { top: 0.5 }, color: $r('app.color.divider') })
       }
 
       // C组 #6 合集排序弹窗
@@ -1007,7 +1094,7 @@ struct LibraryScreen {
   // C组 #6 合集排序选择弹窗
   @Builder
   groupSortDialog() {
-    Stack() {
+    Stack({ alignContent: Alignment.Center }) {
       // 遮罩
       Column()
         .width('100%')
@@ -1045,10 +1132,11 @@ struct LibraryScreen {
       .padding(16)
       .backgroundColor($r('app.color.bg_card'))
       .borderRadius(12)
+      // 弹窗卡片居中：依赖外层 Stack 的 alignContent(Alignment.Center)，
+      // 比 position + markAnchor 组合在 HarmonyOS 上更可靠
     }
     .width('100%')
     .height('100%')
-    .alignContent(Alignment.Center)
   }
 
   @Builder
@@ -1072,66 +1160,92 @@ struct LibraryScreen {
     .onClick(() => this.setGroupSort(mode))
   }
 
-  // 步骤小圆点 builder
+  // 步骤小圆点 builder（内部直接读 @State，避免 @Builder 参数值不刷新）
   @Builder
-  stepDot(step: number, active: boolean) {
-    Circle({ width: active ? 16 : 14, height: active ? 16 : 14 })
-      .fill(active ? $r('app.color.primary') : $r('app.color.divider'))
+  stepDot(index: number) {
+    Circle({ width: this.isStepActive(index) ? 16 : 14, height: this.isStepActive(index) ? 16 : 14 })
+      .fill(this.isStepActive(index) ? $r('app.color.primary') : $r('app.color.divider'))
+  }
+
+  // FAB 可见性：仅在内容可滚动时显示（对齐安卓 FAB up/down 仅在可滚动时出现，避免小列表遮挡）
+  get scrollTopVisible(): boolean {
+    if (this.mode === 'list') {
+      return this.listFirstVisible > 0 && this.listFirstVisible < this.viewItems.length;
+    }
+    return this.colFirstVisible > 0 && this.colFirstVisible < this.groupItems.length;
+  }
+
+  get scrollBottomVisible(): boolean {
+    if (this.mode === 'list') {
+      return this.viewItems.length > 1 && this.listLastVisible < this.viewItems.length - 1;
+    }
+    return this.groupItems.length > 1 && this.colLastVisible < this.groupItems.length - 1;
   }
 
   // 悬浮按钮：回到顶部 + 回到底部（对齐安卓 FAB up/down）
   @Builder
   fabButton() {
     Column({ space: 8 }) {
-      // 回到顶部
-      Button({ type: ButtonType.Circle }) {
-        Text('▲')
-          .fontSize(this.fs(18))
-          .fontColor($r('app.color.primary'))
-      }
-      .width(40)
-      .height(40)
-      .backgroundColor($r('app.color.bg_card'))
-      .shadow({ radius: 4, color: $r('app.color.shadow') })
-      .onClick(() => {
-        if (this.mode === 'list') {
-          this.listScroller.scrollToIndex(0);
-        } else {
-          this.collectionScroller.scrollToIndex(0);
+      // 回到顶部（仅在非顶部时显示）
+      if (this.scrollTopVisible) {
+        Button({ type: ButtonType.Circle }) {
+          Text('▲')
+            .fontSize(this.fs(18))
+            .fontColor($r('app.color.primary'))
         }
-      })
-
-      // 回到底部
-      Button({ type: ButtonType.Circle }) {
-        Text('▼')
-          .fontSize(this.fs(18))
-          .fontColor($r('app.color.primary'))
-      }
-      .width(40)
-      .height(40)
-      .backgroundColor($r('app.color.bg_card'))
-      .shadow({ radius: 4, color: $r('app.color.shadow') })
-      .onClick(() => {
-        const total: number = this.mode === 'list' ? this.viewItems.length : this.groupItems.length;
-        if (total > 0) {
+        .width(40)
+        .height(40)
+        .backgroundColor($r('app.color.bg_card'))
+        .shadow({ radius: 4, color: $r('app.color.shadow') })
+        .onClick(() => {
           if (this.mode === 'list') {
-            this.listScroller.scrollToIndex(total - 1);
+            this.listScroller.scrollToIndex(0);
           } else {
-            this.collectionScroller.scrollToIndex(total - 1);
+            this.collectionScroller.scrollToIndex(0);
           }
+        })
+      }
+
+      // 回到底部（仅在非底部时显示）
+      if (this.scrollBottomVisible) {
+        Button({ type: ButtonType.Circle }) {
+          Text('▼')
+            .fontSize(this.fs(18))
+            .fontColor($r('app.color.primary'))
         }
-      })
+        .width(40)
+        .height(40)
+        .backgroundColor($r('app.color.bg_card'))
+        .shadow({ radius: 4, color: $r('app.color.shadow') })
+        .onClick(() => {
+          const total: number = this.mode === 'list' ? this.viewItems.length : this.groupItems.length;
+          if (total > 0) {
+            if (this.mode === 'list') {
+              this.listScroller.scrollToIndex(total - 1);
+            } else {
+              this.collectionScroller.scrollToIndex(total - 1);
+            }
+          }
+        })
+      }
     }
     .position({ x: '82%', y: '60%' })
+    .visibility(this.scrollTopVisible || this.scrollBottomVisible ? Visibility.Visible : Visibility.None)
   }
 
   // 页面跳转
   private jumpToPage(p: number): void {
     if (p >= 0 && p < this.pageCount) {
+      // 改 this.page 会触发 @Watch('onPageChanged') 同步更新 jumpPage
       this.page = p;
-      this.jumpPage = (p + 1).toString();
       this.reload();
     }
+  }
+
+  // @Watch 回调：page 变化时同步跳转输入框默认显示（用户可覆盖输入后通过 ✓ 提交）
+  // 对齐安卓 jumpText = remember(page) { mutableStateOf((page + 1).toString()) }
+  private onPageChanged(): void {
+    this.jumpPage = (this.page + 1).toString();
   }
 
   // 筛选 Chip（对齐安卓 CompactChip：圆角小标签，选中高亮）
@@ -1165,7 +1279,9 @@ struct LibraryScreen {
     .layoutWeight(1)
     .width('100%')
     .backgroundColor($r('app.color.bg_page'))
-    .onScrollIndex((first: number) => {
+    .onScrollIndex((first: number, end: number) => {
+      this.listFirstVisible = first;
+      this.listLastVisible = end;
       this.firstVisibleIndex = first + this.page * this.pageSize;
     })
   }
@@ -1225,6 +1341,43 @@ struct LibraryScreen {
     .gesture(LongPressGesture().onAction(() => this.enterMultiSelect(file.id)))
   }
 
+  // 合集头三态勾选框（@Builder 直接绘制，避免子组件复用导致状态不刷新）
+  @Builder
+  collectionCheckBox(group: GroupInfo, onToggle: () => void) {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width(24)
+        .height(24)
+        .borderRadius(2)
+        .border({
+          width: (group.fileCount === 0 || group.checkedCount === 0) ? 2 : 0,
+          color: $r('app.color.text_secondary')
+        })
+        .backgroundColor((group.fileCount === 0 || group.checkedCount === 0) ? Color.Transparent : $r('app.color.primary'))
+      if (group.fileCount > 0 && group.checkedCount >= group.fileCount) {
+        Text('✓')
+          .fontSize(16)
+          .fontColor(Color.White)
+          .fontWeight(FontWeight.Bold)
+          .width(24)
+          .height(24)
+          .textAlign(TextAlign.Center)
+      } else if (group.fileCount > 0 && group.checkedCount > 0) {
+        Text('−')
+          .fontSize(16)
+          .fontColor(Color.White)
+          .fontWeight(FontWeight.Bold)
+          .width(24)
+          .height(24)
+          .textAlign(TextAlign.Center)
+      }
+    }
+    .width(24)
+    .height(24)
+    .responseRegion({ x: -8, y: -8, width: 40, height: 40 })
+    .onClick(onToggle)
+  }
+
   // 构建文件元信息：作者·大小·进度·来源·编码·日期（对齐安卓 FileRow）
   private buildMetaInfo(file: ScannedFile): string {
     const parts: string[] = [];
@@ -1248,7 +1401,11 @@ struct LibraryScreen {
             Column({ space: 4 }) {
               // 合集头行（对齐安卓 GroupList header：三态勾选 + 标题 + 汇总 + 展开图标）
               Row() {
-                this.triStateCheckbox(group)
+                // 直接传 group（@Observed）而不是拷贝 group.checkedCount：ForEach 重建 ListItem 时
+                // 父 Column 重新调用此 @Builder 时会读 group.checkedCount 最新值。
+                // 关键：外层 ForEach 的 keyGenerator 必须包含 checkedCount，否则 ListItem 复用 + @Builder
+                // 缓存会让"勾选重复"等批量更新后合集前复选框不刷新。
+                this.collectionCheckBox(group, () => { this.toggleCollectionCheck(group.title); })
                 Column({ space: 1 }) {
                   Text(group.title.length > 0 ? group.title : '未解析')
                     .fontSize(this.fs(15))
@@ -1267,7 +1424,7 @@ struct LibraryScreen {
                   }
                 }
                 .layoutWeight(1)
-                .margin({ left: 8 })
+                .margin({ left: 4 })
                 .alignItems(HorizontalAlign.Start)
                 .onClick(() => this.toggleExpand(group.title))
 
@@ -1283,6 +1440,7 @@ struct LibraryScreen {
                   .onClick(() => this.toggleExpand(group.title))
               }
               .width('100%')
+              .alignItems(VerticalAlign.Center)
 
               if (this.expandedTitle === group.title) {
                 Column({ space: 6 }) {
@@ -1292,7 +1450,7 @@ struct LibraryScreen {
                       (file: ScannedFile) => {
                         this.fileRow(file)
                       },
-                      (file: ScannedFile) => file.id.toString()
+                      (file: ScannedFile) => `${file.id}_${file.checked}_${file.marked}`
                     )
                   } else {
                     LoadingProgress().width(24).height(24)
@@ -1308,48 +1466,19 @@ struct LibraryScreen {
           }
           .padding({ left: 12, right: 12, bottom: 8 })
         },
-        (group: GroupInfo) => group.title
+        // 关键：keyGenerator 必须包含 checkedCount/fileCount（影响三态勾选框 + 标题下的"X 本 / 已勾选 N 个"）
+        // 否则 markDuplicates 批量更新后 reload 出的新 groupItems 会被 ForEach 判为"同一合集"复用 ListItem，
+        // 内部 @Builder 缓存导致合集前复选框不刷新（仅顶部"已勾选 N"统计正常，因为它是顶层 @State 重新赋值）。
+        (group: GroupInfo) => `${group.title}_${group.fileCount}_${group.checkedCount}`
       )
     }
     .layoutWeight(1)
     .width('100%')
     .backgroundColor($r('app.color.bg_page'))
-  }
-
-  // 三态勾选框 Builder（minilism 风格：圆角方块 + Path 对勾/横线，未选/部分/全选）
-  @Builder
-  triStateCheckbox(@ObjectLink group: GroupInfo) {
-    const status: number = this.getCollectionCheckStatus(group);
-    Column() {
-      if (status === 2) {
-        Path()
-          .width(13)
-          .height(13)
-          .commands('M3 7 L6 10 L11 4')
-          .stroke(Color.White)
-          .strokeWidth(2)
-          .strokeLineCap(LineCapStyle.Round)
-          .strokeLineJoin(LineJoinStyle.Round)
-      } else if (status === 1) {
-        Path()
-          .width(13)
-          .height(13)
-          .commands('M4 7 L10 7')
-          .stroke($r('app.color.primary'))
-          .strokeWidth(2)
-          .strokeLineCap(LineCapStyle.Round)
-      }
-    }
-    .width(22)
-    .height(22)
-    .borderRadius(6)
-    .border({
-      width: 2,
-      color: status === 0 ? $r('app.color.divider') : $r('app.color.primary')
+    .onScrollIndex((first: number, end: number) => {
+      this.colFirstVisible = first;
+      this.colLastVisible = end;
     })
-    .backgroundColor(status === 2 ? $r('app.color.primary') : Color.Transparent)
-    .align(Alignment.Center)
-    .onClick(() => this.toggleCollectionCheck(group.title))
   }
 
   private async changeFilter(f: FilterKind): Promise<void> {
@@ -1366,25 +1495,46 @@ struct LibraryScreen {
     await this.reload();
   }
 
+  // 步骤条节点是否高亮（联动判定：合集视图模式下自动高亮节点 2，避免模式与步骤条脱钩）
+  private isStepActive(index: number): boolean {
+    return this.currentStep >= index + 1 || (index === 1 && this.mode === 'collection');
+  }
+
   // 步骤条点击联动（对齐安卓 StepIndicator 可点击+节点联动）
-  // 已完成的步骤不可回退，仅推进或触发对应操作（避免点击早期步骤导致进度倒退）
-  private onStepClick(step: number): void {
-    if (step === 1) {
-      // 扫描：已完成，仅高亮（不回退 currentStep）
-      if (this.currentStep < 1) {
-        this.currentStep = 1;
+  // 支持回退：点击较早步骤时 currentStep 同步回退，节点高亮随之变化
+  private async onStepClick(step: number): Promise<void> {
+    // 回退：仅更新 currentStep 并协调界面模式，不重跑标记/删除等耗时操作
+    if (step < this.currentStep) {
+      this.currentStep = step;
+      if (step <= 1) {
+        // 回退到扫描：若当前是合集模式则切回列表
+        if (this.mode !== 'list') {
+          this.mode = 'list';
+          await this.reload();
+        }
+      } else if (step === 2) {
+        // 回退到合集：确保处于合集模式
+        if (this.mode !== 'collection') {
+          this.mode = 'collection';
+          await this.reload();
+        }
       }
+      return;
+    }
+    // 前进
+    if (step === 1) {
+      this.currentStep = 1;
     } else if (step === 2) {
       // 合集：切换到合集模式
       this.toggleMode('collection');
       this.currentStep = Math.max(this.currentStep, 2);
     } else if (step === 3) {
-      // 勾选重复：执行标记
+      // 勾选重复：先确保切到合集模式（await 避免与 markDuplicates 的 reload 并发），再执行标记
       this.currentStep = 3;
       if (this.mode !== 'collection') {
-        this.toggleMode('collection');
+        await this.toggleMode('collection');
       }
-      this.markDuplicates();
+      await this.markDuplicates();
     } else if (step === 4) {
       // 确认：跳转删除确认页
       this.currentStep = Math.max(this.currentStep, 4);
@@ -1396,22 +1546,20 @@ struct LibraryScreen {
     }
   }
 
-  // ===== C组 #5 合集头三态勾选 =====
-  // 返回 0=未选 1=部分 2=全选
-  private getCollectionCheckStatus(group: GroupInfo): number {
-    if (group.fileCount === 0) return 0;
-    if (group.checkedCount === 0) return 0;
-    if (group.checkedCount >= group.fileCount) return 2;
-    return 1;
-  }
-
   private async toggleCollectionCheck(title: string): Promise<void> {
     try {
       const ids: number[] = await ScannedFileDao.getIdsByTitle(this.runId, title);
       if (ids.length === 0) return;
-      // 查找当前合集信息判断状态
+      // 查找当前合集信息判断状态（0=未选 1=部分 2=全选）
       const group: GroupInfo | undefined = this.groupItems.find((g) => g.title === title);
-      const status: number = group ? this.getCollectionCheckStatus(group) : 0;
+      let status: number = 0;
+      if (group && group.fileCount > 0) {
+        if (group.checkedCount >= group.fileCount) {
+          status = 2;
+        } else if (group.checkedCount > 0) {
+          status = 1;
+        }
+      }
       // 全选/部分 → 取消；未选 → 全选
       const targetChecked: number = status === 2 ? 0 : 1;
       await ScannedFileDao.setCheckedForIds(ids, targetChecked);
@@ -1429,7 +1577,11 @@ struct LibraryScreen {
         for (const f of files) {
           f.checked = targetChecked;
         }
-        this.expandedGroupFiles = new Map(this.expandedGroupFiles);
+        // 创建新数组（而非仅浅拷贝 Map），否则 ForEach 检测不到数组引用变化
+        const newFiles: ScannedFile[] = files.slice();
+        const newMap: Map<string, ScannedFile[]> = new Map(this.expandedGroupFiles);
+        newMap.set(title, newFiles);
+        this.expandedGroupFiles = newMap;
       }
     } catch (e) {
       LogUtil.e('LibraryScreen', `合集勾选失败: ${(e as Error).message}`);
