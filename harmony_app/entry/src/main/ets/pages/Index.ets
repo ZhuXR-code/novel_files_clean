@@ -1,8 +1,6 @@
 import { router } from '@kit.ArkUI';
 import { PreferencesUtil } from '../utils/PreferencesUtil';
-import { ScannedFileDao } from '../database/ScannedFileDao';
 import { ScanRunDao } from '../database/ScanRunDao';
-import { ScanConfigDao } from '../database/ScanConfigDao';
 import { ScanRun } from '../model/ScanRun';
 import { LogUtil } from '../utils/LogUtil';
 
@@ -16,10 +14,6 @@ interface NavParams {
  */
 @Component
 export struct HomePage {
-  @State totalFiles: number = 0;
-  @State markedCount: number = 0;
-  @State libraryCount: number = 0;
-  @State configCount: number = 0;
   @State recentRuns: ScanRun[] = [];
   @State refreshing: boolean = false;
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
@@ -38,26 +32,6 @@ export struct HomePage {
   }
 
   async loadStats(): Promise<void> {
-    try {
-      this.totalFiles = await ScannedFileDao.countAll();
-    } catch (e) {
-      LogUtil.e('HomePage', `totalFiles 统计失败: ${(e as Error)?.message ?? e}`);
-    }
-    try {
-      this.markedCount = await ScannedFileDao.countMarked();
-    } catch (e) {
-      LogUtil.e('HomePage', `markedCount 统计失败: ${(e as Error)?.message ?? e}`);
-    }
-    try {
-      this.libraryCount = await ScanRunDao.count();
-    } catch (e) {
-      LogUtil.e('HomePage', `libraryCount 统计失败: ${(e as Error)?.message ?? e}`);
-    }
-    try {
-      this.configCount = await ScanConfigDao.count();
-    } catch (e) {
-      LogUtil.e('HomePage', `configCount 统计失败: ${(e as Error)?.message ?? e}`);
-    }
     try {
       this.recentRuns = await ScanRunDao.getRecent(5);
     } catch (e) {
@@ -117,21 +91,8 @@ export struct HomePage {
             .borderRadius(10)
             .margin({ left: 16, right: 16, bottom: 12 })
 
-            // 统计卡片
-            Row({ space: 10 }) {
-              this.statCard('总文件', this.totalFiles.toString())
-              this.statCard('已标记', this.markedCount.toString())
-            }
-            .margin({ bottom: 10 })
-
-            Row({ space: 10 }) {
-              this.statCard('文库', this.libraryCount.toString())
-              this.statCard('配置', this.configCount.toString())
-            }
-            .margin({ bottom: 16 })
-
-            // 无数据提示（对齐安卓端：无文件时显示提示卡片）
-            if (this.totalFiles === 0 && this.libraryCount === 0) {
+            // 无数据提示（对齐安卓端：无文库时显示提示卡片）
+            if (this.recentRuns.length === 0) {
               Column({ space: 8 }) {
                 Text('暂无数据')
                   .fontSize(this.fs(16))
@@ -285,24 +246,6 @@ export struct HomePage {
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.bg_page'))
-  }
-
-  @Builder
-  statCard(label: string, value: string) {
-    Column({ space: 4 }) {
-      Text(value)
-        .fontSize(this.fs(26))
-        .fontWeight(FontWeight.Bold)
-        .fontColor($r('app.color.text_primary'))
-      Text(label)
-        .fontSize(this.fs(13))
-        .fontColor($r('app.color.text_secondary'))
-    }
-    .layoutWeight(1)
-    .height(72)
-    .backgroundColor($r('app.color.bg_card'))
-    .borderRadius(12)
-    .justifyContent(FlexAlign.Center)
   }
 
   // G组 #28 更多功能入口按钮
