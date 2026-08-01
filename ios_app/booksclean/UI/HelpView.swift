@@ -4,7 +4,7 @@ struct HelpView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("文包清理助手（iOS 版）使用说明").fsFont(.title2).fontWeight(.bold)
+                Text("文包整理清理助手（iOS 版）使用说明").fsFont(.title2).fontWeight(.bold)
                 group("1. 扫描文件", items: [
                     "点击「选择文件夹开始扫描」，在系统文件选择器中挑选一个文件夹（如「文件」App 中的目录、iCloud Drive、或连接电脑同步的目录）。",
                     "iOS 出于隐私限制，App 只能访问你主动选择的文件夹及其子目录；授权后 iOS 会记住该文件夹以便后续读取与删除。",

@@ -17,7 +17,7 @@ struct AboutView: View {
                     .cornerRadius(18)
                     .shadow(radius: 4)
 
-                Text("文包清理助手")
+                Text("文包整理清理助手")
                     .fsFont(.title2).fontWeight(.bold)
                 Text("版本 \(appVersion)")
                     .fsFont(.subheadline).foregroundColor(.fsSecondaryLabel)

@@ -23,7 +23,7 @@
 
 > 本工程为纯原生 Swift/SwiftUI 实现，需 **macOS + Xcode 15+** 才能编译运行（Windows 下无法构建 iOS 包）。
 
-1. 用 Xcode 打开 `FileScanner.xcodeproj`。
+1. 用 Xcode 打开 `booksclean.xcodeproj`。
 2. 选择设备/模拟器（iPhone 或 iPad，部署目标 iOS 16+，NavigationStack 依赖）。
 3. 如需真机运行，修改 `PRODUCT_BUNDLE_IDENTIFIER`（默认 `com.booksclean.app`）并配置签名团队。
 4. `⌘R` 运行。
@@ -31,7 +31,7 @@
 项目结构：
 
 ```
-FileScanner/
+booksclean/
 ├── App/            # @main 入口、导航路由、扫描状态
 ├── Core/           # 模型、SQLite 数据库、解析/去重/替换/编码/简繁 核心逻辑
 ├── Services/       # 扫描编排（文件夹枚举 + 解析 + 落库）

@@ -1,5 +1,7 @@
 import { router } from '@kit.ArkUI';
+import { window } from '@kit.ArkUI';
 import { PreferencesUtil } from '../utils/PreferencesUtil';
+import { AppContext } from '../utils/AppContext';
 import { HomePage } from './Index';
 import { LibraryTab } from './LibraryList';
 import { MinePage } from './Settings';
@@ -15,8 +17,21 @@ import { MinePage } from './Settings';
 struct MainTabs {
   @State currentIndex: number = 0;
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
+  // 状态栏高度（px）：用于把整页内容下推，避免顶栏被系统状态栏覆盖。
+  @State statusBarHeight: number = 0;
 
   async aboutToAppear(): Promise<void> {
+    // 读取状态栏安全区高度，使顶栏不被系统状态栏遮挡。
+    try {
+      const win: window.Window | null = AppContext.getMainWindow();
+      if (win) {
+        const area: window.AvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+        this.statusBarHeight = area.topRect.height;
+      }
+    } catch (e) {
+      // 读取失败时保持 0，不影响功能。
+      this.statusBarHeight = 0;
+    }
     // 首次启动隐私协议拦截（原 Index.ets 逻辑上移）
     if (!PreferencesUtil.getBoolean('privacy_agreed', false)) {
       router.replaceUrl({ url: 'pages/PrivacyPolicy', params: { mode: 'agree' } });
@@ -42,6 +57,11 @@ struct MainTabs {
 
   build() {
     Column() {
+      // 顶部状态栏占位：把 Tab 内容整体下推，避免文库/我的页顶栏被状态栏覆盖。
+      if (this.statusBarHeight > 0) {
+        Row().width('100%').height(this.statusBarHeight)
+      }
+
       Tabs({ barPosition: BarPosition.End, index: this.currentIndex }) {
         TabContent() {
           HomePage()

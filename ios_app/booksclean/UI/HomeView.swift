@@ -93,7 +93,7 @@ struct HomeView: View {
             }
             .padding()
         }
-        .navigationTitle("文包清理助手")
+        .navigationTitle("文包整理清理助手")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { reload() }
         .sheet(isPresented: $showingFolderPicker) {

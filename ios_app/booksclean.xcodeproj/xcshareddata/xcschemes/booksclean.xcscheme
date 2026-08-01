@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "00000000000000000000000B"
-               BuildableName = "FileScanner.app"
-               BlueprintName = "FileScanner"
-               ReferencedContainer = "container:FileScanner.xcodeproj">
+               BuildableName = "booksclean.app"
+               BlueprintName = "booksclean"
+               ReferencedContainer = "container:booksclean.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -45,9 +45,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "00000000000000000000000B"
-            BuildableName = "FileScanner.app"
-            BlueprintName = "FileScanner"
-            ReferencedContainer = "container:FileScanner.xcodeproj">
+            BuildableName = "booksclean.app"
+            BlueprintName = "booksclean"
+            ReferencedContainer = "container:booksclean.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -62,9 +62,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "00000000000000000000000B"
-            BuildableName = "FileScanner.app"
-            BlueprintName = "FileScanner"
-            ReferencedContainer = "container:FileScanner.xcodeproj">
+            BuildableName = "booksclean.app"
+            BlueprintName = "booksclean"
+            ReferencedContainer = "container:booksclean.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

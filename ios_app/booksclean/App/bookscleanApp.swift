@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct FileScannerApp: App {
+struct bookscleanApp: App {
     @StateObject private var preferences = Preferences.shared
     @StateObject private var router = Router.shared
     @StateObject private var scan = ScanStateManager.shared

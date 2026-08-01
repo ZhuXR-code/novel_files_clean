@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		000000000000000000000200 /* App/FileScannerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000100 /* App/FileScannerApp.swift */; };
+		000000000000000000000200 /* App/bookscleanApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000100 /* App/bookscleanApp.swift */; };
 		000000000000000000000201 /* App/AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000101 /* App/AppState.swift */; };
 		000000000000000000000202 /* RegexExt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000102 /* RegexExt.swift */; };
 		000000000000000000000203 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000103 /* Models.swift */; };
@@ -38,8 +38,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		00000000000000000000001B /* FileScanner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FileScanner.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		000000000000000000000100 /* App/FileScannerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/FileScannerApp.swift; sourceTree = "<group>"; };
+		00000000000000000000001B /* booksclean.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = booksclean.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000100 /* App/bookscleanApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/bookscleanApp.swift; sourceTree = "<group>"; };
 		000000000000000000000101 /* App/AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppState.swift; sourceTree = "<group>"; };
 		000000000000000000000102 /* RegexExt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegexExt.swift; sourceTree = "<group>"; };
 		000000000000000000000103 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -84,7 +84,7 @@
 		00000000000000000000000C = {
 			isa = PBXGroup;
 			children = (
-				00000000000000000000000E /* FileScanner */,
+				00000000000000000000000E /* booksclean */,
 				00000000000000000000000D /* Products */,
 			);
 			sourceTree = "<group>";
@@ -92,24 +92,24 @@
 		00000000000000000000000D /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				00000000000000000000001B /* FileScanner.app */,
+				00000000000000000000001B /* booksclean.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		00000000000000000000000E /* FileScanner */ = {
+		00000000000000000000000E /* booksclean */ = {
 			isa = PBXGroup;
 			children = (
 				00000000000000000000000F /* Core */,
 				000000000000000000000010 /* Services */,
 				000000000000000000000011 /* UI */,
-				000000000000000000000100 /* App/FileScannerApp.swift */,
+				000000000000000000000100 /* App/bookscleanApp.swift */,
 				000000000000000000000101 /* App/AppState.swift */,
 				00000000000000000000011B /* Info.plist */,
 				00000000000000000000011C /* Assets.xcassets */,
 			);
-			path = FileScanner;
-			sourceTree = "<group>";
+		path = booksclean;
+		sourceTree = "<group>";
 		};
 		00000000000000000000000F /* Core */ = {
 			isa = PBXGroup;
@@ -160,9 +160,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		00000000000000000000000B /* FileScanner */ = {
+		00000000000000000000000B /* booksclean */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 000000000000000000000016 /* Build configuration list for PBXNativeTarget "FileScanner" */;
+			buildConfigurationList = 000000000000000000000016 /* Build configuration list for PBXNativeTarget "booksclean" */;
 			buildPhases = (
 				000000000000000000000012 /* Sources */,
 				000000000000000000000013 /* Frameworks */,
@@ -172,9 +172,9 @@
 			);
 			dependencies = (
 			);
-			name = FileScanner;
-			productName = FileScanner;
-			productReference = 00000000000000000000001B /* FileScanner.app */;
+			name = booksclean;
+			productName = booksclean;
+			productReference = 00000000000000000000001B /* booksclean.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -192,7 +192,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 000000000000000000000015 /* Build configuration list for PBXProject "FileScanner" */;
+			buildConfigurationList = 000000000000000000000015 /* Build configuration list for PBXProject "booksclean" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -206,7 +206,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				00000000000000000000000B /* FileScanner */,
+				00000000000000000000000B /* booksclean */,
 			);
 		};
 /* End PBXProject section */
@@ -227,7 +227,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				000000000000000000000200 /* App/FileScannerApp.swift in Sources */,
+				000000000000000000000200 /* App/bookscleanApp.swift in Sources */,
 				000000000000000000000201 /* App/AppState.swift in Sources */,
 				000000000000000000000202 /* RegexExt.swift in Sources */,
 				000000000000000000000203 /* Models.swift in Sources */,
@@ -380,7 +380,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = FileScanner/Info.plist;
+				INFOPLIST_FILE = booksclean/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -403,7 +403,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = FileScanner/Info.plist;
+				INFOPLIST_FILE = booksclean/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -420,7 +420,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		000000000000000000000015 /* Build configuration list for PBXProject "FileScanner" */ = {
+		000000000000000000000015 /* Build configuration list for PBXProject "booksclean" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				000000000000000000000017 /* Debug */,
@@ -429,7 +429,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		000000000000000000000016 /* Build configuration list for PBXNativeTarget "FileScanner" */ = {
+		000000000000000000000016 /* Build configuration list for PBXNativeTarget "booksclean" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				000000000000000000000019 /* Debug */,

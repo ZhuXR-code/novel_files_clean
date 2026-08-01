@@ -280,7 +280,6 @@ export struct LibraryTab {
           }
           .width('100%')
           .layoutWeight(1)
-          .layoutWeight(1)
           .onRefreshing(() => {
             this.load().then(() => {
               this.refreshing = false;
