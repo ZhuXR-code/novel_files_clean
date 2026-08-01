@@ -180,6 +180,8 @@ export struct LibraryTab {
       // 注意：Stack 子组件的 .layoutWeight(1) 无效（原方案 List 不会撑满且会被 TopBar 覆盖），
       // 因此把顶栏 + 内容放进一个 Column，让 layoutWeight(1) 在 List 上正确生效。
       Column() {
+        .width('100%')
+        .height('100%')
         if (this.selectMode) {
           // 多选模式顶部栏
           Row() {
@@ -287,8 +289,6 @@ export struct LibraryTab {
           })
         } // 闭合 else(runs.length===0)
       } // 闭合 Column(主体)
-      .width('100%')
-      .height('100%')
 
       // 多选模式删除栏：固定在距页面顶部 20% 处（不再贴底）
       if (this.selectMode && this.selectedIds.length > 0) {
