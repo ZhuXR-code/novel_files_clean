@@ -2,12 +2,11 @@ import { router } from '@kit.ArkUI';
 import { PreferencesUtil } from '../utils/PreferencesUtil';
 import { HomePage } from './Index';
 import { LibraryTab } from './LibraryList';
-import { CollectionTab } from './CollectionTab';
 import { MinePage } from './Settings';
 
 /**
- * 应用主壳：底部 4 标签导航（首页 / 文库 / 合集 / 我的）。
- * 对齐安卓端产品设计文档的底部标签导航架构。
+ * 应用主壳：底部 3 标签导航（首页 / 文库 / 我的）。
+ * 合集内容与文库一致，故合并到文库入口。
  * 二级页通过 router.pushUrl 推入，全屏覆盖本主壳（TabBar 自然隐藏），
  * 系统返回键 pop 后回到对应 Tab。
  */
@@ -55,14 +54,9 @@ struct MainTabs {
           .tabBar(this.tabBuilder('文库', $r('app.media.tab_library'), 1))
 
         TabContent() {
-          CollectionTab()
-        }
-          .tabBar(this.tabBuilder('合集', $r('app.media.tab_collection'), 2))
-
-        TabContent() {
           MinePage()
         }
-          .tabBar(this.tabBuilder('我的', $r('app.media.tab_mine'), 3))
+          .tabBar(this.tabBuilder('我的', $r('app.media.tab_mine'), 2))
       }
       .barHeight(56)
       .barMode(BarMode.Fixed)

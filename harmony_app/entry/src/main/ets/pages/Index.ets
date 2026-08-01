@@ -28,6 +28,11 @@ export struct HomePage {
     await this.loadStats();
   }
 
+  // 每次从其它 Tab（文库/我的）切回首页时重新拉取统计，避免 Tab 不重挂导致数据停留在旧值
+  onPageShow(): void {
+    this.loadStats();
+  }
+
   private fs(base: number): number {
     return Math.round(base * this.fontScaleNum);
   }
@@ -35,12 +40,28 @@ export struct HomePage {
   async loadStats(): Promise<void> {
     try {
       this.totalFiles = await ScannedFileDao.countAll();
+    } catch (e) {
+      LogUtil.e('HomePage', `totalFiles 统计失败: ${(e as Error)?.message ?? e}`);
+    }
+    try {
       this.markedCount = await ScannedFileDao.countMarked();
+    } catch (e) {
+      LogUtil.e('HomePage', `markedCount 统计失败: ${(e as Error)?.message ?? e}`);
+    }
+    try {
       this.libraryCount = await ScanRunDao.count();
+    } catch (e) {
+      LogUtil.e('HomePage', `libraryCount 统计失败: ${(e as Error)?.message ?? e}`);
+    }
+    try {
       this.configCount = await ScanConfigDao.count();
+    } catch (e) {
+      LogUtil.e('HomePage', `configCount 统计失败: ${(e as Error)?.message ?? e}`);
+    }
+    try {
       this.recentRuns = await ScanRunDao.getRecent(5);
     } catch (e) {
-      LogUtil.e('HomePage', `加载统计失败: ${(e as Error).message}`);
+      LogUtil.e('HomePage', `recentRuns 统计失败: ${(e as Error)?.message ?? e}`);
     }
   }
 
@@ -194,7 +215,8 @@ export struct HomePage {
                     .layoutWeight(1)
                   Text('切到「文库」查看全部 >')
                     .fontSize(this.fs(12))
-                    .fontColor($r('app.color.text_hint'))
+                    .fontColor($r('app.color.primary'))
+                    .onClick(() => this.go('pages/LibraryList'))
                 }
                 .width('100%')
                 .padding({ left: 16, right: 16, bottom: 8 })

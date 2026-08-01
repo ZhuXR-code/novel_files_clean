@@ -4,6 +4,9 @@ import { PreferencesUtil } from '../utils/PreferencesUtil';
 import { AppContext } from '../utils/AppContext';
 import { ScannedFileDao } from '../database/ScannedFileDao';
 import { ScanRunDao } from '../database/ScanRunDao';
+import { KeywordReplaceDao } from '../database/KeywordReplaceDao';
+import { DupRuleConfigDao } from '../database/DupRuleConfigDao';
+import { ScanConfigDao } from '../database/ScanConfigDao';
 import { ScanRun } from '../model/ScanRun';
 import { ExportService } from '../service/ExportService';
 import { LogUtil } from '../utils/LogUtil';
@@ -11,10 +14,8 @@ import { TopBar } from '../components/TopBar';
 import { FontUtil } from '../utils/FontUtil';
 import { ToastUtil } from '../utils/ToastUtil';
 
-const PREVIEW_SCROLLBAR_MODE_KEY: string = 'preview_scrollbar_mode';
 const THEME_MODE_KEY: string = 'settings_theme_mode';
 const FONT_SCALE_KEY: string = 'settings_font_scale';
-type ScrollbarMode = 'vertical' | 'horizontal';
 type ThemeMode = 'system' | 'light' | 'dark';
 type FontScale = 'small' | 'standard' | 'large';
 
@@ -39,19 +40,16 @@ const FONT_OPTIONS: FontOption[] = [
 ];
 
 /**
- * 我的 Tab：外观 / 功能 / 阅读设置 / 数据 / 关于。
+ * 我的 Tab：外观 / 功能 / 数据 / 关于。
  * 对齐安卓端「我的」一级页。
  */
 @Component
 export struct MinePage {
-  @State scrollbarMode: ScrollbarMode = 'vertical';
   @State themeMode: ThemeMode = 'system';
   @State fontScale: FontScale = 'standard';
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
 
   aboutToAppear(): void {
-    const scrollSaved: string = PreferencesUtil.getString(PREVIEW_SCROLLBAR_MODE_KEY, 'vertical');
-    this.scrollbarMode = scrollSaved === 'horizontal' ? 'horizontal' : 'vertical';
     const themeSaved: string = PreferencesUtil.getString(THEME_MODE_KEY, 'system');
     this.themeMode = (themeSaved === 'light' || themeSaved === 'dark') ? themeSaved as ThemeMode : 'system';
     const fontSaved: string = PreferencesUtil.getString(FONT_SCALE_KEY, 'standard');
@@ -117,13 +115,6 @@ export struct MinePage {
   }
 
   // ── 预览滚动条 ──
-  private handleScrollbarModeChange(label: string): void {
-    const mode: ScrollbarMode = label === '横向' ? 'horizontal' : 'vertical';
-    this.scrollbarMode = mode;
-    PreferencesUtil.putString(PREVIEW_SCROLLBAR_MODE_KEY, mode);
-    AppStorage.set('previewScrollbarMode', mode);
-    ToastUtil.show(`滚动条方向已切换为「${label}」`);
-  }
 
   // ── 清除所有数据 ──
   private async clearAllData(): Promise<void> {
@@ -138,10 +129,12 @@ export struct MinePage {
         fontColor: $r('app.color.danger'),
         action: async () => {
           try {
-            const runs = await ScanRunDao.getAll();
-            for (const r of runs) {
-              await ScanRunDao.delete(r.id);
-            }
+            // 直接清空所有业务表，避免依赖 scan_run 级联而漏清
+            await ScannedFileDao.deleteAll();
+            await ScanRunDao.deleteAll();
+            await KeywordReplaceDao.deleteAll();
+            await DupRuleConfigDao.deleteAll();
+            await ScanConfigDao.deleteAll();
             // G组 #25 彻底清理：同时清空操作日志
             await LogUtil.clear();
             ToastUtil.show('所有数据已清除');
@@ -250,30 +243,6 @@ export struct MinePage {
           Column({ space: 1 }) {
             this.item('关键词替换规则', 'pages/KeywordReplace')
             this.item('勾选重复规则', 'pages/DupRuleSettings')
-          }
-          .width('100%')
-          .backgroundColor($r('app.color.bg_card'))
-          .borderRadius(12)
-          .margin({ left: 16, right: 16 })
-
-          // ── 阅读设置 ──
-          Text('阅读设置')
-            .fontSize(this.fs(13))
-            .fontColor($r('app.color.text_hint'))
-            .margin({ top: 20, left: 16, bottom: 4 })
-          Column({ space: 1 }) {
-            // 预览滚动条方向（Select 选择器，对齐安卓 RadioButton 明确选项）
-            Row() {
-              Text('预览滚动条方向').fontSize(this.fs(16)).fontColor($r('app.color.text_primary'))
-              Blank()
-              Select([{ value: '竖向' }, { value: '横向' }])
-                .value(this.scrollbarMode === 'vertical' ? '竖向' : '横向')
-                .font({ size: 14 })
-                .fontColor($r('app.color.text_secondary'))
-                .margin({ right: 8 })
-                .onSelect((_idx: number, label: string) => this.handleScrollbarModeChange(label))
-            }
-            .width('100%').height(52).padding({ left: 16, right: 16 })
           }
           .width('100%')
           .backgroundColor($r('app.color.bg_card'))

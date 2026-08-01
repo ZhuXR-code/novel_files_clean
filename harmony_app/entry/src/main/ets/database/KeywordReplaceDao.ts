@@ -77,6 +77,11 @@ export class KeywordReplaceDao {
     await KeywordReplaceDao.store.delete(predicates);
   }
 
+  public static async deleteAll(): Promise<void> {
+    const predicates = new relationalStore.RdbPredicates('keyword_replace_rules');
+    await KeywordReplaceDao.store.delete(predicates);
+  }
+
   public static async getById(id: number): Promise<KeywordReplaceRule | null> {
     const predicates = new relationalStore.RdbPredicates('keyword_replace_rules');
     predicates.equalTo('id', id);

@@ -78,6 +78,11 @@ export class ScanConfigDao {
     await ScanConfigDao.store.delete(predicates);
   }
 
+  public static async deleteAll(): Promise<void> {
+    const predicates = new relationalStore.RdbPredicates('scan_config');
+    await ScanConfigDao.store.delete(predicates);
+  }
+
   public static async getById(id: number): Promise<ScanConfig | null> {
     const predicates = new relationalStore.RdbPredicates('scan_config');
     predicates.equalTo('id', id);
@@ -103,11 +108,9 @@ export class ScanConfigDao {
   }
 
   public static async count(): Promise<number> {
-    const predicates = new relationalStore.RdbPredicates('scan_config');
-    return await ScanConfigDao.store.query(predicates).then((rs) => {
-      const c = rs.rowCount;
-      rs.close();
-      return c;
-    });
+    const rs = await ScanConfigDao.store.querySql('SELECT COUNT(*) AS cnt FROM scan_config', []);
+    const c = rs.rowCount > 0 ? ScanConfigDao.colNum(rs, 'cnt') : 0;
+    rs.close();
+    return c;
   }
 }

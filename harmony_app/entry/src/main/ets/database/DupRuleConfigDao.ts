@@ -108,6 +108,11 @@ export class DupRuleConfigDao {
     await DupRuleConfigDao.store.delete(predicates);
   }
 
+  public static async deleteAll(): Promise<void> {
+    const predicates = new relationalStore.RdbPredicates('dup_rule_config');
+    await DupRuleConfigDao.store.delete(predicates);
+  }
+
   public static async getAll(): Promise<DupRuleConfig[]> {
     const predicates = new relationalStore.RdbPredicates('dup_rule_config');
     predicates.orderByAsc('sort_order');

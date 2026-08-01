@@ -87,6 +87,12 @@ export class ScanRunDao {
     }
   }
 
+  public static async deleteAll(): Promise<void> {
+    const store = ScanRunDao.store;
+    const predicates = new relationalStore.RdbPredicates('scan_run');
+    await store.delete(predicates);
+  }
+
   public static async getById(runId: number): Promise<ScanRun | null> {
     const predicates = new relationalStore.RdbPredicates('scan_run');
     predicates.equalTo('id', runId);
@@ -112,12 +118,10 @@ export class ScanRunDao {
   }
 
   public static async count(): Promise<number> {
-    const predicates = new relationalStore.RdbPredicates('scan_run');
-    return await ScanRunDao.store.query(predicates).then((rs) => {
-      const c = rs.rowCount;
-      rs.close();
-      return c;
-    });
+    const rs = await ScanRunDao.store.querySql('SELECT COUNT(*) AS cnt FROM scan_run', []);
+    const c = rs.rowCount > 0 ? ScanRunDao.colNum(rs, 'cnt') : 0;
+    rs.close();
+    return c;
   }
 
   /** 获取最近 N 个文库（按 id 倒序） */

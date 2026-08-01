@@ -44,6 +44,8 @@ struct OneClickCleanup {
   @State folderUri: string = '';
   @State folderName: string = '';
   @State fileTypes: string = 'txt';
+  // 排除文件夹：与 ScanConfig 字段名一致，由 selectExcludeFolder / getExcludedList / removeExcludeFolder 维护
+  @State excludedFolders: string = '';
 
   // === 流程状态 ===
   @State phase: Phase = 'idle';
@@ -76,6 +78,9 @@ struct OneClickCleanup {
   @State reviewAllSelected: boolean = true;
   @State excludedIds: Set<number> = new Set<number>();
   @State draftIds: Set<number> = new Set<number>();
+  // 当前选中（待删除）数量：必须是 @State 才能在 Button 文本中自动刷新
+  // （之前用普通 getter，ArkTS 不会感知到 Set 变化，Button 文本固定显示"undefined 个"）
+  @State reviewSelectedCount: number = 0;
 
   // === 删除进度 ===
   @State delDone: number = 0;
@@ -124,6 +129,50 @@ struct OneClickCleanup {
     }
   }
 
+  // === 排除文件夹（与 ConfigEdit.ets 同款逻辑：分号分隔 + Chip 展示 + 从文件系统选择） ===
+  private getExcludedList(): string[] {
+    return this.excludedFolders
+      .split(/[;；,，]/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+
+  private async selectExcludeFolder(): Promise<void> {
+    const ctx = AppContext.get();
+    if (!ctx) {
+      return;
+    }
+    try {
+      // 复用 ScanService.selectDirectory + FormatUtil.formatFolderDisplay 选文件夹并取末级目录名
+      // （与 ConfigEdit.ets 的 selectExcludeFolder 行为一致）
+      const uri: string = await ScanService.selectDirectory(ctx, this.folderUri);
+      if (uri.length === 0) {
+        return; // 用户取消
+      }
+      const folderName: string = FormatUtil.formatFolderDisplay(uri);
+      if (folderName.length === 0) {
+        ToastUtil.show('无法解析文件夹名称');
+        return;
+      }
+      const list: string[] = this.getExcludedList();
+      if (list.includes(folderName)) {
+        ToastUtil.show('该文件夹已在排除列表');
+        return;
+      }
+      list.push(folderName);
+      this.excludedFolders = list.join(';');
+      ToastUtil.show(`已添加排除: ${folderName}`);
+    } catch (e) {
+      LogUtil.e('OneClickCleanup', `选择排除文件夹失败: ${(e as Error).message}`);
+      ToastUtil.show('选择失败，请重试');
+    }
+  }
+
+  private removeExcludeFolder(folder: string): void {
+    const list: string[] = this.getExcludedList().filter((s) => s !== folder);
+    this.excludedFolders = list.join(';');
+  }
+
   /**
    * 开始一键清理：自动 扫描 → 解析 → 合集 → 标记重复 → 确认
    * 对齐 PC 端 pipeline._run() 的节点1-4。
@@ -155,7 +204,8 @@ struct OneClickCleanup {
     cfg.minSizeKb = 0;
     cfg.recursive = true;
     cfg.exactHash = false;
-    cfg.excludedFolders = '';
+    // 排除文件夹：从用户输入的 excludedFolders 字符串传入（与 ConfigEdit 一致，分号分隔）
+    cfg.excludedFolders = this.excludedFolders.trim();
 
     try {
       const res = await ScanService.runScan(cfg, (p: ScanProgressData) => {
@@ -182,7 +232,7 @@ struct OneClickCleanup {
     this.setNodeStatus(3, 'running');
     try {
       const ids: number[] = await DupLogic.selectDuplicateIds(this.runId);
-      this.dupCount = ids.length;
+      this.dupCount = ids.length ?? 0;
       // 仅存 id（数字数组），不加载完整对象，避免 10w+ ScannedFile 占满内存。
       this.reviewIds = ids;
       this.reviewPage = 0;
@@ -190,6 +240,8 @@ struct OneClickCleanup {
       this.reviewAllSelected = true;
       this.excludedIds = new Set<number>();
       this.draftIds = new Set<number>();
+      // 标记完成后同步一次选中数（默认全选模式下 = reviewIds.length）
+      this.syncReviewSelectedCount();
       this.setNodeStatus(3, 'done');
       LogUtil.operation('一键清理-标记完成', `待删除=${ids.length}`);
     } catch (e) {
@@ -213,6 +265,8 @@ struct OneClickCleanup {
     this.phase = 'review';
     this.reviewPage = 0;
     this.reviewVisible = [];
+    // 进入复核时同步一次选中数，确保保存按钮初始显示正确数量
+    this.syncReviewSelectedCount();
     await this.loadReviewPage(0);
   }
 
@@ -252,12 +306,17 @@ struct OneClickCleanup {
     }
   }
 
-  /** 当前选中（待删除）数量。 */
-  private get reviewSelectedCount(): number {
+  /** 计算当前选中（待删除）数量（纯计算方法，不参与 UI 渲染，仅供内部使用）。 */
+  private computeReviewSelectedCount(): number {
     if (this.reviewAllSelected) {
       return this.reviewIds.length - this.excludedIds.size;
     }
     return this.draftIds.size;
+  }
+
+  /** 同步 @State reviewSelectedCount：每次勾选/全选/全不选/打开复核页时调用，驱动 Button 文本更新。 */
+  private syncReviewSelectedCount(): void {
+    this.reviewSelectedCount = this.computeReviewSelectedCount();
   }
 
   /** 判断某 id 是否处于选中（待删除）态。 */
@@ -287,6 +346,7 @@ struct OneClickCleanup {
       }
       this.draftIds = s;
     }
+    this.syncReviewSelectedCount();
   }
 
   // 全选（全删）
@@ -294,6 +354,7 @@ struct OneClickCleanup {
     this.reviewAllSelected = true;
     this.excludedIds = new Set<number>();
     this.draftIds = new Set<number>();
+    this.syncReviewSelectedCount();
   }
 
   // 全不选（都不删）
@@ -301,11 +362,15 @@ struct OneClickCleanup {
     this.reviewAllSelected = false;
     this.excludedIds = new Set<number>();
     this.draftIds = new Set<number>();
+    this.syncReviewSelectedCount();
   }
 
   // 保存复核结果，回到确认
   private saveReview(): void {
-    this.dupCount = this.reviewSelectedCount;
+    // 同步一次 @State 防止未触达 toggleDraft（理论上不应发生）后读出旧值
+    this.syncReviewSelectedCount();
+    // 兜底：reviewSelectedCount 强制为数字，避免 dupCount 被赋成 undefined 导致确认页按钮置灰
+    this.dupCount = (this.reviewSelectedCount ?? 0) || 0;
     this.phase = 'confirm';
   }
 
@@ -520,6 +585,57 @@ struct OneClickCleanup {
       .backgroundColor($r('app.color.bg_card'))
       .borderRadius(10)
 
+      // 排除文件夹（对齐 ConfigEdit.ets 的"扫描配置 - 排除文件夹"）
+      Column({ space: 6 }) {
+        Text('排除文件夹(分号分隔)').fontSize(14).fontColor($r('app.color.text_secondary'))
+          .alignSelf(ItemAlign.Start)
+        Row() {
+          TextInput({ text: this.excludedFolders, placeholder: '如 已读;缓存' })
+            .layoutWeight(1)
+            .onChange((v: string) => (this.excludedFolders = v))
+          Button('选择')
+            .fontSize(12)
+            .height(40)
+            .margin({ left: 8 })
+            .backgroundColor($r('app.color.primary'))
+            .fontColor($r('app.color.text_on_primary'))
+            .onClick(() => this.selectExcludeFolder())
+        }
+        .width('100%')
+        // 已选排除文件夹的 Chip 展示
+        if (this.getExcludedList().length > 0) {
+          Text('已排除:').fontSize(12).fontColor($r('app.color.text_hint'))
+            .margin({ top: 6 }).alignSelf(ItemAlign.Start)
+          Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start, alignItems: ItemAlign.Center }) {
+            ForEach(
+              this.getExcludedList(),
+              (folder: string) => {
+                Row({ space: 4 }) {
+                  Text(folder)
+                    .fontSize(11)
+                    .fontColor($r('app.color.text_primary'))
+                  Text('×')
+                    .fontSize(13)
+                    .fontColor($r('app.color.text_hint'))
+                }
+                .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+                .margin({ right: 6, bottom: 6 })
+                .backgroundColor($r('app.color.bg_page'))
+                .borderRadius(14)
+                .onClick(() => this.removeExcludeFolder(folder))
+              },
+              (folder: string) => folder
+            )
+          }
+          .width('100%')
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .padding(12)
+      .backgroundColor($r('app.color.bg_card'))
+      .borderRadius(10)
+
       Button('开始一键清理')
         .width('100%')
         .height(46)
@@ -591,7 +707,7 @@ struct OneClickCleanup {
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))
         .alignSelf(ItemAlign.Start)
-      Text(`已标记 ${this.dupCount} 个重复文件待删除。`)
+      Text(`已标记 ${(this.dupCount ?? 0)} 个重复文件待删除。`)
         .fontSize(13)
         .fontColor($r('app.color.text_secondary'))
       Text('将永久删除这些文件，此操作不可恢复。')
@@ -608,7 +724,7 @@ struct OneClickCleanup {
         .height(42)
         .backgroundColor($r('app.color.danger'))
         .fontColor($r('app.color.text_on_primary'))
-        .enabled(this.dupCount > 0)
+        .enabled((this.dupCount ?? 0) > 0)
         .onClick(() => this.confirmDelete())
     }
     .width('100%')
