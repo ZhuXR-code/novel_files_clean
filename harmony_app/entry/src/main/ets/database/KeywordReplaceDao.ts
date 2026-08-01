@@ -1,6 +1,7 @@
 import { relationalStore } from '@kit.ArkData';
 import { RdbHelper } from './RdbHelper';
 import { KeywordReplaceRule } from '../model/KeywordReplaceRule';
+import { KeywordReplace } from '../utils/KeywordReplace';
 
 /**
  * 关键词替换规则访问层，镜像安卓端 KeywordReplaceDao。
@@ -42,6 +43,7 @@ export class KeywordReplaceDao {
     r.replacement = KeywordReplaceDao.colStr(rs, 'replacement');
     r.sortOrder = KeywordReplaceDao.colNum(rs, 'sort_order');
     r.enabled = KeywordReplaceDao.colNum(rs, 'enabled') === 1;
+    r.isBuiltin = KeywordReplaceDao.colNum(rs, 'is_builtin');
     r.createdAt = KeywordReplaceDao.colNum(rs, 'created_at');
     return r;
   }
@@ -53,6 +55,7 @@ export class KeywordReplaceDao {
       replacement: r.replacement,
       sort_order: r.sortOrder,
       enabled: r.enabled ? 1 : 0,
+      is_builtin: r.isBuiltin,
       created_at: r.createdAt
     };
   }
@@ -135,6 +138,17 @@ export class KeywordReplaceDao {
   }
 
   /**
+   * 按 scope + pattern 将规则标记为内置（is_builtin=1）。
+   * 用于修复旧库中已存在但未标记 is_builtin 的预置规则，使其显示在内置区且不可删除。
+   */
+  public static async markBuiltinByPattern(scope: string, pattern: string): Promise<void> {
+    const values: relationalStore.ValuesBucket = { is_builtin: 1 };
+    const predicates = new relationalStore.RdbPredicates('keyword_replace_rules');
+    predicates.equalTo('scope', scope).and().equalTo('pattern', pattern);
+    await KeywordReplaceDao.store.update(values, predicates);
+  }
+
+  /**
    * 统计全部规则条数，供管理后台/统计页使用。
    */
   public static async countAll(): Promise<number> {
@@ -179,5 +193,27 @@ export class KeywordReplaceDao {
     const predicates = new relationalStore.RdbPredicates('keyword_replace_rules');
     predicates.equalTo('id', id);
     await KeywordReplaceDao.store.update(values, predicates);
+  }
+
+  /**
+   * 确保内置预设规则已写入数据库（幂等）。
+   * 在 EntryAbility.onCreate 和页面 load() 时双重保障调用，防止因初始化时序问题导致页面为空。
+   */
+  public static async ensureBuiltinSeeded(): Promise<number> {
+    let added: number = 0;
+    for (const rule of KeywordReplace.DEFAULT_KEYWORD_RULES) {
+      try {
+        const n: number = await KeywordReplaceDao.countByScopeAndPattern(rule.scope, rule.pattern);
+        if (n === 0) {
+          await KeywordReplaceDao.insert(rule);
+          added++;
+        } else {
+          await KeywordReplaceDao.markBuiltinByPattern(rule.scope, rule.pattern);
+        }
+      } catch (e) {
+        // 单条失败不阻断后续规则
+      }
+    }
+    return added;
   }
 }

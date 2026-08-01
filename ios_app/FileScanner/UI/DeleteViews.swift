@@ -17,23 +17,45 @@ struct DeleteConfirmView: View {
     }
 
     var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "trash").font(.system(size: 48)).foregroundColor(.red)
-            Text("确认删除").font(.title2).fontWeight(.semibold)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("待删文件：\(ids.count) 个")
-                Text("合计大小：\(FormatUtil.formatSize(totalSize))")
+        VStack(spacing: 0) {
+            // 顶部红色警告条（对齐安卓删除确认页 warning）
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.white)
+                Text("删除操作不可恢复，请确认勾选的文件无误。").fsFont(.subheadline).foregroundColor(.white)
+                Spacer(minLength: 0)
             }
-            .font(.subheadline).foregroundColor(.fsSecondaryLabel)
+            .padding(.vertical, 12).padding(.horizontal, 16)
+            .frame(maxWidth: .infinity)
+            .background(Color.red)
 
-            Toggle("同时删除磁盘上的文件（取消则仅移除记录）", isOn: $physical)
+            VStack(spacing: 18) {
+                Spacer().frame(height: 16)
+                Image(systemName: "trash").fsFontSize(48).foregroundColor(.red)
+                Text("确认删除").fsFont(.title2).fontWeight(.semibold)
+                // 已选 / 共 统计（对齐安卓底部统计条）
+                HStack(spacing: 16) {
+                    VStack(spacing: 2) {
+                        Text("已选 \(ids.count)").fsFont(.headline).foregroundColor(.fsPrimary)
+                        Text("待删除文件").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                    }
+                    Divider().frame(height: 28)
+                    VStack(spacing: 2) {
+                        Text(FormatUtil.formatSize(totalSize)).fsFont(.headline).foregroundColor(.fsPrimary)
+                        Text("合计大小").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                    }
+                }
 
-            PrimaryButton(title: "开始删除") {
-                router.navigate(.deleteProgress(runId: runId, ids: ids, physical: physical))
+                Toggle("同时删除磁盘上的文件（取消则仅移除记录）", isOn: $physical)
+
+                PrimaryButton(title: "开始删除") {
+                    router.navigate(.deleteProgress(runId: runId, ids: ids, physical: physical))
+                }
+                Spacer()
             }
-            Spacer()
+            .padding()
         }
-        .padding().navigationTitle("删除确认")
+        .navigationTitle("删除确认")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -53,14 +75,14 @@ struct DeleteProgressView: View {
         VStack(spacing: 20) {
             Spacer().frame(height: 20)
             Image(systemName: finished ? "checkmark.circle.fill" : "trash")
-                .font(.system(size: 48)).foregroundColor(finished ? .green : .red)
-            Text(finished ? "删除完成" : "正在删除…").font(.headline)
+                .fsFontSize(48).foregroundColor(finished ? .green : .red)
+            Text(finished ? "删除完成" : "正在删除…").fsFont(.headline)
             ProgressView(value: Double(progress), total: 100).frame(maxWidth: 280)
             Text("成功 \(deletedCount) · 失败 \(failedCount) / 共 \(ids.count)")
                 .foregroundColor(.fsSecondaryLabel)
             if finished {
                 if !errorMsg.isEmpty {
-                    Text(errorMsg).font(.caption).foregroundColor(.red).frame(maxWidth: 280)
+                    Text(errorMsg).fsFont(.caption).foregroundColor(.red).frame(maxWidth: 280)
                 }
                 PrimaryButton(title: "返回文库") {
                     router.path = [.library(runId: runId)]

@@ -22,4 +22,5 @@ final class LogUtil {
         lock.lock(); defer { lock.unlock() }
         return buffer
     }
+
 }

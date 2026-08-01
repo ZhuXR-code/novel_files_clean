@@ -2,6 +2,8 @@
   "string": [
     { "name": "module_desc", "value": "文包清理与内容识别" },
     { "name": "EntryAbility_desc", "value": "主入口" },
-    { "name": "EntryAbility_label", "value": "文包清理助手" }
+    { "name": "EntryAbility_label", "value": "文包整理清理助手" },
+    { "name": "perm_read_write_docs", "value": "用于扫描和删除设备上的文件" },
+    { "name": "perm_file_access_persist", "value": "持久访问选中的文件夹，以便重启后仍可扫描和删除文件" }
   ]
 }

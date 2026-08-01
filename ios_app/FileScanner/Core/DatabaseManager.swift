@@ -119,31 +119,40 @@ final class DatabaseManager {
     }
 
     private func seedDefaultData() {
-        // 内置五则规则
-        if fetchAll("SELECT COUNT(*) FROM dup_rule_configs").first?.first as? Int64 ?? 0 == 0 {
-            let builtins: [(String, String, Int, String)] = [
-                ("rule1", "完全相等去重", 0, "文件大小相同且更新进度一致（如都更到 20 章）视为同一版本，仅保留最新修改的一个"),
-                ("rule2", "纯数字进度对比", 1, "更新进度为纯数字时，仅保留进度最大者（如更 50 优于更 20）"),
-                ("rule3a", "含中文进度保护", 1, "更新进度含中文（如「完结」「番外」）的文件一律不勾选，避免误删"),
-                ("rule3b", "完结特例", 1, "当存在「完结」文件时，若其体积不大于所有纯数字进度文件，则纯数字进度最大者也不勾选"),
-                ("rule4", "最大文件不勾选", 1, "仅当某子组最大体积唯一时，最大文件不勾选"),
-                ("rule5", "完结+N番外/完结+番外N 去重", 0, "进度为「完结+N番外」或「完结+番外N」时，仅保留 N 最大者；其余按最大体积规则处理")
-            ]
-            for (i, (key, name, enabled, desc)) in builtins.enumerated() {
-                let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        // 勾选重复规则：幂等补齐（对齐安卓 FileRepository.seedDefaultDupRules）。
+        // 内置五则的 key / 名称 / 描述 / 启用状态与安卓保持一致；已有库仅刷新内置描述，不改动用户开关。
+        let dupBuiltins: [(key: String, name: String, enabled: Int, desc: String)] = [
+            ("rule1", "精确重复去重", 1, "小说名+作者+进度+文件大小完全相等的文件，保留最新一个"),
+            ("rule2", "纯数字进度对比", 1, "有纯数字进度的文件中，进度最高的不勾选，其余勾选"),
+            ("rule3a", "含中文进度保护", 1, "含有中文进度（如「更新至50」）的文件不勾选"),
+            ("rule3b", "完结特例", 1, "同一本书若同时有『完结版』（文件名含『完结/全本』）与纯数字进度的文件：当数字进度最大的文件体积小于所有『完结字样』文件中最小的那个，说明它不完整，会勾选删除，只留下完结版。"),
+            ("rule4", "最大文件不勾选", 1, "同一组内文件大小唯一最大的文件不勾选"),
+            ("rule5", "完结+N番外/番外N去重", 1, "进度匹配「完结+N番外」或「完结+番外N」的组内，按番外数 N 排序，最大 N 不勾选，其余勾选"),
+        ]
+        for (i, b) in dupBuiltins.enumerated() {
+            let rows = fetchAll("SELECT rule_name, description, enabled FROM dup_rule_configs WHERE rule_key = ?", [b.key])
+            if rows.isEmpty {
                 _ = execute("INSERT INTO dup_rule_configs (rule_key,rule_name,enabled,description,is_builtin,sort_order,created_at,updated_at) VALUES (?,?,?,?,1,?,?,?)",
-                            [key, name, enabled, desc, i, now, now])
+                            [b.key, b.name, b.enabled, b.desc, i, now, now])
+            } else if let row = rows.first,
+                      let oldDesc = row[1] as? String, oldDesc != b.desc {
+                // 已存在：同步安卓最新内置描述文案（不动用户开关/自定义规则）。
+                _ = execute("UPDATE dup_rule_configs SET rule_name = ?, description = ?, updated_at = ? WHERE rule_key = ?",
+                            [b.name, b.desc, now, b.key])
             }
         }
-        // 关键词替换种子（仅一次）
-        if !Preferences.shared.kwSeedDone && fetchAll("SELECT COUNT(*) FROM keyword_replace_rules").first?.first as? Int64 ?? 0 == 0 {
-            let now = Int64(Date().timeIntervalSince1970 * 1000)
-            for r in KeywordReplace.DEFAULT_KEYWORD_RULES {
+
+        // 关键词替换默认规则：幂等补齐（按 scope+pattern 判断，对齐安卓 seedDefaultKeywordRules）。
+        for r in KeywordReplace.DEFAULT_KEYWORD_RULES {
+            let cnt = fetchAll("SELECT COUNT(*) FROM keyword_replace_rules WHERE scope = 'scan' AND pattern = ?", [r.pattern])
+            let existing = (cnt.first?.first as? Int64) ?? 0
+            if existing == 0 {
                 _ = execute("INSERT INTO keyword_replace_rules (scope,pattern,replacement,sort_order,enabled,created_at) VALUES ('scan',?,?,?,1,?)",
                             [r.pattern, r.replacement, r.sortOrder, now])
             }
-            Preferences.shared.kwSeedDone = true
         }
+        Preferences.shared.kwSeedDone = true
     }
 
     // MARK: - 底层执行
@@ -293,6 +302,39 @@ final class DatabaseManager {
         execute("UPDATE scanned_file SET marked=? WHERE id=?", [marked, id])
     }
 
+    /// 批量更新标记状态（分块，理由同 updateChecked）。
+    func updateMarked(ids: [Int64], marked: Int) {
+        guard !ids.isEmpty else { return }
+        let chunkSize = 500
+        for start in stride(from: 0, to: ids.count, by: chunkSize) {
+            let chunk = Array(ids[start..<min(start + chunkSize, ids.count)])
+            let ph = chunk.map { _ in "?" }.joined(separator: ",")
+            var params: [Any] = [marked]
+            params.append(contentsOf: chunk)
+            execute("UPDATE scanned_file SET marked=? WHERE id IN (\(ph))", params)
+        }
+    }
+
+    /// 重置某文库全部标记状态。
+    func resetMarked(runId: Int64) {
+        execute("UPDATE scanned_file SET marked=0 WHERE scan_run_id=?", [runId])
+    }
+
+    /// 按「文件名」找出重复项（同名文件保留首个、其余返回），用于一键标记重复。
+    func findDuplicateIdsByFileName(runId: Int64) -> [Int64] {
+        let rows = fetchAll(
+            "SELECT id, file_name FROM scanned_file WHERE scan_run_id=? ORDER BY id", [runId])
+        var seen = Set<String>()
+        var dup: [Int64] = []
+        for r in rows {
+            guard let id = r.first as? Int64 else { continue }
+            let name = (r.count > 1 ? r[1] as? String : nil) ?? ""
+            if name.isEmpty { continue }
+            if seen.contains(name) { dup.append(id) } else { seen.insert(name) }
+        }
+        return dup
+    }
+
     func setChecked(id: Int64, checked: Int) {
         execute("UPDATE scanned_file SET checked=? WHERE id=?", [checked, id])
     }
@@ -347,10 +389,16 @@ final class DatabaseManager {
         count("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id=?", [runId])
     }
 
+    /// 统计某文库内已标记（marked=1）的文件数，供首页统计卡片对齐安卓。
+    func countMarked(runId: Int64) -> Int {
+        count("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id=? AND marked=1", [runId])
+    }
+
     /// 分页查询（对齐 Android `getScannedFilesPaged`）。
     func getScannedFilesPaged(runId: Int64, offset: Int, limit: Int, sortBy: String, ascending: Bool,
                               titleFilter: String?, authorFilter: String?, progressFilter: String?,
-                              sourceFilter: String?, search: String?) -> [ScannedFile] {
+                              sourceFilter: String?, search: String?,
+                              checkedFilter: Int = -1, markedFilter: Int = -1) -> [ScannedFile] {
         var whereClauses = ["scan_run_id=?"]
         var binds: [Any?] = [runId]
         if let t = titleFilter, !t.isEmpty { whereClauses.append("title LIKE ?"); binds.append("\(t)%") }
@@ -358,6 +406,8 @@ final class DatabaseManager {
         if let p = progressFilter, !p.isEmpty { whereClauses.append("progress LIKE ?"); binds.append("\(p)%") }
         if let s = sourceFilter, !s.isEmpty { whereClauses.append("source LIKE ?"); binds.append("\(s)%") }
         if let q = search, !q.isEmpty { whereClauses.append("(file_name LIKE ? OR title LIKE ? OR author LIKE ?)"); binds.append("%\(q)%"); binds.append("%\(q)%"); binds.append("%\(q)%") }
+        if checkedFilter >= 0 { whereClauses.append("checked=?"); binds.append(checkedFilter) }
+        if markedFilter >= 0 { whereClauses.append("marked=?"); binds.append(markedFilter) }
         let orderCol = sortBy == "file_name" || sortBy == "title" || sortBy == "author" || sortBy == "progress" || sortBy == "source" || sortBy == "file_size" ? sortBy : "created_at"
         let dir = ascending ? "ASC" : "DESC"
         let sql = "SELECT \(SF_COLS) FROM scanned_file WHERE \(whereClauses.joined(separator: " AND ")) ORDER BY \(orderCol) \(dir), id \(dir) LIMIT ? OFFSET ?"
@@ -365,7 +415,8 @@ final class DatabaseManager {
         return fetchAll(sql, binds).map(mapScannedFile)
     }
 
-    func countScannedFiles(runId: Int64, titleFilter: String?, authorFilter: String?, progressFilter: String?, sourceFilter: String?, search: String?) -> Int {
+    func countScannedFiles(runId: Int64, titleFilter: String?, authorFilter: String?, progressFilter: String?, sourceFilter: String?, search: String?,
+                           checkedFilter: Int = -1, markedFilter: Int = -1) -> Int {
         var whereClauses = ["scan_run_id=?"]
         var binds: [Any?] = [runId]
         if let t = titleFilter, !t.isEmpty { whereClauses.append("title LIKE ?"); binds.append("\(t)%") }
@@ -373,6 +424,8 @@ final class DatabaseManager {
         if let p = progressFilter, !p.isEmpty { whereClauses.append("progress LIKE ?"); binds.append("\(p)%") }
         if let s = sourceFilter, !s.isEmpty { whereClauses.append("source LIKE ?"); binds.append("\(s)%") }
         if let q = search, !q.isEmpty { whereClauses.append("(file_name LIKE ? OR title LIKE ? OR author LIKE ?)"); binds.append("%\(q)%"); binds.append("%\(q)%"); binds.append("%\(q)%") }
+        if checkedFilter >= 0 { whereClauses.append("checked=?"); binds.append(checkedFilter) }
+        if markedFilter >= 0 { whereClauses.append("marked=?"); binds.append(markedFilter) }
         return count("SELECT COUNT(*) FROM scanned_file WHERE \(whereClauses.joined(separator: " AND "))", binds)
     }
 
@@ -594,6 +647,22 @@ final class DatabaseManager {
     }
 
     func clearOperationLogs() { execute("DELETE FROM operation_log") }
+
+    // MARK: - 导出 / 清空（对齐安卓「导出已标记」「清空数据」）
+    /// 返回全部已标记（marked=1）文件，供导出清单使用。
+    func getAllMarked() -> [ScannedFile] {
+        fetchAll("SELECT \(SF_COLS) FROM scanned_file WHERE marked=1 ORDER BY scan_run_id, id").map(mapScannedFile)
+    }
+
+    /// 清空全部本地数据（扫描记录、文件、日志、配置）。
+    func deleteAllData() {
+        execute("DELETE FROM scanned_file")
+        execute("DELETE FROM scan_run")
+        execute("DELETE FROM operation_log")
+        execute("DELETE FROM scan_config")
+        execute("DELETE FROM keyword_replace_rules")
+        execute("DELETE FROM dup_rule_configs")
+    }
 }
 
 extension Int {

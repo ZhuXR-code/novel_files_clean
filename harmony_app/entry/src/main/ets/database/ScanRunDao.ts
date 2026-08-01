@@ -71,11 +71,20 @@ export class ScanRunDao {
   }
 
   public static async delete(runId: number): Promise<void> {
-    const predicates = new relationalStore.RdbPredicates('scan_run');
-    predicates.equalTo('id', runId);
-    await ScanRunDao.store.delete(predicates);
-    // 级联删除其下文件
-    await ScannedFileDao.deleteByScanRun(runId);
+    const store = ScanRunDao.store;
+    // 事务包裹，保证「删文库 + 级联删文件」原子性，避免中途失败留下孤儿文件记录。
+    await store.beginTransaction();
+    try {
+      // 先删文件再删文库，保持引用方向一致（即使无外键约束也便于排查）。
+      await ScannedFileDao.deleteByScanRun(runId);
+      const predicates = new relationalStore.RdbPredicates('scan_run');
+      predicates.equalTo('id', runId);
+      await store.delete(predicates);
+      await store.commit();
+    } catch (e) {
+      await store.rollBack();
+      throw e;
+    }
   }
 
   public static async getById(runId: number): Promise<ScanRun | null> {
@@ -109,5 +118,19 @@ export class ScanRunDao {
       rs.close();
       return c;
     });
+  }
+
+  /** 获取最近 N 个文库（按 id 倒序） */
+  public static async getRecent(limit: number): Promise<ScanRun[]> {
+    const predicates = new relationalStore.RdbPredicates('scan_run');
+    predicates.orderByDesc('id');
+    predicates.limitAs(limit);
+    const rs = await ScanRunDao.store.query(predicates);
+    const list: ScanRun[] = [];
+    while (rs.goToNextRow()) {
+      list.push(ScanRunDao.toRun(rs));
+    }
+    rs.close();
+    return list;
   }
 }

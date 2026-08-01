@@ -3,12 +3,17 @@ import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { LogUtil } from '../utils/LogUtil';
 import { PreferencesUtil } from '../utils/PreferencesUtil';
+import { TopBar } from '../components/TopBar';
 
-const PREVIEW_BYTES_LIMIT = 2 * 1024 * 1024;
-const INITIAL_LINES = 200;
-const LOAD_MORE_LINES = 200;
-const SCROLLBAR_MODE_KEY: string = 'preview_scrollbar_mode';
-type ScrollbarMode = 'vertical' | 'horizontal';
+// 对齐安卓端：流式分块读取，无文件大小上限
+const READ_CHUNK_SIZE: number = 512 * 1024; // 每次读取 512KB
+const MAX_LINE_CHARS: number = 4000; // 超长行强制切段（对齐安卓 MAX_LINE_CHARS）
+const MAX_TOTAL_LINES: number = 200000; // 安全上限，防止 OOM
+const CARRY_OVER: number = 4; // 跨块携带字节数（多字节字符边界安全）
+const INITIAL_LINES: number = 200;
+const LOAD_MORE_LINES: number = 200;
+// G组 #27 全局字号偏好键（与 Settings.ets 保持一致）
+const FONT_SCALE_KEY: string = 'settings_font_scale';
 
 @Entry
 @Component
@@ -25,64 +30,193 @@ struct FilePreview {
   @State dragStartY: number = 0;
   @State dragStartX: number = 0;
   @State scrollbarActive: boolean = false;
-  @State scrollbarMode: ScrollbarMode = 'vertical';
+  // 滚动条方向通过 AppStorage 全局共享，Settings 修改后立即响应（无需手动读取 Preferences）
+  @StorageProp('previewScrollbarMode') scrollbarMode: string = 'vertical';
+  @State fontSize: number = 15;
+  @State truncated: boolean = false;
+  @State previewError: string = '';
+  // 对齐安卓端：预览范围（head=前50行快速预览, full=全部内容）
+  @State previewMode: string = 'full';
 
   private scroller: Scroller = new Scroller();
   private scrollbarTimer: number | null = null;
 
   async aboutToAppear(): Promise<void> {
     const params = router.getParams() as Record<string, Object>;
+    // 防御异常跳转/deep link 导致 getParams() 返回 null 时访问属性崩溃。
+    if (!params) {
+      this.loading = false;
+      this.previewError = '页面参数缺失';
+      return;
+    }
     this.fileName = (params['fileName'] as string) || '';
     this.filePath = (params['filePath'] as string) || '';
-    const saved: string = PreferencesUtil.getString(SCROLLBAR_MODE_KEY, 'vertical');
-    this.scrollbarMode = saved === 'horizontal' ? 'horizontal' : 'vertical';
+    // 对齐安卓端：读取预览范围参数（head=前50行, full=全部内容）
+    if (params['previewMode'] !== undefined && params['previewMode'] !== null) {
+      this.previewMode = params['previewMode'] as string;
+    }
+    // G组 #27 应用全局字号设置作为预览初始字号
+    const fontScale: string = PreferencesUtil.getString(FONT_SCALE_KEY, 'standard');
+    this.fontSize = fontScale === 'small' ? 13 : (fontScale === 'large' ? 18 : 15);
     await this.loadContent();
   }
 
+  onPageShow(): void {
+    // 重新读取字号设置（滚动条方向已通过 @StorageProp 自动响应，无需手动读取）
+    const fontScale: string = PreferencesUtil.getString(FONT_SCALE_KEY, 'standard');
+    this.fontSize = fontScale === 'small' ? 13 : (fontScale === 'large' ? 18 : 15);
+  }
+
+  /**
+   * 流式分块读取文件内容（对齐安卓 PreviewLoader：无文件大小上限）。
+   * 每次读取 READ_CHUNK_SIZE 字节，跨块携带 CARRY_OVER 字节保证多字节字符完整，
+   * 超长行按 MAX_LINE_CHARS 切段，总行数上限 MAX_TOTAL_LINES 防 OOM。
+   */
   async loadContent(): Promise<void> {
     if (!this.filePath) {
       this.loading = false;
       return;
     }
     try {
-      const file: fileIo.File = fileIo.openSync(this.filePath, fileIo.OpenMode.READ_ONLY);
+      const stat: fileIo.Stat = await fileIo.stat(this.filePath);
+      const fileSize: number = stat.size;
+      if (fileSize <= 0) {
+        this.loading = false;
+        return;
+      }
+
+      const file: fileIo.File = await fileIo.open(this.filePath, fileIo.OpenMode.READ_ONLY);
       try {
-        const stat: fileIo.Stat = fileIo.statSync(this.filePath);
-        const toRead: number = Math.min(stat.size, PREVIEW_BYTES_LIMIT);
-        if (toRead <= 0) {
-          this.loading = false;
-          return;
-        }
-        const buf: ArrayBuffer = new ArrayBuffer(toRead);
-        fileIo.readSync(file.fd, buf);
-        const bytes: Uint8Array = new Uint8Array(buf.slice(0, toRead));
+        const allLines: string[] = [];
+        let leftoverLine: string = '';
+        let leftoverBytes: Uint8Array = new Uint8Array(0);
+        let encoding: string = 'utf-8';
+        let bomSkip: number = 0;
+        let encodingDetected: boolean = false;
+        let fileOffset: number = 0;
 
-        let text: string = '';
-        if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
-          text = this.decodeBytes(bytes.slice(3), 'utf-8');
-          this.encoding = 'UTF-8\u2009BOM';
-        } else if (this.isValidUtf8(bytes)) {
-          text = this.decodeBytes(bytes, 'utf-8');
-          this.encoding = 'UTF-8';
-        } else {
-          text = this.decodeBytes(bytes, 'gbk');
-          if (text.length === 0) {
-            text = this.decodeBytes(bytes, 'utf-8');
-            this.encoding = 'UTF-8';
+        while (fileOffset < fileSize || leftoverBytes.length > 0) {
+          let chunkBytes: Uint8Array;
+          if (fileOffset < fileSize) {
+            const readSize: number = Math.min(READ_CHUNK_SIZE, fileSize - fileOffset);
+            const chunkBuf: ArrayBuffer = new ArrayBuffer(readSize);
+            const read: number = await fileIo.read(file.fd, chunkBuf, { offset: fileOffset, length: readSize });
+            chunkBytes = new Uint8Array(chunkBuf.slice(0, read));
+            fileOffset += read;
           } else {
-            this.encoding = 'GBK';
+            chunkBytes = new Uint8Array(0);
           }
+
+          const combined: Uint8Array = this.concatBytes(leftoverBytes, chunkBytes);
+          const isLast: boolean = fileOffset >= fileSize;
+
+          // 首个非空块检测编码
+          if (!encodingDetected && combined.length > 0) {
+            if (combined.length >= 3 && combined[0] === 0xEF && combined[1] === 0xBB && combined[2] === 0xBF) {
+              encoding = 'utf-8';
+              bomSkip = 3;
+              this.encoding = 'UTF-8\u2009BOM';
+            } else if (this.isValidUtf8(combined)) {
+              encoding = 'utf-8';
+              this.encoding = 'UTF-8';
+            } else {
+              // 对齐安卓：GB18030 兜底（GBK 超集），失败再回退 GBK
+              const testText: string = this.decodeBytes(combined.slice(0, Math.min(combined.length, 1024)), 'gb18030');
+              if (testText.length > 0) {
+                encoding = 'gb18030';
+                this.encoding = 'GB18030';
+              } else {
+                const gbkText: string = this.decodeBytes(combined, 'gbk');
+                if (gbkText.length > 0) {
+                  encoding = 'gbk';
+                  this.encoding = 'GBK';
+                } else {
+                  encoding = 'utf-8';
+                  this.encoding = 'UTF-8';
+                }
+              }
+            }
+            encodingDetected = true;
+          }
+
+          // 保留末尾 CARRY_OVER 字节到下一块（多字节字符边界安全）
+          let safeBytes: Uint8Array;
+          if (isLast) {
+            safeBytes = combined;
+            leftoverBytes = new Uint8Array(0);
+          } else {
+            const safeLength: number = Math.max(0, combined.length - CARRY_OVER);
+            safeBytes = combined.slice(0, safeLength);
+            leftoverBytes = combined.slice(safeLength);
+          }
+
+          // 跳过 BOM
+          if (bomSkip > 0 && safeBytes.length >= bomSkip) {
+            safeBytes = safeBytes.slice(bomSkip);
+            bomSkip = 0;
+          }
+
+          if (safeBytes.length > 0) {
+            const text: string = this.decodeBytes(safeBytes, encoding);
+            const fullText: string = leftoverLine + text;
+            const textLines: string[] = fullText.split('\n');
+            // 末行可能不完整（块边界截断），留到下一块拼接
+            leftoverLine = textLines.pop() || '';
+
+            for (const line of textLines) {
+              this.addSplitLine(allLines, line.replace(/\r$/, ''));
+              if (allLines.length >= MAX_TOTAL_LINES) break;
+            }
+          }
+
+          // head 模式：读到 50 行即停
+          if (this.previewMode === 'head' && allLines.length >= 50) break;
+          if (allLines.length >= MAX_TOTAL_LINES) break;
+          if (isLast) break;
         }
 
-        this.lines = text.split('\n').map((l: string) => l.replace(/\r$/, ''));
-        this.displayCount = Math.min(this.lines.length, INITIAL_LINES);
+        // 处理最后残留的不完整行
+        if (leftoverLine.length > 0 && allLines.length < MAX_TOTAL_LINES) {
+          this.addSplitLine(allLines, leftoverLine.replace(/\r$/, ''));
+        }
+
+        this.truncated = allLines.length >= MAX_TOTAL_LINES;
+        this.lines = allLines;
+
+        if (this.previewMode === 'head') {
+          this.displayCount = Math.min(this.lines.length, 50);
+        } else {
+          this.displayCount = Math.min(this.lines.length, INITIAL_LINES);
+        }
       } finally {
-        fileIo.closeSync(file);
+        await fileIo.close(file);
       }
     } catch (e) {
       LogUtil.e('FilePreview', `读取失败: ${(e as Error).message}`);
+      this.previewError = `预览失败: ${(e as Error).message}`;
     }
     this.loading = false;
+  }
+
+  /** 超长行按 MAX_LINE_CHARS 切段（对齐安卓 MAX_LINE_CHARS）。 */
+  private addSplitLine(lines: string[], text: string): void {
+    if (text.length <= MAX_LINE_CHARS) {
+      lines.push(text);
+    } else {
+      for (let i = 0; i < text.length; i += MAX_LINE_CHARS) {
+        lines.push(text.substring(i, Math.min(i + MAX_LINE_CHARS, text.length)));
+      }
+    }
+  }
+
+  /** 拼接两个 Uint8Array。 */
+  private concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
+    if (a.length === 0) return b;
+    if (b.length === 0) return a;
+    const result: Uint8Array = new Uint8Array(a.length + b.length);
+    result.set(a, 0);
+    result.set(b, a.length);
+    return result;
   }
 
   private decodeBytes(bytes: Uint8Array, enc: string): string {
@@ -131,7 +265,21 @@ struct FilePreview {
   }
 
   private loadMore(): void {
+    // head 模式下不自动加载更多（对齐安卓端前50行预览）
+    if (this.previewMode === 'head') return;
     this.displayCount = Math.min(this.displayCount + LOAD_MORE_LINES, this.lines.length);
+  }
+
+  private decFont(): void {
+    if (this.fontSize > 10) {
+      this.fontSize -= 1;
+    }
+  }
+
+  private incFont(): void {
+    if (this.fontSize < 28) {
+      this.fontSize += 1;
+    }
   }
 
   private activateScrollbar(): void {
@@ -160,14 +308,21 @@ struct FilePreview {
   }
 
   get getLoadedAll(): boolean {
+    // head 模式视为已加载完毕，阻止自动加载更多
+    if (this.previewMode === 'head') return true;
     return this.displayCount >= this.lines.length;
+  }
+
+  // 对齐安卓 scrollbarVisible：仅当内容超出已加载范围时才显示滚动条
+  get getScrollbarVisible(): boolean {
+    return this.lines.length > this.displayCount;
   }
 
   get getThumbHeight(): number {
     const trackH: number = this.scrollbarTrackHeight;
-    if (trackH <= 0 || this.lines.length <= 0) return 40;
+    if (trackH <= 0 || this.lines.length <= 0) return 48;
     const ratio: number = this.displayCount / this.lines.length;
-    return Math.max(trackH * ratio, 30);
+    return Math.max(trackH * ratio, 48);
   }
 
   get getThumbOffset(): number {
@@ -181,9 +336,9 @@ struct FilePreview {
 
   get getThumbWidth(): number {
     const trackW: number = this.scrollbarTrackWidth;
-    if (trackW <= 0 || this.lines.length <= 0) return 40;
+    if (trackW <= 0 || this.lines.length <= 0) return 48;
     const ratio: number = this.displayCount / this.lines.length;
-    return Math.max(trackW * ratio, 30);
+    return Math.max(trackW * ratio, 48);
   }
 
   get getThumbOffsetHorizontal(): number {
@@ -197,21 +352,30 @@ struct FilePreview {
 
   build() {
     Column() {
-      Row() {
-        Button('返回').fontSize(15).onClick(() => router.back())
-        Text(this.fileName)
-          .fontSize(18).fontWeight(FontWeight.Bold).layoutWeight(1)
-          .textAlign(TextAlign.Center).fontColor($r('app.color.text_primary'))
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      }
-      .width('100%').height(56).padding({ left: 12, right: 12 }).alignItems(VerticalAlign.Center)
+      TopBar({ title: this.fileName })
 
       Row() {
         Text(this.encoding)
-          .fontSize(12).fontColor('#999999').backgroundColor('#F0F0F0')
+          .fontSize(12).fontColor($r('app.color.text_hint')).backgroundColor($r('app.color.scrollbar_track'))
           .borderRadius(4).padding({ left: 8, right: 8, top: 2, bottom: 2 })
+        if (this.truncated) {
+          Text(`文件过大，仅预览前 ${MAX_TOTAL_LINES} 行`)
+            .fontSize(11).fontColor($r('app.color.warning'))
+            .margin({ left: 8 })
+        }
         Blank()
-        Text(`${this.lines.length} 行`).fontSize(12).fontColor('#999999')
+        Button('A-')
+          .fontSize(12).height(28).backgroundColor($r('app.color.bg_card')).fontColor($r('app.color.text_primary'))
+          .onClick(() => this.decFont())
+        Text(`${this.fontSize}`)
+          .fontSize(12).fontColor($r('app.color.text_secondary'))
+          .margin({ left: 4, right: 4 })
+        Button('A+')
+          .fontSize(12).height(28).backgroundColor($r('app.color.bg_card')).fontColor($r('app.color.text_primary'))
+          .onClick(() => this.incFont())
+        Text(`${this.lines.length} 行`)
+          .fontSize(12).fontColor($r('app.color.text_hint'))
+          .margin({ left: 8 })
       }
       .width('100%').padding({ left: 16, right: 16, top: 4, bottom: 4 })
 
@@ -219,9 +383,14 @@ struct FilePreview {
         Column() {
           LoadingProgress().width(32).height(32)
         }.layoutWeight(1).justifyContent(FlexAlign.Center).width('100%')
+      } else if (this.previewError.length > 0) {
+        // 对齐安卓：专门错误显示（红色提示）
+        Column() {
+          Text(this.previewError).fontColor($r('app.color.warning')).fontSize(15)
+        }.layoutWeight(1).justifyContent(FlexAlign.Center).width('100%')
       } else if (this.lines.length === 0) {
         Column() {
-          Text('无法读取文件内容或文件为空').fontColor('#999999').fontSize(15)
+          Text('无法读取文件内容或文件为空').fontColor($r('app.color.text_hint')).fontSize(15)
         }.layoutWeight(1).justifyContent(FlexAlign.Center).width('100%')
       } else {
         if (this.scrollbarMode === 'vertical') {
@@ -235,20 +404,38 @@ struct FilePreview {
   }
 
   @Builder
-  lineListItem(line: string) {
+  lineListItem(line: string, index: number) {
     ListItem() {
-      Text((line && line.length > 0) ? line : '\u00A0')
-        .fontSize(15).fontColor($r('app.color.text_primary'))
-        .width('100%').lineHeight(22)
-        .padding({ left: 16, right: this.scrollbarMode === 'vertical' ? 40 : 16 })
+      Row() {
+        Text(`${index + 1}`)
+          .fontSize(this.fontSize - 2)
+          .fontColor($r('app.color.text_hint'))
+          .width(44)
+          .textAlign(TextAlign.End)
+        Text((line && line.length > 0) ? line : '\u00A0')
+          .fontSize(this.fontSize).fontColor($r('app.color.text_primary'))
+          .layoutWeight(1).lineHeight(this.fontSize + 7)
+          .padding({ left: 8, right: this.scrollbarMode === 'vertical' ? 40 : 16 })
+      }
+      .width('100%')
     }
   }
 
   @Builder
   loadMoreItem() {
     ListItem() {
-      Button('加载更多').width('100%').fontSize(14)
-        .onClick(() => this.loadMore())
+      if (this.previewMode === 'head') {
+        Text('— 仅预览前50行，返回选择「全部内容」可查看完整 —')
+          .width('100%').textAlign(TextAlign.Center)
+          .fontSize(12).fontColor($r('app.color.text_hint')).padding(12)
+      } else if (this.getLoadedAll) {
+        Text('— 已到末尾 —')
+          .width('100%').textAlign(TextAlign.Center)
+          .fontSize(12).fontColor($r('app.color.text_hint')).padding(12)
+      } else {
+        Button('加载更多').width('100%').fontSize(14)
+          .onClick(() => this.loadMore())
+      }
     }
   }
 
@@ -256,61 +443,62 @@ struct FilePreview {
   verticalReader() {
     Stack() {
       List({ scroller: this.scroller }) {
-        ForEach(this.lines.slice(0, this.displayCount), (line: string) => {
-          this.lineListItem(line)
+        ForEach(this.lines.slice(0, this.displayCount), (line: string, index: number) => {
+          this.lineListItem(line, index)
         })
-        if (!this.getLoadedAll) {
-          this.loadMoreItem()
-        }
+        this.loadMoreItem()
       }
       .width('100%').layoutWeight(1)
       .onScrollIndex((first: number) => {
         this.firstVisibleIndex = first;
-      })
-
-      Column() {
-        Column()
-          .width(this.scrollbarActive ? 10 : 4)
-          .height(this.getThumbHeight)
-          .backgroundColor('#666666')
-          .borderRadius(this.scrollbarActive ? 5 : 2)
-          .position({ y: this.getThumbOffset })
-          .animation({ duration: 150, curve: Curve.EaseInOut })
-          .onTouch((event: TouchEvent) => {
-            if (event.type === TouchType.Down) {
-              this.activateScrollbar();
-            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-              this.deactivateScrollbar();
-            }
-          })
-          .gesture(
-            PanGesture({ direction: PanDirection.Vertical })
-              .onActionStart(() => { this.dragStartY = this.getThumbOffset; })
-              .onActionUpdate((event: GestureEvent) => {
-                const trackH: number = this.scrollbarTrackHeight;
-                const thumbH: number = this.getThumbHeight;
-                const y: number = Math.max(0, Math.min(trackH - thumbH, this.dragStartY + event.offsetY));
-                const ratio: number = (trackH - thumbH) > 0 ? y / (trackH - thumbH) : 0;
-                this.scrollToRatio(ratio, false);
-              })
-              .onActionEnd(() => this.deactivateScrollbar())
-          )
-      }
-      .width(20).height('100%')
-      .alignItems(HorizontalAlign.Center)
-      .position({ right: 0 })
-      .backgroundColor('#F5F5F5')
-      .onTouch((event: TouchEvent) => {
-        if (event.type === TouchType.Down) {
-          this.activateScrollbar();
-        } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-          this.deactivateScrollbar();
+        // 接近末尾自动加载更多
+        if (first + 15 >= this.displayCount && !this.getLoadedAll) {
+          this.loadMore();
         }
       })
-      .onClick((event: ClickEvent) => {
-        if (this.lines.length <= this.displayCount) return;
-        this.scrollToRatio(event.y / this.scrollbarTrackHeight);
-      })
+
+      // 仅在内容溢出时显示滚动条（对齐安卓 scrollbarVisible）
+      if (this.getScrollbarVisible) {
+        // 全高触摸轨道（比可见滑块宽，方便点到）；点按/拖拽均触发变宽并跳转
+        Column() {
+          // 可见滑块（纯展示，手势由外层轨道统一处理，对齐安卓 thumb 仅展示）
+          Column()
+            .width(this.scrollbarActive ? 12 : 4)
+            .height(this.getThumbHeight)
+            .backgroundColor($r('app.color.primary'))
+            .opacity(0.55)
+            .borderRadius(this.scrollbarActive ? 6 : 2)
+            .offset({ y: this.getThumbOffset })
+            .animation({ duration: 150, curve: Curve.EaseInOut })
+        }
+        .width(20).height('100%')
+        .justifyContent(FlexAlign.Start)
+        .alignItems(HorizontalAlign.Center)
+        .position({ right: 0 })
+        .onTouch((event: TouchEvent) => {
+          if (event.type === TouchType.Down) {
+            this.activateScrollbar();
+            // 首次触摸即跳转到对应位置（对齐安卓 awaitFirstDown 跳转）
+            if (this.scrollbarTrackHeight > 0) {
+              this.scrollToRatio(event.touches[0].y / this.scrollbarTrackHeight, true);
+            }
+          } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+            this.deactivateScrollbar();
+          }
+        })
+        .gesture(
+          PanGesture({ direction: PanDirection.Vertical })
+            .onActionStart(() => { this.dragStartY = this.getThumbOffset; })
+            .onActionUpdate((event: GestureEvent) => {
+              const trackH: number = this.scrollbarTrackHeight;
+              const thumbH: number = this.getThumbHeight;
+              const y: number = Math.max(0, Math.min(trackH - thumbH, this.dragStartY + event.offsetY));
+              const ratio: number = (trackH - thumbH) > 0 ? y / (trackH - thumbH) : 0;
+              this.scrollToRatio(ratio, false);
+            })
+            .onActionEnd(() => this.deactivateScrollbar())
+        )
+      }
     }
     .layoutWeight(1).width('100%')
     .onAreaChange((_: Area, newArea: Area) => {
@@ -321,63 +509,64 @@ struct FilePreview {
   @Builder
   horizontalReader() {
     Column() {
-      Row() {
-        Row()
-          .width(this.getThumbWidth)
-          .height(this.scrollbarActive ? 10 : 4)
-          .backgroundColor('#666666')
-          .borderRadius(this.scrollbarActive ? 5 : 2)
-          .position({ x: this.getThumbOffsetHorizontal })
-          .animation({ duration: 150, curve: Curve.EaseInOut })
-          .onTouch((event: TouchEvent) => {
-            if (event.type === TouchType.Down) {
-              this.activateScrollbar();
-            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-              this.deactivateScrollbar();
-            }
-          })
-          .gesture(
-            PanGesture({ direction: PanDirection.Horizontal })
-              .onActionStart(() => { this.dragStartX = this.getThumbOffsetHorizontal; })
-              .onActionUpdate((event: GestureEvent) => {
-                const trackW: number = this.scrollbarTrackWidth;
-                const thumbW: number = this.getThumbWidth;
-                const x: number = Math.max(0, Math.min(trackW - thumbW, this.dragStartX + event.offsetX));
-                const ratio: number = (trackW - thumbW) > 0 ? x / (trackW - thumbW) : 0;
-                this.scrollToRatio(ratio, false);
-              })
-              .onActionEnd(() => this.deactivateScrollbar())
-          )
-      }
-      .width('100%').height(20)
-      .backgroundColor('#F5F5F5')
-      .alignItems(VerticalAlign.Center)
-      .onTouch((event: TouchEvent) => {
-        if (event.type === TouchType.Down) {
-          this.activateScrollbar();
-        } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-          this.deactivateScrollbar();
+      // 仅在内容溢出时显示滚动条（对齐安卓 scrollbarVisible）
+      if (this.getScrollbarVisible) {
+        Row() {
+          // 可见滑块（纯展示，手势由外层轨道统一处理，对齐安卓 thumb 仅展示）
+          Row()
+            .width(this.getThumbWidth)
+            .height(this.scrollbarActive ? 12 : 4)
+            .backgroundColor($r('app.color.primary'))
+            .opacity(0.55)
+            .borderRadius(this.scrollbarActive ? 6 : 2)
+            .offset({ x: this.getThumbOffsetHorizontal })
+            .animation({ duration: 150, curve: Curve.EaseInOut })
         }
-      })
-      .onClick((event: ClickEvent) => {
-        if (this.lines.length <= this.displayCount) return;
-        this.scrollToRatio(event.x / this.scrollbarTrackWidth);
-      })
-      .onAreaChange((_: Area, newArea: Area) => {
-        this.scrollbarTrackWidth = newArea.width as number;
-      })
+        .width('100%').height(20)
+        .justifyContent(FlexAlign.Start)
+        .alignItems(VerticalAlign.Center)
+        .backgroundColor($r('app.color.scrollbar_track'))
+        .onTouch((event: TouchEvent) => {
+          if (event.type === TouchType.Down) {
+            this.activateScrollbar();
+            // 首次触摸即跳转到对应位置（对齐安卓 awaitFirstDown 跳转）
+            if (this.scrollbarTrackWidth > 0) {
+              this.scrollToRatio(event.touches[0].x / this.scrollbarTrackWidth, true);
+            }
+          } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+            this.deactivateScrollbar();
+          }
+        })
+        .gesture(
+          PanGesture({ direction: PanDirection.Horizontal })
+            .onActionStart(() => { this.dragStartX = this.getThumbOffsetHorizontal; })
+            .onActionUpdate((event: GestureEvent) => {
+              const trackW: number = this.scrollbarTrackWidth;
+              const thumbW: number = this.getThumbWidth;
+              const x: number = Math.max(0, Math.min(trackW - thumbW, this.dragStartX + event.offsetX));
+              const ratio: number = (trackW - thumbW) > 0 ? x / (trackW - thumbW) : 0;
+              this.scrollToRatio(ratio, false);
+            })
+            .onActionEnd(() => this.deactivateScrollbar())
+        )
+        .onAreaChange((_: Area, newArea: Area) => {
+          this.scrollbarTrackWidth = newArea.width as number;
+        })
+      }
 
       List({ scroller: this.scroller }) {
-        ForEach(this.lines.slice(0, this.displayCount), (line: string) => {
-          this.lineListItem(line)
+        ForEach(this.lines.slice(0, this.displayCount), (line: string, index: number) => {
+          this.lineListItem(line, index)
         })
-        if (!this.getLoadedAll) {
-          this.loadMoreItem()
-        }
+        this.loadMoreItem()
       }
       .width('100%').layoutWeight(1)
       .onScrollIndex((first: number) => {
         this.firstVisibleIndex = first;
+        // 接近末尾自动加载更多
+        if (first + 15 >= this.displayCount && !this.getLoadedAll) {
+          this.loadMore();
+        }
       })
     }
     .width('100%').layoutWeight(1)

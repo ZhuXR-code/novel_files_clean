@@ -51,8 +51,8 @@ struct PrimaryButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(title).frame(maxWidth: .infinity).padding(.vertical, 12)
-                .background(Color.fsPrimary).foregroundColor(.white).cornerRadius(10)
+            Text(title).frame(maxWidth: .infinity).padding(.vertical, 7)
+                .background(Color.fsPrimary).foregroundColor(.white).cornerRadius(8)
         }
     }
 }

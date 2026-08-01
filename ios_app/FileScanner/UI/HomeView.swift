@@ -4,10 +4,29 @@ struct HomeView: View {
     @EnvironmentObject var router: Router
     @State private var runs: [ScanRun] = []
     @State private var showingFolderPicker = false
+    @State private var showingOneClickSheet = false
+
+    // 统计汇总（对齐安卓：总文件数 / 标记文件数）
+    private var totalFiles: Int { runs.reduce(0) { $0 + $1.fileCount } }
+    private var markedFiles: Int {
+        runs.reduce(0) { $0 + FileRepository.shared.countMarkedFiles(runId: $1.id) }
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                // 统计卡片（对齐安卓顶部统计）
+                HStack(spacing: 12) {
+                    statCard(title: "文库数", value: "\(runs.count)", icon: "books.vertical.fill")
+                    statCard(title: "总文件数", value: "\(totalFiles)", icon: "doc.fill")
+                    statCard(title: "标记文件", value: "\(markedFiles)", icon: "checkmark.seal.fill")
+                }
+                .padding(.top, 4)
+
+                // 一键清理（对齐安卓绿色大按钮）
+                PrimaryButton(title: "一键清理重复文件") { showingOneClickSheet = true }
+                    .padding(.horizontal, 2)
+
                 FSSection("快速开始") {
                     VStack(spacing: 10) {
                         PrimaryButton(title: "选择文件夹开始扫描") { showingFolderPicker = true }
@@ -16,6 +35,18 @@ struct HomeView: View {
                                 .background(Color.fsTertiaryBg).cornerRadius(10)
                         }
                     }
+                }
+
+                // 方法说明（对齐安卓两种扫描方式）
+                FSSection("两种扫描方式") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        methodRow(number: "1", title: "选择文件夹扫描",
+                                  desc: "直接选择本地文件夹，解析文件名并标记重复、广告、水印等文件。")
+                        Divider()
+                        methodRow(number: "2", title: "从文库清理",
+                                  desc: "选择已有的扫描文库，对其中的文件进行去重与清理。")
+                    }
+                    .padding(.vertical, 4)
                 }
 
                 FSSection("文库列表") {
@@ -27,9 +58,9 @@ struct HomeView: View {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(run.folderName.isEmpty ? run.name : run.folderName)
-                                        .font(.subheadline).fontWeight(.medium)
+                                        .fsFont(.subheadline).fontWeight(.medium)
                                     Text("\(run.fileCount) 个文件 · \(formatRunDate(run.createdAt))")
-                                        .font(.caption).foregroundColor(.fsSecondaryLabel)
+                                        .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
                                 }
                                 Spacer()
                                 Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
@@ -42,14 +73,28 @@ struct HomeView: View {
                                     FileRepository.shared.deleteScanRun(runId: run.id)
                                     reload()
                                 } label: { Label("删除文库", systemImage: "trash") }
+
+                                Button {
+                                    router.navigate(.oneClick(runId: run.id))
+                                } label: { Label("一键清理", systemImage: "wand.and.stars") }
                             }
                         }
                     }
                 }
+
+                // 隐私提示（对齐安卓本地扫描不上传说明）
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.shield.fill").foregroundColor(.fsPrimary)
+                    Text("所有扫描均在本地完成，文件不会上传。")
+                        .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 4)
             }
             .padding()
         }
         .navigationTitle("文包清理助手")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear { reload() }
         .sheet(isPresented: $showingFolderPicker) {
             FolderPicker { url in
@@ -60,9 +105,82 @@ struct HomeView: View {
                 beginScan(cfg)
             }
         }
+        .sheet(isPresented: $showingOneClickSheet) {
+            OneClickRunPicker(runs: runs) { run in
+                showingOneClickSheet = false
+                router.navigate(.oneClick(runId: run.id))
+            }
+        }
     }
 
     private func reload() { runs = FileRepository.shared.getScanRuns() }
+
+    private func statCard(title: String, value: String, icon: String) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon).foregroundColor(.fsPrimary).fsFont(.title3)
+            Text(value).fsFont(.title2).fontWeight(.bold)
+            Text(title).fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(Color.fsSecondaryBg).cornerRadius(12)
+    }
+
+    private func methodRow(number: String, title: String, desc: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(number)
+                .fsFont(.subheadline).fontWeight(.bold)
+                .foregroundColor(.white)
+                .frame(width: 24, height: 24)
+                .background(Circle().fill(Color.fsPrimary))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).fsFont(.subheadline).fontWeight(.medium)
+                Text(desc).fsFont(.caption).foregroundColor(.fsSecondaryLabel).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+// 一键清理：选择一个文库（对齐安卓从首页进入一键清理的"选文件夹/文库"起点）
+struct OneClickRunPicker: View {
+    let runs: [ScanRun]
+    let onSelect: (ScanRun) -> Void
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if runs.isEmpty {
+                    Text("暂无文库，请先扫描文件夹。").foregroundColor(.fsSecondaryLabel)
+                } else {
+                    ForEach(runs) { run in
+                        Button {
+                            onSelect(run)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(run.folderName.isEmpty ? run.name : run.folderName)
+                                        .fsFont(.subheadline).fontWeight(.medium)
+                                        .foregroundColor(.primary)
+                                    Text("\(run.fileCount) 个文件 · \(formatRunDate(run.createdAt))")
+                                        .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                                }
+                                Spacer()
+                                Image(systemName: "wand.and.stars").foregroundColor(.fsPrimary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("选择文库")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+        }
+    }
 }
 
 func formatRunDate(_ ts: Int64) -> String {
@@ -79,10 +197,10 @@ struct ScanProgressView: View {
         VStack(spacing: 22) {
             Spacer().frame(height: 20)
             Image(systemName: scan.finished ? "checkmark.circle.fill" : "doc.text.magnifyingglass")
-                .font(.system(size: 54))
+                .fsFontSize(54)
                 .foregroundColor(scan.finished ? .green : .fsPrimary)
 
-            Text(scan.phaseText).font(.headline)
+            Text(scan.phaseText).fsFont(.headline)
 
             ProgressView(value: Double(scan.progress), total: 100)
                 .progressViewStyle(.linear)
@@ -92,7 +210,7 @@ struct ScanProgressView: View {
 
             if !scan.currentFile.isEmpty {
                 Text(scan.currentFile)
-                    .font(.caption).foregroundColor(.fsSecondaryLabel)
+                    .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
                     .lineLimit(1).frame(maxWidth: 280)
             }
 
@@ -113,6 +231,7 @@ struct ScanProgressView: View {
         }
         .padding()
         .navigationTitle("扫描中")
+        .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(scan.isScanning)
     }
 }

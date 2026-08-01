@@ -9,5 +9,6 @@ export class KeywordReplaceRule {
   replacement: string = '';
   sortOrder: number = 0;
   enabled: boolean = true;
+  isBuiltin: number = 0;
   createdAt: number = 0;
 }

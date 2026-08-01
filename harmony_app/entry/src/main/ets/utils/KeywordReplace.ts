@@ -92,6 +92,7 @@ export class KeywordReplace {
     r.replacement = replacement;
     r.sortOrder = sortOrder;
     r.enabled = true;
+    r.isBuiltin = 1;
     r.createdAt = Date.now();
     return r;
   }

@@ -1,4 +1,4 @@
-import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { window } from '@kit.ArkUI';
 import { RdbHelper } from '../database/RdbHelper';
 import { AppContext } from '../utils/AppContext';
@@ -8,6 +8,8 @@ import { KeywordReplaceDao } from '../database/KeywordReplaceDao';
 import { DupRuleConfigDao } from '../database/DupRuleConfigDao';
 import { DupRuleConfig } from '../model/DupRuleConfig';
 import { PreferencesUtil } from '../utils/PreferencesUtil';
+import { FilePermissionUtil } from '../utils/FilePermissionUtil';
+import { FontUtil } from '../utils/FontUtil';
 
 /**
  * 应用入口 Ability。负责初始化数据库单例、保存全局 Context。
@@ -15,13 +17,22 @@ import { PreferencesUtil } from '../utils/PreferencesUtil';
 export default class EntryAbility extends UIAbility {
   async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): Promise<void> {
     AppContext.set(this.context);
+    // 初始化全局字号缩放（AppStorage 共享，各页面通过 @StorageProp 绑定）
+    const fontSaved: string = PreferencesUtil.getString('settings_font_scale', 'standard');
+    AppStorage.setOrCreate(FontUtil.KEY, FontUtil.scaleFromString(fontSaved));
+    // 初始化全局预览滚动条方向（AppStorage 共享，FilePreview 通过 @StorageProp 绑定）
+    const scrollbarSaved: string = PreferencesUtil.getString('preview_scrollbar_mode', 'vertical');
+    AppStorage.setOrCreate('previewScrollbarMode', scrollbarSaved);
     try {
       await RdbHelper.getInstance(this.context);
       LogUtil.i('EntryAbility', '数据库初始化完成');
       await this.seedDefaultKeywordRules();
       await this.seedDefaultDupRules();
+      // 激活已持久化的文件访问权限（应用重启后仍可访问/删除之前选中的文件夹）
+      await FilePermissionUtil.activatePersistedPermissions();
     } catch (e) {
-      LogUtil.e('EntryAbility', `数据库初始化失败: ${(e as Error).message}`);
+      // 打印完整错误（含堆栈），便于定位初始化失败的真实原因
+      LogUtil.e('EntryAbility', `数据库初始化失败: ${(e as Error)?.message ?? '未知错误'}\nstack: ${(e as Error)?.stack ?? ''}`);
     }
   }
 
@@ -37,6 +48,9 @@ export default class EntryAbility extends UIAbility {
         if (n === 0) {
           await KeywordReplaceDao.insert(rule);
           added++;
+        } else {
+          // 旧库内置规则可能未标记 is_builtin，补刷为内置（显示在内置区且不可删除）
+          await KeywordReplaceDao.markBuiltinByPattern(rule.scope, rule.pattern);
         }
       }
       if (added > 0) {
@@ -48,10 +62,39 @@ export default class EntryAbility extends UIAbility {
     }
   }
 
-  onWindowStageCreate(windowStage: window.WindowStage): void {
-    windowStage.loadContent('pages/Index', (err: Error) => {
+  async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
+    // 确保数据库就绪后再加载首页：onCreate 是 async 且不被框架 await，
+    // 若不在此处等待，首页 aboutToAppear 可能在 DB 初始化完成前调用 DAO，触发 "getStore of null"。
+    try {
+      await RdbHelper.getInstance(this.context);
+    } catch (e) {
+      LogUtil.e('EntryAbility', `数据库初始化失败(窗口阶段): ${(e as Error)?.message ?? '未知错误'}`);
+    }
+    windowStage.loadContent('pages/MainTabs', (err: Error) => {
       if (err.message) {
         LogUtil.e('EntryAbility', `加载首页失败: ${err.message}`);
+        return;
+      }
+      // 保存主窗口引用（备用）
+      try {
+        const mainWindow: window.Window = windowStage.getMainWindowSync();
+        AppContext.setMainWindow(mainWindow);
+      } catch (e) {
+        LogUtil.e('EntryAbility', `获取主窗口失败: ${(e as Error).message}`);
+      }
+      // 读取已保存的主题偏好并应用到应用（setColorMode 为应用级，立即生效且持久至进程结束）
+      try {
+        const theme: string = PreferencesUtil.getString('settings_theme_mode', 'system');
+        if (theme === 'dark') {
+          this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
+        } else if (theme === 'light') {
+          this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT);
+        } else {
+          // 'system' 跟随系统
+          this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
+        }
+      } catch (e) {
+        LogUtil.e('EntryAbility', `应用主题失败: ${(e as Error).message}`);
       }
     });
   }

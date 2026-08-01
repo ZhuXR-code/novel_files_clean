@@ -1,15 +1,26 @@
 {
   "color": [
-    { "name": "start_window_background", "value": "#F1F3F5" },
-    { "name": "primary", "value": "#2196F3" },
-    { "name": "primary_dark", "value": "#1976D2" },
-    { "name": "text_primary", "value": "#1A1A1A" },
-    { "name": "text_secondary", "value": "#666666" },
-    { "name": "text_hint", "value": "#999999" },
-    { "name": "bg_page", "value": "#F1F3F5" },
+    { "name": "start_window_background", "value": "#F9FAFB" },
+    { "name": "primary", "value": "#2D6A4F" },
+    { "name": "primary_dark", "value": "#1B4332" },
+    { "name": "primary_light", "value": "#D8F3DC" },
+    { "name": "text_primary", "value": "#111827" },
+    { "name": "text_secondary", "value": "#6B7280" },
+    { "name": "text_hint", "value": "#9CA3AF" },
+    { "name": "bg_page", "value": "#F9FAFB" },
     { "name": "bg_card", "value": "#FFFFFF" },
-    { "name": "divider", "value": "#E0E0E0" },
-    { "name": "danger", "value": "#E53935" },
-    { "name": "success", "value": "#43A047" }
+    { "name": "divider", "value": "#E5E7EB" },
+    { "name": "danger", "value": "#DC2626" },
+    { "name": "success", "value": "#40916C" },
+    { "name": "warning", "value": "#D97706" },
+    { "name": "link", "value": "#2D6A4F" },
+    { "name": "text_on_primary", "value": "#FFFFFF" },
+    { "name": "text_disabled", "value": "#D1D5DB" },
+    { "name": "bg_light", "value": "#F3F4F6" },
+    { "name": "bg_hover", "value": "#E5E7EB" },
+    { "name": "scrollbar_thumb", "value": "#9CA3AF" },
+    { "name": "scrollbar_track", "value": "#F3F4F6" },
+    { "name": "shadow", "value": "#33000000" },
+    { "name": "scrim", "value": "#66000000" }
   ]
 }

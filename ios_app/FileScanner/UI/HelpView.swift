@@ -4,7 +4,7 @@ struct HelpView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                Text("文包清理助手（iOS 版）使用说明").font(.title2).fontWeight(.bold)
+                Text("文包清理助手（iOS 版）使用说明").fsFont(.title2).fontWeight(.bold)
                 group("1. 扫描文件", items: [
                     "点击「选择文件夹开始扫描」，在系统文件选择器中挑选一个文件夹（如「文件」App 中的目录、iCloud Drive、或连接电脑同步的目录）。",
                     "iOS 出于隐私限制，App 只能访问你主动选择的文件夹及其子目录；授权后 iOS 会记住该文件夹以便后续读取与删除。",
@@ -26,18 +26,19 @@ struct HelpView: View {
                     "所有数据均保存在本机 SQLite 数据库（沙盒内），不上传任何服务器。"
                 ])
                 Text("本 App 为「txt 文件清理」工程的 iOS 端实现，功能与安卓端保持对齐。")
-                    .font(.caption).foregroundColor(.fsSecondaryLabel)
+                    .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
             }
             .padding()
         }
         .navigationTitle("使用帮助")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func group(_ title: String, items: [String]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.headline)
+            Text(title).fsFont(.headline)
             ForEach(items, id: \.self) { t in
-                Text("• " + t).font(.subheadline).foregroundColor(.fsSecondaryLabel)
+                Text("• " + t).fsFont(.subheadline).foregroundColor(.fsSecondaryLabel)
             }
         }
     }

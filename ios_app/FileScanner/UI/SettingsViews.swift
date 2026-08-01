@@ -3,6 +3,9 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var router: Router
     @EnvironmentObject var prefs: Preferences
+    @State private var showExportResult = false
+    @State private var exportPath: String = ""
+    @State private var showClearConfirm = false
 
     var body: some View {
         List {
@@ -44,11 +47,41 @@ struct SettingsView: View {
                 }
                 TextField("排除书名（逗号分隔）", text: $prefs.groupExcludeNames)
             }
+            // 对齐安卓「数据与备份」：导出已标记 / 清空数据
+            Section("数据与备份") {
+                Button {
+                    if let p = FileRepository.shared.exportMarkedFiles() {
+                        exportPath = p; showExportResult = true
+                    } else {
+                        exportPath = ""; showExportResult = true
+                    }
+                } label: { Label("导出已标记文件清单", systemImage: "square.and.arrow.up") }
+
+                Button(role: .destructive) {
+                    showClearConfirm = true
+                } label: { Label("清空全部数据", systemImage: "trash.fill") }
+            }
             Section {
                 Button { router.navigate(.help) } label: { Label("使用帮助", systemImage: "questionmark.circle") }
+                Button { router.navigate(.privacy) } label: { Label("隐私协议", systemImage: "hand.raised.fill") }
+                Button { router.navigate(.about) } label: { Label("关于", systemImage: "info.circle") }
             }
         }
         .navigationTitle("设置")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("导出结果", isPresented: $showExportResult) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(exportPath.isEmpty ? "当前没有已标记的文件。" : "已导出到：\n\(exportPath)")
+        }
+        .alert("清空全部数据", isPresented: $showClearConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("清空", role: .destructive) {
+                FileRepository.shared.clearAllData()
+            }
+        } message: {
+            Text("将删除所有扫描文库、文件记录、规则与日志，且无法恢复。确定继续？")
+        }
     }
 
     private func row(_ title: String, action: @escaping () -> Void) -> some View {
@@ -62,47 +95,130 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - 勾选重复规则
+// MARK: - 勾选重复规则（对齐安卓 DupRuleConfigScreen）
+
+/// 一条匹配条件：对某个字段写正则。多条之间为「且」关系。
+struct DupPatternItem: Identifiable, Equatable {
+    let id = UUID()
+    var field: String = "file_name"
+    var regex: String = ""
+}
+
+/// 可选的处理项（字段），与安卓 FIELD_OPTIONS 完全一致。
+let DUP_FIELD_OPTIONS: [(String, String)] = [
+    ("file_name", "文件名"),
+    ("novel_name", "小说名"),
+    ("author", "作者"),
+    ("progress", "进度"),
+    ("source", "来源"),
+    ("file_size", "文件大小(字节)"),
+    ("created_date", "创建日期")
+]
+
+func dupFieldLabel(_ key: String) -> String {
+    DUP_FIELD_OPTIONS.first { $0.0 == key }?.1 ?? key
+}
+
+/// 把安卓旧格式的 op+value 尽量转成正则，兼容已有自定义规则。
+private func oldOpToRegex(op: String, value: String) -> String {
+    if value.isEmpty { return "" }
+    let esc = NSRegularExpression.escapedPattern(for: value)
+    switch op {
+    case "contains": return esc
+    case "not_contains", "neq": return "(?s)^(?:(?!\(esc)).)*$"
+    case "starts_with": return "^\(esc)"
+    case "ends_with": return "\(esc)$"
+    case "eq": return "^\(esc)$"
+    case "regex": return value
+    default: return ""
+    }
+}
+
+func parseDupPatterns(_ json: String?) -> [DupPatternItem] {
+    guard let json, !json.isEmpty, json != "[]",
+          let data = json.data(using: .utf8),
+          let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+    return arr.map { obj in
+        let field = obj["field"] as? String ?? "file_name"
+        let regex: String
+        if let r = obj["regex"] as? String {
+            regex = r
+        } else {
+            regex = oldOpToRegex(op: obj["op"] as? String ?? "eq", value: obj["value"] as? String ?? "")
+        }
+        return DupPatternItem(field: field, regex: regex)
+    }
+}
+
+func serializeDupPatterns(_ patterns: [DupPatternItem]) -> String {
+    let arr = patterns.filter { !$0.regex.isEmpty }.map { ["field": $0.field, "regex": $0.regex] }
+    guard !arr.isEmpty,
+          let data = try? JSONSerialization.data(withJSONObject: arr),
+          let s = String(data: data, encoding: .utf8) else { return "[]" }
+    return s
+}
+
 struct DupRuleView: View {
     @EnvironmentObject var router: Router
     @State private var builtins: [DupRuleConfig] = []
     @State private var userRules: [DupRuleConfig] = []
-    @State private var showAdd = false
-    @State private var newName = ""
-    @State private var newField = "file_name"
-    @State private var newRegex = ""
-    @State private var newAction = "check"
+    @State private var editing: DupRuleConfig? = nil
+    @State private var showEditor = false
 
     var body: some View {
         List {
-            Section("内置规则（五则）") {
-                ForEach($builtins) { $c in
-                    Toggle(isOn: Binding(get: { $c.wrappedValue.enabled }, set: { v in
-                        $c.wrappedValue.enabled = v
-                        FileRepository.shared.setDupRuleEnabled(key: $c.wrappedValue.ruleKey, enabled: v)
-                    })) {
-                        VStack(alignment: .leading) {
-                            Text($c.wrappedValue.ruleName).font(.subheadline)
-                            Text($c.wrappedValue.desc).font(.caption2).foregroundColor(.fsSecondaryLabel)
+            Section {
+                Text("选择「勾选重复」时应用的检测规则。内置规则不可删除；自定义规则可增删改。自定义规则：选择要处理的项并填写正则表达式，命中后执行对应动作。")
+                    .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+            }
+
+            if !builtins.isEmpty {
+                Section("内置规则（不可删除）") {
+                    ForEach($builtins) { $c in
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text($c.wrappedValue.ruleName).fsFont(.subheadline).fontWeight(.medium)
+                                    Text("内置").fsFont(.caption2).fontWeight(.bold).foregroundColor(.fsPrimary)
+                                }
+                                Text($c.wrappedValue.desc).fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                            }
+                            Spacer()
+                            Toggle("", isOn: Binding(get: { $c.wrappedValue.enabled }, set: { v in
+                                $c.wrappedValue.enabled = v
+                                FileRepository.shared.setDupRuleEnabled(key: $c.wrappedValue.ruleKey, enabled: v)
+                            })).labelsHidden()
                         }
                     }
                 }
             }
+
             Section("自定义规则") {
+                if userRules.isEmpty {
+                    Text("暂无自定义规则").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                }
                 ForEach($userRules) { $c in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text($c.wrappedValue.ruleName.isEmpty ? "(未命名)" : $c.wrappedValue.ruleName).font(.subheadline)
-                            Text("动作: \($c.wrappedValue.action == "protect" ? "保护(不勾选)" : "勾选(待删)") · 条件: \($c.wrappedValue.conditions ?? "")")
-                                .font(.caption2).foregroundColor(.fsSecondaryLabel)
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text($c.wrappedValue.ruleName.isEmpty ? "(未命名)" : $c.wrappedValue.ruleName)
+                                    .fsFont(.subheadline).fontWeight(.medium)
+                                Text("自定义").fsFont(.caption2).fontWeight(.bold).foregroundColor(.orange)
+                            }
+                            Text("\($c.wrappedValue.action == "protect" ? "🛡️保护" : "✓勾选") - \(patternSummary($c.wrappedValue.conditions))")
+                                .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
                         }
                         Spacer()
+                        Button {
+                            editing = $c.wrappedValue
+                            showEditor = true
+                        } label: { Image(systemName: "pencil").foregroundColor(.fsSecondaryLabel) }
+                            .buttonStyle(.borderless)
                         Toggle("", isOn: Binding(get: { $c.wrappedValue.enabled }, set: { v in
                             $c.wrappedValue.enabled = v
                             var copy = $c.wrappedValue; copy.enabled = v
-                            FileRepository.shared.saveDupRuleConfig(copy)
-                        }))
-                        .labelsHidden()
+                            _ = FileRepository.shared.saveDupRuleConfig(copy)
+                        })).labelsHidden()
                     }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
@@ -111,50 +227,37 @@ struct DupRuleView: View {
                         } label: { Label("删除", systemImage: "trash") }
                     }
                 }
-                Button { showAdd = true } label: { Label("新增自定义规则", systemImage: "plus") }
+                Button {
+                    editing = nil
+                    showEditor = true
+                } label: { Label("添加自定义规则", systemImage: "plus") }
+            }
+
+            Section {
+                Text("提示：修改后立即生效，下次执行「勾选重复」时按新规则执行。")
+                    .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
             }
         }
         .navigationTitle("勾选重复规则")
-        .onAppear { reload() }
-        .sheet(isPresented: $showAdd) {
-            NavigationStack {
-                Form {
-                    Section("规则名称") { TextField("如：保护精校版", text: $newName) }
-                    Section("满足条件时") {
-                        Picker("动作", selection: $newAction) {
-                            Text("勾选（待删）").tag("check")
-                            Text("保护（不勾选）").tag("protect")
-                        }
-                    }
-                    Section("条件（命中字段的正则）") {
-                        Picker("字段", selection: $newField) {
-                            Text("文件名").tag("file_name")
-                            Text("书名").tag("novel_name")
-                            Text("作者").tag("author")
-                            Text("进度").tag("progress")
-                            Text("来源").tag("source")
-                        }
-                        TextField("正则表达式，如 水印", text: $newRegex)
-                    }
-                }
-                .navigationTitle("新增规则").toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) { Button("取消") { showAdd = false } }
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("保存") {
-                            let json = "[{\"field\":\"\(newField)\",\"regex\":\"\(newRegex)\"}]"
-                            var c = DupRuleConfig()
-                            c.ruleName = newName
-                            c.conditions = json
-                            c.action = newAction
-                            c.enabled = true
-                            FileRepository.shared.saveDupRuleConfig(c)
-                            showAdd = false; newName = ""; newRegex = ""
-                            reload()
-                        }
-                    }
-                }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    editing = nil
+                    showEditor = true
+                } label: { Image(systemName: "plus") }
             }
         }
+        .onAppear { reload() }
+        .sheet(isPresented: $showEditor) {
+            DupRuleEditorSheet(original: editing) { reload() }
+        }
+    }
+
+    private func patternSummary(_ json: String?) -> String {
+        let pats = parseDupPatterns(json)
+        if pats.isEmpty { return "无条件" }
+        return pats.map { "\(dupFieldLabel($0.field)) ~ \($0.regex)" }.joined(separator: " 且 ")
     }
 
     private func reload() {
@@ -164,70 +267,370 @@ struct DupRuleView: View {
     }
 }
 
-// MARK: - 关键词替换规则
-struct KeywordReplaceView: View {
-    @State private var rules: [KeywordReplaceRule] = []
-    @State private var showAdd = false
-    @State private var newScope = KeywordReplace.SCOPE_SCAN
-    @State private var newPattern = ""
-    @State private var newReplacement = ""
+/// 自定义规则编辑器（新增/编辑通用，含多条件与正则测试，对齐安卓 UserRuleDialog）。
+struct DupRuleEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let original: DupRuleConfig?
+    let onSaved: () -> Void
+
+    @State private var name = ""
+    @State private var desc = ""
+    @State private var action = "check"
+    @State private var patterns: [DupPatternItem] = [DupPatternItem()]
 
     var body: some View {
-        List {
-            ForEach($rules) { $r in
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text($r.wrappedValue.pattern).font(.subheadline)
-                        Text("作用域: \($r.wrappedValue.scope) · 替换为: \($r.wrappedValue.replacement.isEmpty ? "(删除)" : $r.wrappedValue.replacement)")
-                            .font(.caption2).foregroundColor(.fsSecondaryLabel)
-                    }
-                    Spacer()
-                    Toggle("", isOn: Binding(get: { $r.wrappedValue.enabled }, set: { v in
-                        $r.wrappedValue.enabled = v
-                        FileRepository.shared.updateKeywordReplaceRule($r.wrappedValue)
-                    })).labelsHidden()
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("规则名称", text: $name)
+                    TextField("备注说明（可选）", text: $desc)
                 }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        FileRepository.shared.deleteKeywordReplaceRule($r.wrappedValue.id)
-                        reload()
-                    } label: { Label("删除", systemImage: "trash") }
+                Section("动作") {
+                    Picker("动作", selection: $action) {
+                        Text("勾选").tag("check")
+                        Text("🛡️ 保护").tag("protect")
+                    }
+                    .pickerStyle(.segmented)
+                }
+                Section {
+                    Text("匹配条件：对所选「项」的内容用正则匹配，以下每条都需满足才命中本规则。")
+                        .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                    ForEach($patterns) { $p in
+                        DupPatternEditor(pattern: $p, canRemove: patterns.count > 1) {
+                            patterns.removeAll { $0.id == $p.wrappedValue.id }
+                        }
+                    }
+                    Button { patterns.append(DupPatternItem()) } label: { Text("＋ 添加匹配项") }
                 }
             }
-            Button { showAdd = true } label: { Label("新增替换规则", systemImage: "plus") }
+            .navigationTitle(original == nil ? "添加自定义规则" : "编辑自定义规则")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("保存") { save() }.disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .onAppear { load() }
+        }
+    }
+
+    private func load() {
+        guard let o = original else { return }
+        name = o.ruleName
+        desc = o.desc
+        action = o.action ?? "check"
+        let pats = parseDupPatterns(o.conditions)
+        patterns = pats.isEmpty ? [DupPatternItem()] : pats
+    }
+
+    private func save() {
+        var c = original ?? DupRuleConfig()
+        c.ruleName = name.trimmingCharacters(in: .whitespaces)
+        c.desc = desc
+        c.action = action
+        c.conditions = serializeDupPatterns(patterns)
+        c.isBuiltin = false
+        if original == nil { c.enabled = true }
+        _ = FileRepository.shared.saveDupRuleConfig(c)
+        onSaved()
+        dismiss()
+    }
+}
+
+/// 单条匹配项：字段下拉 + 正则输入 + 正则校验 + 样例测试（对齐安卓 PatternRow）。
+struct DupPatternEditor: View {
+    @Binding var pattern: DupPatternItem
+    let canRemove: Bool
+    let onRemove: () -> Void
+
+    @State private var testInput = ""
+    @State private var testResult: Bool? = nil
+
+    private var regexError: String? {
+        if pattern.regex.isEmpty { return nil }
+        do { _ = try NSRegularExpression(pattern: pattern.regex); return nil }
+        catch { return error.localizedDescription }
+    }
+    private var canRun: Bool {
+        !pattern.regex.isEmpty && !testInput.isEmpty && regexError == nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("如果").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                Picker("", selection: $pattern.field) {
+                    ForEach(DUP_FIELD_OPTIONS, id: \.0) { opt in
+                        Text(opt.1).tag(opt.0)
+                    }
+                }
+                .labelsHidden()
+                Spacer()
+                if canRemove {
+                    Button { onRemove() } label: { Image(systemName: "xmark.circle.fill").foregroundColor(.fsSecondaryLabel) }
+                        .buttonStyle(.borderless)
+                }
+            }
+            TextField("正则表达式", text: $pattern.regex)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .onChange(of: pattern.regex) { _ in testResult = nil }
+            if let err = regexError {
+                Text("正则无效：\(err)").fsFont(.caption2).foregroundColor(.red)
+            }
+            Text("示例：文件名含「水印」→ 水印；以「完结」开头 → ^完结；作者等于张三 → ^张三$")
+                .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+
+            Text("测试本正则（可选）：输入一段样例文本，点「运行测试」查看是否命中")
+                .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+            TextField("例如：某某小说_水印.txt", text: $testInput)
+                .autocorrectionDisabled()
+                .onChange(of: testInput) { _ in testResult = nil }
+            HStack(spacing: 10) {
+                Button("运行测试") {
+                    guard let re = try? NSRegularExpression(pattern: pattern.regex) else { testResult = nil; return }
+                    let range = NSRange(testInput.startIndex..., in: testInput)
+                    testResult = re.firstMatch(in: testInput, range: range) != nil
+                }
+                .buttonStyle(.bordered)
+                .disabled(!canRun)
+                switch testResult {
+                case nil:
+                    Text(canRun ? "（未运行）" : "（请先填正则与样例文本）")
+                        .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                case .some(true):
+                    Text("✓ 命中").fsFont(.caption).fontWeight(.medium).foregroundColor(.fsPrimary)
+                case .some(false):
+                    Text("✗ 未命中").fsFont(.caption).fontWeight(.medium).foregroundColor(.red)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - 关键词替换规则（对齐安卓 KeywordReplaceScreen：作用域分段 + 编辑 + 排序 + 测试 + 恢复默认）
+struct KeywordReplaceView: View {
+    @State private var rules: [KeywordReplaceRule] = []
+    @State private var scope = KeywordReplace.SCOPE_SCAN
+    @State private var editing: KeywordReplaceRule? = nil
+    @State private var showEditor = false
+    @State private var showRestoreConfirm = false
+    @State private var testText = ""
+
+    private var scoped: [KeywordReplaceRule] {
+        rules.filter { $0.scope == scope }.sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    /// 实时预览：按当前作用域的启用规则依次替换。
+    private var testOutput: String {
+        guard !testText.isEmpty else { return "" }
+        return KeywordReplace.applyRules(testText, scoped.filter { $0.enabled }) ?? ""
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("作用域", selection: $scope) {
+                Text("扫描阶段").tag(KeywordReplace.SCOPE_SCAN)
+                Text("解析阶段").tag(KeywordReplace.SCOPE_PARSE)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal).padding(.top, 8)
+
+            List {
+                Section {
+                    Text(scope == KeywordReplace.SCOPE_SCAN
+                         ? "扫描阶段：在文件被扫描入库时，先对「文件名」做替换，再进行解析。"
+                         : "解析阶段：在解析出「书名 / 作者 / 进度 / 来源」之后，对这些字段做替换。")
+                        .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                    Text("规则按顺序依次执行，前一条的结果作为后一条的输入；替换内容留空表示删除。")
+                        .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                }
+
+                Section("规则（\(scoped.count) 条）") {
+                    if scoped.isEmpty {
+                        Text("当前作用域暂无规则").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                    }
+                    ForEach(scoped) { r in
+                        HStack(alignment: .top) {
+                            Text("\(r.sortOrder)")
+                                .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                                .frame(width: 26, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(r.pattern).fsFont(.subheadline).fontWeight(.medium)
+                                Text("→ \(r.replacement.isEmpty ? "（删除）" : r.replacement)")
+                                    .fsFont(.caption2)
+                                    .foregroundColor(r.replacement.isEmpty ? .red : .fsSecondaryLabel)
+                            }
+                            Spacer()
+                            Button { move(r, up: true) } label: { Image(systemName: "arrow.up") }
+                                .buttonStyle(.borderless).foregroundColor(.fsSecondaryLabel)
+                                .disabled(scoped.first?.id == r.id)
+                            Button { move(r, up: false) } label: { Image(systemName: "arrow.down") }
+                                .buttonStyle(.borderless).foregroundColor(.fsSecondaryLabel)
+                                .disabled(scoped.last?.id == r.id)
+                            Button { editing = r; showEditor = true } label: { Image(systemName: "pencil") }
+                                .buttonStyle(.borderless).foregroundColor(.fsSecondaryLabel)
+                            Toggle("", isOn: Binding(get: { r.enabled }, set: { v in
+                                var copy = r; copy.enabled = v
+                                FileRepository.shared.updateKeywordReplaceRule(copy)
+                                reload()
+                            })).labelsHidden()
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                FileRepository.shared.deleteKeywordReplaceRule(r.id)
+                                reload()
+                            } label: { Label("删除", systemImage: "trash") }
+                        }
+                    }
+                    Button { editing = nil; showEditor = true } label: { Label("新增替换规则", systemImage: "plus") }
+                }
+
+                Section("效果测试") {
+                    TextField(scope == KeywordReplace.SCOPE_SCAN ? "输入一个文件名试试" : "输入一段字段内容试试", text: $testText)
+                        .autocorrectionDisabled()
+                    if !testText.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("替换后：").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                            Text(testOutput.isEmpty ? "（结果为空）" : testOutput)
+                                .fsFont(.caption).foregroundColor(.fsPrimary)
+                        }
+                    }
+                }
+
+                Section {
+                    Button(role: .destructive) { showRestoreConfirm = true } label: {
+                        Label("恢复默认规则", systemImage: "arrow.counterclockwise")
+                    }
+                    Text("会清空当前「扫描阶段」的全部规则，并重新写入内置默认规则。")
+                        .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                }
+            }
         }
         .navigationTitle("关键词替换")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { editing = nil; showEditor = true } label: { Image(systemName: "plus") }
+            }
+        }
         .onAppear { reload() }
-        .sheet(isPresented: $showAdd) {
-            NavigationStack {
-                Form {
-                    Picker("作用域", selection: $newScope) {
-                        Text("扫描阶段（文件名）").tag(KeywordReplace.SCOPE_SCAN)
-                        Text("解析阶段（书名/作者/进度/来源）").tag(KeywordReplace.SCOPE_PARSE)
-                    }
-                    Section("匹配") { TextField("原字符串（精确匹配）", text: $newPattern) }
-                    Section("替换") { TextField("替换为（留空=删除）", text: $newReplacement) }
+        .sheet(isPresented: $showEditor) {
+            KeywordRuleEditorSheet(original: editing, scope: scope,
+                                   nextOrder: (rules.map { $0.sortOrder }.max() ?? 0) + 1) { reload() }
+        }
+        .alert("恢复默认规则", isPresented: $showRestoreConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("恢复", role: .destructive) { restoreDefaults() }
+        } message: {
+            Text("将删除「扫描阶段」现有全部规则并写回内置默认规则，此操作不可撤销。")
+        }
+    }
+
+    private func move(_ r: KeywordReplaceRule, up: Bool) {
+        let list = scoped
+        guard let idx = list.firstIndex(where: { $0.id == r.id }) else { return }
+        let target = up ? idx - 1 : idx + 1
+        guard target >= 0, target < list.count else { return }
+        var a = list[idx], b = list[target]
+        swap(&a.sortOrder, &b.sortOrder)
+        FileRepository.shared.updateKeywordReplaceRule(a)
+        FileRepository.shared.updateKeywordReplaceRule(b)
+        reload()
+    }
+
+    private func restoreDefaults() {
+        for r in rules where r.scope == KeywordReplace.SCOPE_SCAN {
+            FileRepository.shared.deleteKeywordReplaceRule(r.id)
+        }
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+        for d in KeywordReplace.DEFAULT_KEYWORD_RULES {
+            var r = KeywordReplaceRule()
+            r.scope = KeywordReplace.SCOPE_SCAN
+            r.pattern = d.pattern
+            r.replacement = d.replacement
+            r.sortOrder = d.sortOrder
+            r.enabled = true
+            r.createdAt = now
+            _ = FileRepository.shared.saveKeywordReplaceRule(r)
+        }
+        scope = KeywordReplace.SCOPE_SCAN
+        reload()
+    }
+
+    private func reload() { rules = FileRepository.shared.getKeywordReplaceRules() }
+}
+
+/// 关键词规则编辑器（新增/编辑通用）。
+struct KeywordRuleEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let original: KeywordReplaceRule?
+    let scope: String
+    let nextOrder: Int
+    let onSaved: () -> Void
+
+    @State private var editScope = KeywordReplace.SCOPE_SCAN
+    @State private var pattern = ""
+    @State private var replacement = ""
+    @State private var enabled = true
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Picker("作用域", selection: $editScope) {
+                    Text("扫描阶段（文件名）").tag(KeywordReplace.SCOPE_SCAN)
+                    Text("解析阶段（书名/作者/进度/来源）").tag(KeywordReplace.SCOPE_PARSE)
                 }
-                .navigationTitle("新增规则").toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) { Button("取消") { showAdd = false } }
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("保存") {
-                            var r = KeywordReplaceRule()
-                            r.scope = newScope; r.pattern = newPattern
-                            r.replacement = newReplacement
-                            r.sortOrder = (rules.map { $0.sortOrder }.max() ?? 0) + 1
-                            r.createdAt = Int64(Date().timeIntervalSince1970 * 1000)
-                            FileRepository.shared.saveKeywordReplaceRule(r)
-                            showAdd = false; newPattern = ""; newReplacement = ""
-                            reload()
-                        }.disabled(newPattern.isEmpty)
-                    }
+                Section("匹配") {
+                    TextField("原字符串（精确匹配）", text: $pattern)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+                Section("替换") {
+                    TextField("替换为（留空 = 删除）", text: $replacement)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                }
+                Section { Toggle("启用", isOn: $enabled) }
+            }
+            .navigationTitle(original == nil ? "新增替换规则" : "编辑替换规则")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("保存") { save() }
+                        .disabled(pattern.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .onAppear {
+                if let o = original {
+                    editScope = o.scope; pattern = o.pattern
+                    replacement = o.replacement; enabled = o.enabled
+                } else {
+                    editScope = scope
                 }
             }
         }
     }
 
-    private func reload() { rules = FileRepository.shared.getKeywordReplaceRules() }
+    private func save() {
+        if var r = original {
+            r.scope = editScope; r.pattern = pattern
+            r.replacement = replacement; r.enabled = enabled
+            FileRepository.shared.updateKeywordReplaceRule(r)
+        } else {
+            var r = KeywordReplaceRule()
+            r.scope = editScope; r.pattern = pattern
+            r.replacement = replacement; r.enabled = enabled
+            r.sortOrder = nextOrder
+            r.createdAt = Int64(Date().timeIntervalSince1970 * 1000)
+            _ = FileRepository.shared.saveKeywordReplaceRule(r)
+        }
+        onSaved()
+        dismiss()
+    }
 }
 
 // MARK: - 操作日志
@@ -241,11 +644,11 @@ struct LogViewerView: View {
                 ForEach(filtered) { e in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
-                            Text(e.level).font(.caption2).foregroundColor(e.level == "E" ? .red : .fsSecondaryLabel)
-                            Text(formatLogTime(e.time)).font(.caption2).foregroundColor(.fsSecondaryLabel)
-                            Text(e.tag).font(.caption2).foregroundColor(.fsSecondaryLabel)
+                            Text(e.level).fsFont(.caption2).foregroundColor(e.level == "E" ? .red : .fsSecondaryLabel)
+                            Text(formatLogTime(e.time)).fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                            Text(e.tag).fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
                         }
-                        Text(e.message).font(.caption)
+                        Text(e.message).fsFont(.caption)
                     }
                 }
             }
@@ -256,10 +659,20 @@ struct LogViewerView: View {
         .onAppear { reload() }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button("清空") {
-                    FileRepository.shared.clearOperationLogs()
-                    reload()
-                }
+                Menu {
+                    // 复制全部（对齐安卓 LogViewerScreen 的复制能力）
+                    Button("复制全部") {
+                        UIPasteboard.general.string = filtered
+                            .map { "\(formatLogTime($0.time)) \($0.level)/\($0.tag): \($0.message)" }
+                            .joined(separator: "\n")
+                    }
+                    Button("刷新") { reload() }
+                    Divider()
+                    Button("清空", role: .destructive) {
+                        FileRepository.shared.clearOperationLogs()
+                        reload()
+                    }
+                } label: { Image(systemName: "ellipsis.circle") }
             }
         }
     }

@@ -3,15 +3,21 @@ import { promptAction } from '@kit.ArkUI';
 import { ScanConfig } from '../model/ScanConfig';
 import { ScanConfigDao } from '../database/ScanConfigDao';
 import { LogUtil } from '../utils/LogUtil';
+import { FormatUtil } from '../utils/FormatUtil';
+import { TopBar } from '../components/TopBar';
+import { ToastUtil } from '../utils/ToastUtil';
 
 @Entry
 @Component
 struct ScanConfigList {
   @State configs: ScanConfig[] = [];
   @State loading: boolean = true;
+  @State refreshing: boolean = false;
 
-  async aboutToAppear(): Promise<void> {
-    await this.load();
+  // onPageShow 在每次页面显示时触发（含首次进入与从编辑页返回），
+  // 相比仅在创建时触发一次的 aboutToAppear，可确保新增/编辑后的列表实时刷新
+  onPageShow(): void {
+    this.load();
   }
 
   async load(): Promise<void> {
@@ -40,12 +46,17 @@ struct ScanConfigList {
     promptAction.showDialog({
       title: '删除配置',
       message: `确认删除配置「${cfg.name}」？`,
-      buttons: [{ text: '取消', color: '#888888' }, { text: '删除', color: '#ff3b30' }]
-    }).then((result) => {
+      buttons: [{ text: '取消', color: $r('app.color.text_secondary') }, { text: '删除', color: $r('app.color.danger') }]
+    }).then(async (result) => {
       if (result.index === 1) {
-        ScanConfigDao.delete(cfg.id);
-        LogUtil.operation('删除配置', `配置ID=${cfg.id} 名称=${cfg.name}`);
-        this.load();
+        try {
+          await ScanConfigDao.delete(cfg.id);
+          LogUtil.operation('删除配置', `配置ID=${cfg.id} 名称=${cfg.name}`);
+          await this.load();
+        } catch (e) {
+          LogUtil.e('ScanConfigList', `删除配置失败: ${(e as Error).message}`);
+          ToastUtil.show('删除失败');
+        }
       }
     });
   }
@@ -56,24 +67,18 @@ struct ScanConfigList {
     });
   }
 
+  @Builder
+  swipeDeleteConfig(cfg: ScanConfig) {
+    Button('删除')
+      .height('100%')
+      .backgroundColor($r('app.color.danger'))
+      .fontColor($r('app.color.text_on_primary'))
+      .onClick(() => this.deleteConfig(cfg))
+  }
+
   build() {
     Column() {
-      Row() {
-        Button('返回').onClick(() => router.back())
-        Text('扫描配置')
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-          .fontColor($r('app.color.text_primary'))
-        Button('新增')
-          .backgroundColor($r('app.color.primary'))
-          .onClick(() => this.newConfig())
-      }
-      .width('100%')
-      .height(56)
-      .padding({ left: 12, right: 12 })
-      .alignItems(VerticalAlign.Center)
+      TopBar({ title: '扫描配置', rightText: '新增', onRight: () => this.newConfig() })
 
       if (this.configs.length === 0) {
         Column() {
@@ -88,6 +93,7 @@ struct ScanConfigList {
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
       } else {
+        Refresh({ refreshing: $$this.refreshing }) {
         List() {
           ForEach(
             this.configs,
@@ -109,7 +115,7 @@ struct ScanConfigList {
                       .onClick(() => this.scanWith(cfg))
                   }
                   .width('100%')
-                  Text(`目录: ${cfg.folderName || '(未选择)'}   类型: ${cfg.fileTypes}`)
+                  Text(`目录: ${FormatUtil.formatFolderDisplay(cfg.folderUri) || cfg.folderName || '(未选择)'}   类型: ${cfg.fileTypes}`)
                     .fontSize(12)
                     .fontColor($r('app.color.text_secondary'))
                   Text(`递归: ${cfg.recursive ? '是' : '否'}   精确哈希: ${cfg.exactHash ? '是' : '否'}   最小: ${cfg.minSizeKb}KB`)
@@ -128,6 +134,7 @@ struct ScanConfigList {
               .borderRadius(10)
             }
             .padding({ left: 12, right: 12, bottom: 10 })
+            .swipeAction({ end: { builder: () => this.swipeDeleteConfig(cfg) } })
           },
           (cfg: ScanConfig) => cfg.id.toString()
         )
@@ -135,6 +142,9 @@ struct ScanConfigList {
       .layoutWeight(1)
       .width('100%')
       .backgroundColor($r('app.color.bg_page'))
+        }
+        .onRefreshing(() => { this.load().finally(() => { this.refreshing = false; }); })
+        .layoutWeight(1)
       }
     }
     .width('100%')

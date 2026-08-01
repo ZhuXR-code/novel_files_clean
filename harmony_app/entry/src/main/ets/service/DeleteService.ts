@@ -8,6 +8,8 @@ export interface DeleteOptions {
   deleteSource?: boolean;
   /** 进度回调：done 已处理数, total 总数, success 成功数, failed 失败数, current 当前文件名。 */
   onProgress?: (done: number, total: number, success: number, failed: number, current: string) => void;
+  /** 单文件完成回调，便于 UI 追加实时日志（成功/失败 + 文件名 + 路径）。 */
+  onFileDone?: (info: { id: number; name: string; path: string; ok: boolean; error?: string }) => void;
 }
 
 /**
@@ -42,33 +44,48 @@ export class DeleteService {
     for (let start: number = 0; start < ids.length; start += BATCH) {
       const batch: number[] = ids.slice(start, Math.min(start + BATCH, ids.length));
       const files = await ScannedFileDao.getByIds(batch);
+      // 本批物理删除成功的 id，待本批结束统一入库删除（deleteByIds 内部再按 500 分块），
+      // 避免逐条 deleteByIds([f.id]) 造成 10w 文件 = 10w 次 DB 往返。
+      const successIds: number[] = [];
       for (const f of files) {
         done++;
         let ok: boolean = false;
+        let errMsg: string | undefined = undefined;
         if (deleteSource) {
           try {
             if (f.path && f.path.length > 0) {
-              fileIo.unlink(f.path);
+              // fileIo.unlink 返回 Promise，必须 await 才能捕获异常并确认删除结果；
+              // 原实现未 await 会导致「删除失败也被记为成功」，且异常无法进入 catch。
+              await fileIo.unlink(f.path);
               ok = true;
             }
           } catch (e) {
             ok = false;
+            errMsg = (e as Error).message ?? String(e);
+            LogUtil.w('DeleteService', `文件 ${f.fileName}（${f.path}）删除失败: ${errMsg}`);
           }
         } else {
           // 仅删记录，直接视为成功
           ok = true;
         }
         if (ok) {
-          await ScannedFileDao.deleteByIds([f.id]);
+          successIds.push(f.id);
           deleted++;
           affectedRuns.add(f.scanRunId);
         } else {
           failed++;
           LogUtil.w('DeleteService', `物理删除失败，保留记录: ${f.fileName} (${f.path})`);
         }
+        if (options.onFileDone) {
+          options.onFileDone({ id: f.id, name: f.fileName, path: f.path, ok: ok, error: ok ? undefined : errMsg });
+        }
         if (options.onProgress) {
           options.onProgress(done, total, deleted, failed, f.fileName);
         }
+      }
+      // 批量删除本批成功文件的数据库记录（一次 DELETE 替代逐条删除）。
+      if (successIds.length > 0) {
+        await ScannedFileDao.deleteByIds(successIds);
       }
     }
 
@@ -90,8 +107,8 @@ export class DeleteService {
     runId: number,
     options: DeleteOptions = {}
   ): Promise<{ deleted: number; failed: number }> {
-    const files = await ScannedFileDao.getByScanRun(runId, 1000000, 0);
-    const ids: number[] = files.map((f) => f.id);
+    // 仅投影 id 列，避免加载 10w+ 完整对象仅为取 id 的内存浪费。
+    const ids: number[] = await ScannedFileDao.getIdsByScanRun(runId);
     return await DeleteService.deleteByIds(ids, options);
   }
 }

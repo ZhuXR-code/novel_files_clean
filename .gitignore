@@ -94,3 +94,13 @@ tests/android_standalone/*.kt
 # 安装包和截图重复输出
 安装部署/安装包/
 应用截图/output/
+
+# Trae IDE 配置目录
+.trae/
+
+# 密码检查临时文件（含明文密码，禁止入库）
+_check_pwd.py
+build-profile-pwd-check.txt
+
+# 截图
+screen.jpg

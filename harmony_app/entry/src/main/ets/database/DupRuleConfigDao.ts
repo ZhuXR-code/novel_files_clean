@@ -177,4 +177,45 @@ export class DupRuleConfigDao {
     predicates.equalTo('id', id);
     await DupRuleConfigDao.store.update(values, predicates);
   }
+
+  /**
+   * 确保内置去重规则已写入数据库（幂等）。
+   * 在 EntryAbility.onCreate 和页面 load() 时双重保障调用，防止因初始化时序问题导致页面为空。
+   */
+  public static async ensureBuiltinSeeded(): Promise<number> {
+    let added: number = 0;
+    const builtins: DupRuleConfig[] = [
+      DupRuleConfigDao.makeBuiltin('rule1', '完全相等去重', '小说名+作者+进度+文件大小 完全一致视为重复', 1),
+      DupRuleConfigDao.makeBuiltin('rule2', '数字进度对比', '有纯数字进度时，数字大者保留', 2),
+      DupRuleConfigDao.makeBuiltin('rule3a', '中文进度/完结优先', '含中文进度或完结关键词者优先保留', 3),
+      DupRuleConfigDao.makeBuiltin('rule3b', '番外特例', '完结+数字番外 按 N 最大保留', 4),
+      DupRuleConfigDao.makeBuiltin('rule4', '大文件保护', '同组内文件最大者不勾选(保护)', 5),
+      DupRuleConfigDao.makeBuiltin('rule5', '完结+番外覆盖', '完结+N番外 按 N 最大保留(覆盖规则3A)', 6)
+    ];
+    for (const r of builtins) {
+      try {
+        const existing: DupRuleConfig | null = await DupRuleConfigDao.getByRuleKey(r.ruleKey);
+        if (!existing) {
+          await DupRuleConfigDao.insert(r);
+          added++;
+        }
+      } catch (e) {
+        // 单条失败不阻断后续规则
+      }
+    }
+    return added;
+  }
+
+  private static makeBuiltin(ruleKey: string, ruleName: string, description: string, sortOrder: number): DupRuleConfig {
+    const r: DupRuleConfig = new DupRuleConfig();
+    r.ruleKey = ruleKey;
+    r.ruleName = ruleName;
+    r.description = description;
+    r.isBuiltin = 1;
+    r.enabled = 1;
+    r.sortOrder = sortOrder;
+    r.action = 'check';
+    r.conditions = '[]';
+    return r;
+  }
 }

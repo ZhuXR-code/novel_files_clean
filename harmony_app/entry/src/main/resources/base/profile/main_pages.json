@@ -1,21 +1,19 @@
 {
   "src": [
-    "pages/Index",
+    "pages/MainTabs",
     "pages/ScanConfigList",
     "pages/ConfigEdit",
-    "pages/LibraryList",
     "pages/LibraryScreen",
     "pages/FileDetail",
+    "pages/FilePreview",
     "pages/ScanProgress",
     "pages/OneClickCleanup",
     "pages/DeleteConfirm",
     "pages/DeleteProgress",
-    "pages/Settings",
     "pages/KeywordReplace",
     "pages/LogViewer",
     "pages/Help",
     "pages/PrivacyPolicy",
-    "pages/DupRuleSettings",
-    "pages/FilePreview"
+    "pages/DupRuleSettings"
   ]
 }

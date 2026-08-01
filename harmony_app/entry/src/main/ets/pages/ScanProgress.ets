@@ -5,6 +5,9 @@ import { ScanConfigDao } from '../database/ScanConfigDao';
 import { ScanService, ScanProgress as ScanProgressData } from '../service/ScanService';
 import { AppContext } from '../utils/AppContext';
 import { LogUtil } from '../utils/LogUtil';
+import { FormatUtil } from '../utils/FormatUtil';
+import { TopBar } from '../components/TopBar';
+import { ToastUtil } from '../utils/ToastUtil';
 
 @Entry
 @Component
@@ -29,6 +32,10 @@ struct ScanProgress {
       if (this.config) {
         this.folderUri = this.config.folderUri;
         this.folderName = this.config.folderName;
+        // 配置已有目录时直接开始扫描，不再要求用户重新选择路径
+        if (this.folderUri.length > 0) {
+          this.startScan();
+        }
       }
     }
   }
@@ -39,17 +46,21 @@ struct ScanProgress {
       return;
     }
     try {
-      const uri = await ScanService.selectDirectory(ctx);
+      const uri = await ScanService.selectDirectory(ctx, this.folderUri);
+      if (uri.length === 0) {
+        return; // 用户取消选择
+      }
       this.folderUri = uri;
-      this.folderName = uri.substring(uri.lastIndexOf('/') + 1);
+      this.folderName = FormatUtil.formatFolderDisplay(uri);
     } catch (e) {
       LogUtil.e('ScanProgress', `选择目录失败: ${(e as Error).message}`);
+      ToastUtil.show(`选择失败: ${(e as Error).message}`);
     }
   }
 
   private async startScan(): Promise<void> {
     if (this.folderUri.length === 0) {
-      promptAction.showToast({ message: '请先选择扫描目录' });
+      ToastUtil.show('请先选择扫描目录');
       return;
     }
     const cfg: ScanConfig = this.config ?? new ScanConfig();
@@ -77,7 +88,7 @@ struct ScanProgress {
       this.done = true;
     } catch (e) {
       LogUtil.e('ScanProgress', `扫描失败: ${(e as Error).message}`);
-      promptAction.showToast({ message: '扫描失败，请查看日志' });
+      ToastUtil.show('扫描失败，请查看日志');
     }
     this.scanning = false;
   }
@@ -88,22 +99,34 @@ struct ScanProgress {
     });
   }
 
+  private handleBack(): void {
+    if (this.scanning) {
+      promptAction.showDialog({
+        title: '提示',
+        message: '扫描进行中，确认退出？',
+        buttons: [
+          { text: '继续扫描', color: $r('app.color.text_secondary') },
+          { text: '退出', color: $r('app.color.danger') }
+        ]
+      }).then((result) => {
+        if (result.index === 1) {
+          ScanService.stop();
+          router.back();
+        }
+      });
+    } else {
+      router.back();
+    }
+  }
+
+  onBackPress(): boolean {
+    this.handleBack();
+    return true;
+  }
+
   build() {
     Column() {
-      Row() {
-        Button('返回').onClick(() => router.back())
-        Text('扫描')
-          .fontSize(18)
-          .fontWeight(FontWeight.Bold)
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-          .fontColor($r('app.color.text_primary'))
-        Button('').width(0).height(0).visibility(Visibility.Hidden)
-      }
-      .width('100%')
-      .height(56)
-      .padding({ left: 12, right: 12 })
-      .alignItems(VerticalAlign.Center)
+      TopBar({ title: '扫描', onBack: () => this.handleBack() })
 
       Column({ space: 16 }) {
         if (this.scanning) {
@@ -136,7 +159,7 @@ struct ScanProgress {
             .backgroundColor($r('app.color.primary'))
             .onClick(() => this.openResult())
         } else {
-          Text(`目录: ${this.folderName || '(未选择)'}`)
+          Text(`目录: ${FormatUtil.formatFolderDisplay(this.folderUri) || this.folderName || '(未选择)'}`)
             .fontSize(15)
             .fontColor(this.folderName ? $r('app.color.text_primary') : $r('app.color.text_hint'))
           Button('选择目录')

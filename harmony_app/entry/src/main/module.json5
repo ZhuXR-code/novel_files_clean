@@ -5,6 +5,55 @@
     "description": "$string:module_desc",
     "mainElement": "EntryAbility",
     "deviceTypes": ["phone", "tablet"],
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.READ_WRITE_DOCUMENTS",
+        "reason": "$string:perm_read_write_docs",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      },
+      {
+        "name": "ohos.permission.CLOUDDRIVE_DOCUMENTS",
+        "reason": "$string:perm_read_write_docs",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      },
+      {
+        "name": "ohos.permission.FILE_ACCESS_PERSIST",
+        "reason": "$string:perm_file_access_persist",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      }
+    ],
+    "definePermissions": [
+      {
+        "name": "ohos.permission.READ_WRITE_DOCUMENTS",
+        "grantMode": "system_grant",
+        "availableLevel": "normal",
+        "label": "$string:perm_read_write_docs",
+        "description": "$string:perm_read_write_docs"
+      },
+      {
+        "name": "ohos.permission.CLOUDDRIVE_DOCUMENTS",
+        "grantMode": "system_grant",
+        "availableLevel": "normal",
+        "label": "$string:perm_read_write_docs",
+        "description": "$string:perm_read_write_docs"
+      },
+      {
+        "name": "ohos.permission.FILE_ACCESS_PERSIST",
+        "grantMode": "system_grant",
+        "availableLevel": "normal",
+        "label": "$string:perm_file_access_persist",
+        "description": "$string:perm_file_access_persist"
+      }
+    ],
     "deliveryWithInstall": true,
     "installationFree": false,
     "pages": "$profile:main_pages",
@@ -13,11 +62,13 @@
         "name": "EntryAbility",
         "srcEntry": "./ets/entryability/EntryAbility.ts",
         "description": "$string:EntryAbility_desc",
-        "icon": "$media:startIcon",
+        "icon": "$media:app_icon",
         "label": "$string:EntryAbility_label",
-        "startWindowIcon": "$media:startIcon",
+        "startWindowIcon": "$media:app_icon",
         "startWindowBackground": "$color:start_window_background",
         "exported": true,
+        "launchType": "standard",
+        "orientation": "auto_rotation",
         "skills": [
           {
             "entities": ["entity.system.home"],

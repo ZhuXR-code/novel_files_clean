@@ -3,68 +3,262 @@ import { PreferencesUtil } from '../utils/PreferencesUtil';
 import { ScannedFileDao } from '../database/ScannedFileDao';
 import { ScanRunDao } from '../database/ScanRunDao';
 import { ScanConfigDao } from '../database/ScanConfigDao';
+import { ScanRun } from '../model/ScanRun';
 import { LogUtil } from '../utils/LogUtil';
 
-@Entry
+interface NavParams {
+  runId?: number;
+}
+
+/**
+ * 首页 Tab：扫描入口 + 概览统计 + 最近文库。
+ * 对齐安卓端「首页」：大主按钮 + 统计卡片 + 最近文库；下拉刷新统计。
+ */
 @Component
-struct Index {
+export struct HomePage {
   @State totalFiles: number = 0;
   @State markedCount: number = 0;
   @State libraryCount: number = 0;
   @State configCount: number = 0;
+  @State recentRuns: ScanRun[] = [];
+  @State refreshing: boolean = false;
+  @StorageProp('fontScale') fontScaleNum: number = 1.0;
 
   async aboutToAppear(): Promise<void> {
-    // 首次启动必须主动同意隐私协议
-    if (!PreferencesUtil.getBoolean('privacy_agreed', false)) {
-      router.replaceUrl({ url: 'pages/PrivacyPolicy', params: { mode: 'agree' } });
-      return;
-    }
+    await this.loadStats();
+  }
+
+  private fs(base: number): number {
+    return Math.round(base * this.fontScaleNum);
+  }
+
+  async loadStats(): Promise<void> {
     try {
       this.totalFiles = await ScannedFileDao.countAll();
       this.markedCount = await ScannedFileDao.countMarked();
       this.libraryCount = await ScanRunDao.count();
       this.configCount = await ScanConfigDao.count();
+      this.recentRuns = await ScanRunDao.getRecent(5);
     } catch (e) {
-      LogUtil.e('Index', `加载统计失败: ${(e as Error).message}`);
+      LogUtil.e('HomePage', `加载统计失败: ${(e as Error).message}`);
     }
   }
 
-  private go(url: string): void {
-    router.pushUrl({ url: url }).catch((err: Error) => {
-      LogUtil.e('Index', `导航失败 ${url}: ${err.message}`);
+  private go(url: string, params?: NavParams): void {
+    router.pushUrl({ url: url, params: params }).catch((err: Error) => {
+      LogUtil.e('HomePage', `导航失败 ${url}: ${err.message}`);
     });
+  }
+
+  private openLibrary(runId: number): void {
+    this.go('pages/LibraryScreen', { runId: runId } as NavParams);
   }
 
   build() {
     Column() {
-      Text('文包清理助手')
-        .fontSize(22)
+      Text('文包整理清理助手')
+        .fontSize(this.fs(22))
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))
-        .margin({ top: 24, bottom: 16 })
+        .margin({ top: 20, bottom: 10 })
 
-      Row({ space: 12 }) {
-        this.statCard('总文件', this.totalFiles.toString())
-        this.statCard('已标记', this.markedCount.toString())
-      }.margin({ bottom: 12 })
+      Refresh({ refreshing: $$this.refreshing }) {
+        Scroll() {
+          Column() {
+            // 操作指引说明卡片（对齐安卓端 HomeScreen 指引卡片）
+            Column({ space: 6 }) {
+              Row({ space: 6 }) {
+                Text('方法一')
+                  .fontSize(this.fs(12))
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor($r('app.color.primary'))
+                Text('开始扫描/查看文库：配置扫描路径→扫描+解析→合集模式→勾选重复→批量删除选中')
+                  .fontSize(this.fs(12))
+                  .fontColor($r('app.color.text_secondary'))
+                  .layoutWeight(1)
+              }
+              .width('100%')
+              Row({ space: 6 }) {
+                Text('方法二')
+                  .fontSize(this.fs(12))
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor($r('app.color.primary'))
+                Text('一键清理：选择文件夹 → 一键清理（自动扫描标记，删除前可查看清单确认）')
+                  .fontSize(this.fs(12))
+                  .fontColor($r('app.color.text_secondary'))
+                  .layoutWeight(1)
+              }
+              .width('100%')
+            }
+            .width('100%')
+            .padding(12)
+            .backgroundColor($r('app.color.bg_card'))
+            .borderRadius(10)
+            .margin({ left: 16, right: 16, bottom: 12 })
 
-      Row({ space: 12 }) {
-        this.statCard('文库', this.libraryCount.toString())
-        this.statCard('配置', this.configCount.toString())
-      }.margin({ bottom: 20 })
+            // 统计卡片
+            Row({ space: 10 }) {
+              this.statCard('总文件', this.totalFiles.toString())
+              this.statCard('已标记', this.markedCount.toString())
+            }
+            .margin({ bottom: 10 })
 
-      Column({ space: 12 }) {
-        this.navButton('扫描配置', 'pages/ScanConfigList', $r('app.color.primary'))
-        this.navButton('文库列表', 'pages/LibraryList', $r('app.color.primary'))
-        this.navButton('一键清理', 'pages/OneClickCleanup', $r('app.color.primary'))
-        this.navButton('关键词替换', 'pages/KeywordReplace', $r('app.color.primary'))
-        this.navButton('操作日志', 'pages/LogViewer', $r('app.color.primary'))
-        this.navButton('设置', 'pages/Settings', $r('app.color.primary'))
-        this.navButton('帮助', 'pages/Help', $r('app.color.primary'))
+            Row({ space: 10 }) {
+              this.statCard('文库', this.libraryCount.toString())
+              this.statCard('配置', this.configCount.toString())
+            }
+            .margin({ bottom: 16 })
+
+            // 无数据提示（对齐安卓端：无文件时显示提示卡片）
+            if (this.totalFiles === 0 && this.libraryCount === 0) {
+              Column({ space: 8 }) {
+                Text('暂无数据')
+                  .fontSize(this.fs(16))
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor($r('app.color.text_hint'))
+                Text('点击上方「开始扫描」或「一键清理」开始使用')
+                  .fontSize(this.fs(12))
+                  .fontColor($r('app.color.text_hint'))
+              }
+              .width('100%')
+              .padding(40)
+              .alignItems(HorizontalAlign.Center)
+            }
+
+            // 快速开始
+            Row({ space: 10 }) {
+              Button() {
+                Column({ space: 4 }) {
+                  Text('开始扫描')
+                    .fontSize(this.fs(15))
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor($r('app.color.text_on_primary'))
+                  Text('选择目录创建文库')
+                    .fontSize(this.fs(11))
+                    .fontColor($r('app.color.text_on_primary'))
+                    .opacity(0.7)
+                }
+              }
+              .layoutWeight(1)
+              .height(72)
+              .backgroundColor($r('app.color.primary'))
+              .borderRadius(12)
+              .onClick(() => this.go('pages/ScanConfigList'))
+
+              Button() {
+                Column({ space: 4 }) {
+                  Text('一键清理')
+                    .fontSize(this.fs(15))
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor($r('app.color.text_on_primary'))
+                  Text('快速勾选重复文件')
+                    .fontSize(this.fs(11))
+                    .fontColor($r('app.color.text_on_primary'))
+                    .opacity(0.7)
+                }
+              }
+              .layoutWeight(1)
+              .height(72)
+              .backgroundColor($r('app.color.primary_dark'))
+              .borderRadius(12)
+              .onClick(() => this.go('pages/OneClickCleanup'))
+            }
+            .padding({ left: 16, right: 16 })
+            .margin({ bottom: 16 })
+
+            // G组 #28 更多功能入口（帮助/日志/规则/设置）
+            Column({ space: 8 }) {
+              Text('更多功能')
+                .fontSize(this.fs(13))
+                .fontColor($r('app.color.text_hint'))
+                .padding({ left: 16, bottom: 4 })
+
+              Row({ space: 8 }) {
+                this.funcEntry('帮助文档', () => this.go('pages/Help'))
+                this.funcEntry('操作日志', () => this.go('pages/LogViewer'))
+                this.funcEntry('关键词替换', () => this.go('pages/KeywordReplace'))
+                this.funcEntry('去重规则', () => this.go('pages/DupRuleSettings'))
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16 })
+            }
+            .margin({ bottom: 16 })
+
+            // 最近文库
+            if (this.recentRuns.length > 0) {
+              Column() {
+                Row() {
+                  Text('最近文库')
+                    .fontSize(this.fs(13))
+                    .fontColor($r('app.color.text_hint'))
+                    .layoutWeight(1)
+                  Text('切到「文库」查看全部 >')
+                    .fontSize(this.fs(12))
+                    .fontColor($r('app.color.text_hint'))
+                }
+                .width('100%')
+                .padding({ left: 16, right: 16, bottom: 8 })
+
+                List() {
+                  ForEach(
+                    this.recentRuns,
+                    (run: ScanRun) => {
+                      ListItem() {
+                        Row({ space: 10 }) {
+                          Column({ space: 3 }) {
+                            Text(run.name || '未命名文库')
+                              .fontSize(this.fs(14))
+                              .fontColor($r('app.color.text_primary'))
+                              .maxLines(1)
+                              .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            Text(`目录: ${run.folderName}   文件: ${run.fileCount}`)
+                              .fontSize(this.fs(11))
+                              .fontColor($r('app.color.text_secondary'))
+                              .maxLines(1)
+                              .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          }
+                          .layoutWeight(1)
+                          .alignItems(HorizontalAlign.Start)
+                          Text(' >')
+                            .fontSize(this.fs(16))
+                            .fontColor($r('app.color.text_hint'))
+                        }
+                        .width('100%')
+                        .padding(14)
+                        .backgroundColor($r('app.color.bg_card'))
+                        .borderRadius(10)
+                        .onClick(() => this.openLibrary(run.id))
+                      }
+                      .padding({ left: 16, right: 16, bottom: 8 })
+                    },
+                    (run: ScanRun) => run.id.toString()
+                  )
+                }
+                .constraintSize({ maxHeight: 240 })
+                .width('100%')
+              }
+              .margin({ bottom: 12 })
+            }
+
+            // 本地处理声明（对齐安卓端底部声明）
+            Text('🔒 本地扫描，文件不会上传')
+              .fontSize(this.fs(11))
+              .fontColor($r('app.color.text_hint'))
+              .textAlign(TextAlign.Center)
+              .width('100%')
+              .padding({ top: 8, bottom: 20 })
+          }
+          .width('100%')
+        }
+        .align(Alignment.Top)
+        .layoutWeight(1)
       }
-      .width('100%')
       .layoutWeight(1)
-      .padding({ left: 16, right: 16 })
+      .onRefreshing(() => {
+        this.loadStats().then(() => {
+          this.refreshing = false;
+        });
+      })
     }
     .width('100%')
     .height('100%')
@@ -75,27 +269,30 @@ struct Index {
   statCard(label: string, value: string) {
     Column({ space: 4 }) {
       Text(value)
-        .fontSize(28)
+        .fontSize(this.fs(26))
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))
       Text(label)
-        .fontSize(13)
+        .fontSize(this.fs(13))
         .fontColor($r('app.color.text_secondary'))
     }
-    .width('48%')
-    .height(80)
+    .layoutWeight(1)
+    .height(72)
     .backgroundColor($r('app.color.bg_card'))
     .borderRadius(12)
     .justifyContent(FlexAlign.Center)
   }
 
+  // G组 #28 更多功能入口按钮
   @Builder
-  navButton(label: string, url: string, color: Resource) {
+  funcEntry(label: string, onClick: () => void) {
     Button(label)
-      .width('100%')
-      .height(48)
-      .backgroundColor(color)
-      .fontSize(16)
-      .onClick(() => this.go(url))
+      .fontSize(this.fs(12))
+      .height(40)
+      .layoutWeight(1)
+      .backgroundColor($r('app.color.bg_card'))
+      .fontColor($r('app.color.text_primary'))
+      .borderRadius(10)
+      .onClick(onClick)
   }
 }

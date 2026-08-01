@@ -47,10 +47,11 @@ struct PrivacyPolicyView: View {
         VStack(spacing: 0) {
             ScrollView {
                 Text(content)
-                    .font(.body)
+                    .fsFont(.body)
                     .padding()
             }
             .navigationTitle("隐私协议")
+            .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(showActions)
 
             if showActions {

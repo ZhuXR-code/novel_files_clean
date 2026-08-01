@@ -1,8 +1,9 @@
 import { LogUtil } from '../utils/LogUtil'
 import { promptAction } from '@kit.ArkUI'
-import { router } from '@kit.ArkUI'
 import { DupRuleConfigDao } from '../database/DupRuleConfigDao'
 import { DupRuleConfig } from '../model/DupRuleConfig'
+import { TopBar } from '../components/TopBar'
+import { ToastUtil } from '../utils/ToastUtil';
 
 interface EditCond {
   field: string
@@ -21,7 +22,7 @@ const FIELD_CHOICES: OptionChoice[] = [
   { key: 'author', label: '作者' },
   { key: 'progress', label: '进度' },
   { key: 'source', label: '来源站点' },
-  { key: 'file_size', label: '文件大小(KB)' },
+  { key: 'file_size', label: '文件大小(字节)' },
   { key: 'created_date', label: '创建时间(时间戳)' }
 ]
 
@@ -63,6 +64,10 @@ struct DupRuleSettings {
   @State editDesc: string = ''
   @State editAction: string = 'check'
   @State editConds: EditCond[] = []
+  // F组 #20 正则测试器
+  @State regexPattern: string = ''
+  @State regexTestInput: string = ''
+  @State regexTestResult: string = ''
 
   aboutToAppear(): void {
     this.load()
@@ -71,6 +76,8 @@ struct DupRuleSettings {
   async load(): Promise<void> {
     this.loading = true
     try {
+      // 确保内置规则已补齐（防止 EntryAbility 初始化时序问题导致页面为空）
+      await DupRuleConfigDao.ensureBuiltinSeeded()
       const all: DupRuleConfig[] = await DupRuleConfigDao.getAll()
       const builtin: DupRuleConfig[] = []
       const custom: DupRuleConfig[] = []
@@ -90,19 +97,21 @@ struct DupRuleSettings {
     }
   }
 
+  onBackPress(): boolean {
+    if (this.showEditor) {
+      this.showEditor = false;
+      return true;
+    }
+    return false;
+  }
+
   build() {
     Stack() {
       Column({ space: 8 }) {
-        Row() {
-          Button('返回').onClick(() => router.back())
-          Text('勾选重复规则').fontSize(18).fontWeight(FontWeight.Bold).margin({ left: 8 })
-        }
-        .width('100%')
-        .padding(12)
-        .alignItems(VerticalAlign.Center)
+        TopBar({ title: '勾选重复规则' })
 
         Text('选择「勾选重复」时应用的重复检测规则。内置规则为系统预设，自定义规则可灵活组合条件。')
-          .fontSize(12).fontColor('#888')
+          .fontSize(12).fontColor($r('app.color.text_hint'))
           .width('100%').padding({ left: 16, right: 16 })
 
         Scroll() {
@@ -119,13 +128,13 @@ struct DupRuleSettings {
             Row() {
               Text('自定义规则').fontSize(14).fontWeight(FontWeight.Bold)
               Blank()
-              Button('+ 新增').fontSize(12).height(30).backgroundColor('#007aff').fontColor(Color.White)
+              Button('+ 新增').fontSize(12).height(30).backgroundColor($r('app.color.primary')).fontColor($r('app.color.text_on_primary'))
                 .onClick(() => this.openAdd())
             }
             .width('100%').padding({ left: 4, top: 12, right: 4 })
 
             if (this.customRules.length === 0) {
-              Text('暂无自定义规则').fontSize(12).fontColor('#aaa').padding(8)
+              Text('暂无自定义规则').fontSize(12).fontColor($r('app.color.text_hint')).padding(8)
             }
 
             ForEach(this.customRules, (r: DupRuleConfig) => {
@@ -139,7 +148,7 @@ struct DupRuleSettings {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#f5f5f5')
+      .backgroundColor($r('app.color.bg_page'))
 
       if (this.showEditor) {
         this.editorPanel()
@@ -153,8 +162,8 @@ struct DupRuleSettings {
   ruleToggle(label: string, desc: string, isOn: boolean, onChange: (v: boolean) => void) {
     Row() {
       Column({ space: 2 }) {
-        Text(label).fontSize(14).fontWeight(FontWeight.Medium)
-        Text(desc).fontSize(11).fontColor('#888').lineHeight(16)
+        Text(label).fontSize(14).fontWeight(FontWeight.Medium).fontColor($r('app.color.text_primary'))
+        Text(desc).fontSize(11).fontColor($r('app.color.text_hint')).lineHeight(16)
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
@@ -164,40 +173,46 @@ struct DupRuleSettings {
     }
     .width('100%')
     .padding(12)
-    .backgroundColor(Color.White)
+    .backgroundColor($r('app.color.bg_card'))
     .borderRadius(10)
     .alignItems(VerticalAlign.Center)
   }
 
   @Builder
   customCard(r: DupRuleConfig) {
-    Column({ space: 4 }) {
+    Column({ space: 6 }) {
       Row() {
         Column({ space: 2 }) {
-          Text(r.ruleName).fontSize(14).fontWeight(FontWeight.Medium)
+          Text(r.ruleName).fontSize(14).fontWeight(FontWeight.Medium).fontColor($r('app.color.text_primary'))
           Text(r.action === 'protect' ? '动作：保护(不勾选)' : '动作：勾选(重复)')
-            .fontSize(11).fontColor(r.action === 'protect' ? '#d2691e' : '#007aff')
+            .fontSize(11).fontColor(r.action === 'protect' ? $r('app.color.warning') : $r('app.color.primary'))
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)
 
-        if (r.enabled === 0) {
-          Text('已停用').fontSize(11).fontColor('#999').margin({ right: 8 })
-        }
-        Button('编辑').fontSize(12).height(30).onClick(() => this.openEdit(r))
-        Button('删除').fontSize(12).height(30).backgroundColor('#ff3b30').fontColor(Color.White)
-          .margin({ left: 6 }).onClick(() => this.deleteRule(r))
+        // F组 #19 自定义规则可停用开关
+        Toggle({ type: ToggleType.Switch, isOn: r.enabled === 1 })
+          .onChange((v: boolean) => this.toggleCustom(r, v))
       }
       .width('100%')
 
       Text(this.condSummary(r.conditions))
-        .fontSize(11).fontColor('#666')
+        .fontSize(11).fontColor($r('app.color.text_secondary'))
         .width('100%')
         .padding({ top: 2 })
+
+      // 操作按钮单独一行
+      Row({ space: 6 }) {
+        Blank()
+        Button('编辑').fontSize(12).height(30).onClick(() => this.openEdit(r))
+        Button('删除').fontSize(12).height(30).backgroundColor($r('app.color.danger')).fontColor($r('app.color.text_on_primary'))
+          .onClick(() => this.deleteRule(r))
+      }
+      .width('100%')
     }
     .width('100%')
     .padding(12)
-    .backgroundColor(Color.White)
+    .backgroundColor($r('app.color.bg_card'))
     .borderRadius(10)
   }
 
@@ -232,8 +247,19 @@ struct DupRuleSettings {
     if (!json || json.trim().length === 0) {
       return result
     }
+    // F组 #18 兼容安卓新格式 {"field":"x","regex":"y"}
+    const reNew: RegExp = /\{"field":"([^"]+)","regex":"([^"]*)"\}/g
+    let m: RegExpExecArray | null = reNew.exec(json)
+    while (m !== null) {
+      result.push({ field: m[1], op: 'regex', value: m[2] })
+      m = reNew.exec(json)
+    }
+    if (result.length > 0) {
+      return result
+    }
+    // 旧格式 {"field":"x","op":"y","value":"z"}
     const re: RegExp = /\{"field":"([^"]+)","op":"([^"]+)","value":"([^"]*)"\}/g
-    let m: RegExpExecArray | null = re.exec(json)
+    m = re.exec(json)
     while (m !== null) {
       result.push({ field: m[1], op: m[2], value: m[3] })
       m = re.exec(json)
@@ -242,9 +268,28 @@ struct DupRuleSettings {
   }
 
   async toggleBuiltin(r: DupRuleConfig, v: boolean): Promise<void> {
-    r.enabled = v ? 1 : 0
-    await DupRuleConfigDao.updateEnabled(r.id, r.enabled)
-    LogUtil.i('DupRuleSettings', `内置规则 ${r.ruleKey} -> ${r.enabled}`)
+    try {
+      r.enabled = v ? 1 : 0
+      await DupRuleConfigDao.updateEnabled(r.id, r.enabled)
+      LogUtil.i('DupRuleSettings', `内置规则 ${r.ruleKey} -> ${r.enabled}`)
+    } catch (e) {
+      LogUtil.e('DupRuleSettings', `切换内置规则失败: ${(e as Error).message}`)
+      ToastUtil.show('操作失败')
+      r.enabled = v ? 0 : 1
+    }
+  }
+
+  // F组 #19 切换自定义规则启停
+  async toggleCustom(r: DupRuleConfig, v: boolean): Promise<void> {
+    try {
+      r.enabled = v ? 1 : 0
+      await DupRuleConfigDao.updateEnabled(r.id, r.enabled)
+      LogUtil.i('DupRuleSettings', `自定义规则 ${r.id} -> ${r.enabled}`)
+    } catch (e) {
+      LogUtil.e('DupRuleSettings', `切换自定义规则失败: ${(e as Error).message}`)
+      ToastUtil.show('操作失败')
+      r.enabled = v ? 0 : 1
+    }
   }
 
   // ===================== 编辑器 =====================
@@ -254,6 +299,10 @@ struct DupRuleSettings {
     this.editDesc = ''
     this.editAction = 'check'
     this.editConds = [{ field: 'file_name', op: 'contains', value: '' }]
+    // F组 #20 重置正则测试器
+    this.regexPattern = ''
+    this.regexTestInput = ''
+    this.regexTestResult = ''
     this.showEditor = true
   }
 
@@ -266,13 +315,41 @@ struct DupRuleSettings {
     if (this.editConds.length === 0) {
       this.editConds = [{ field: 'file_name', op: 'contains', value: '' }]
     }
+    // F组 #20 若已有正则条件，预填到测试器
+    const regexCond: EditCond | undefined = this.editConds.find((c) => c.op === 'regex')
+    this.regexPattern = regexCond ? regexCond.value : ''
+    this.regexTestInput = ''
+    this.regexTestResult = ''
     this.showEditor = true
   }
 
+  // F组 #20 正则测试
+  private testRegex(): void {
+    if (this.regexPattern.trim().length === 0) {
+      this.regexTestResult = '请先输入正则表达式'
+      return
+    }
+    try {
+      const re: RegExp = new RegExp(this.regexPattern)
+      if (re.test(this.regexTestInput)) {
+        this.regexTestResult = '✓ 匹配成功'
+      } else {
+        this.regexTestResult = '✗ 不匹配'
+      }
+    } catch (e) {
+      this.regexTestResult = `✗ 正则非法: ${(e as Error).message}`
+    }
+  }
+
   async deleteRule(r: DupRuleConfig): Promise<void> {
-    await DupRuleConfigDao.delete(r.id)
-    promptAction.showToast({ message: '已删除自定义规则', duration: 1500 })
-    await this.load()
+    try {
+      await DupRuleConfigDao.delete(r.id)
+      ToastUtil.show('已删除自定义规则', 1500)
+      await this.load()
+    } catch (e) {
+      LogUtil.e('DupRuleSettings', `删除规则失败: ${(e as Error).message}`)
+      ToastUtil.show('删除失败')
+    }
   }
 
   @Builder
@@ -283,31 +360,32 @@ struct DupRuleSettings {
         Text(this.editingId === 0 ? '新增自定义规则' : '编辑自定义规则')
           .fontSize(16).fontWeight(FontWeight.Bold).margin({ left: 8 })
         Blank()
-        Button('保存').backgroundColor('#007aff').fontColor(Color.White)
+        Button('保存').backgroundColor($r('app.color.primary')).fontColor($r('app.color.text_on_primary'))
           .onClick(() => this.saveRule())
       }
       .width('100%').padding(12)
+      .backgroundColor($r('app.color.bg_card'))
 
       Scroll() {
         Column({ space: 10 }) {
-          Text('规则名称').fontSize(13).fontColor('#555')
+          Text('规则名称').fontSize(13).fontColor($r('app.color.text_secondary'))
           TextInput({ placeholder: '如：屏蔽某站点', text: this.editName })
             .onChange((v: string) => { this.editName = v })
 
-          Text('说明').fontSize(13).fontColor('#555')
+          Text('说明').fontSize(13).fontColor($r('app.color.text_secondary'))
           TextInput({ placeholder: '可选', text: this.editDesc })
             .onChange((v: string) => { this.editDesc = v })
 
-          Text('命中后动作').fontSize(13).fontColor('#555')
+          Text('命中后动作').fontSize(13).fontColor($r('app.color.text_secondary'))
           Row({ space: 12 }) {
             this.actionBtn('勾选(标记重复)', 'check')
             this.actionBtn('保护(不勾选)', 'protect')
           }
 
           Row() {
-            Text('条件（全部满足）').fontSize(13).fontColor('#555')
+            Text('条件（全部满足）').fontSize(13).fontColor($r('app.color.text_secondary'))
             Blank()
-            Button('+ 条件').fontSize(12).height(30).backgroundColor('#34c759').fontColor(Color.White)
+            Button('+ 条件').fontSize(12).height(30).backgroundColor($r('app.color.success')).fontColor($r('app.color.text_on_primary'))
               .onClick(() => {
                 this.editConds.push({ field: 'file_name', op: 'contains', value: '' })
                 this.editConds = [...this.editConds]
@@ -318,6 +396,30 @@ struct DupRuleSettings {
           ForEach(this.editConds, (c: EditCond, idx: number) => {
             this.condEditor(c, idx)
           }, (c: EditCond, idx: number) => idx.toString())
+
+          // F组 #20 正则测试器
+          Column({ space: 6 }) {
+            Text('正则测试器').fontSize(13).fontColor($r('app.color.text_secondary'))
+            Text('输入正则与测试文本，校验是否匹配（用于 op=正则匹配 的条件）')
+              .fontSize(11).fontColor($r('app.color.text_hint'))
+            TextInput({ placeholder: '正则表达式，如 \\d+', text: this.regexPattern })
+              .onChange((v: string) => { this.regexPattern = v })
+            TextInput({ placeholder: '测试文本', text: this.regexTestInput })
+              .onChange((v: string) => { this.regexTestInput = v })
+            if (this.regexTestResult.length > 0) {
+              Text(this.regexTestResult)
+                .fontSize(12)
+                .fontColor(this.regexTestResult.startsWith('✓') ? $r('app.color.success') : $r('app.color.danger'))
+            }
+            Button('测试匹配')
+              .fontSize(12).height(34).width('100%')
+              .backgroundColor($r('app.color.primary')).fontColor($r('app.color.text_on_primary'))
+              .onClick(() => this.testRegex())
+          }
+          .width('100%')
+          .padding(10)
+          .backgroundColor($r('app.color.bg_light'))
+          .borderRadius(8)
         }
         .width('100%')
         .padding(16)
@@ -326,7 +428,7 @@ struct DupRuleSettings {
     }
     .width('100%')
     .height('92%')
-    .backgroundColor(Color.White)
+    .backgroundColor($r('app.color.bg_card'))
     .position({ x: 0, y: '8%' })
   }
 
@@ -336,8 +438,8 @@ struct DupRuleSettings {
       .fontSize(13)
       .height(34)
       .layoutWeight(1)
-      .backgroundColor(this.editAction === value ? '#007aff' : '#e0e0e0')
-      .fontColor(this.editAction === value ? Color.White : '#333')
+      .backgroundColor(this.editAction === value ? $r('app.color.primary') : $r('app.color.divider'))
+      .fontColor(this.editAction === value ? $r('app.color.text_on_primary') : $r('app.color.text_primary'))
       .onClick(() => { this.editAction = value })
   }
 
@@ -345,7 +447,7 @@ struct DupRuleSettings {
   condEditor(c: EditCond, idx: number) {
     Column({ space: 6 }) {
       Row({ space: 6 }) {
-        Text('如果').fontSize(12).fontWeight(FontWeight.Medium).alignSelf(ItemAlign.Center)
+        Text('如果').fontSize(12).fontWeight(FontWeight.Medium).alignSelf(ItemAlign.Center).fontColor($r('app.color.text_primary'))
         Select(FIELD_OPTIONS)
           .value(this.fieldLabel(c.field))
           .layoutWeight(1)
@@ -355,7 +457,7 @@ struct DupRuleSettings {
           })
         Button('删')
           .fontSize(12).height(28).width(40)
-          .backgroundColor('#ff3b30').fontColor(Color.White)
+          .backgroundColor($r('app.color.danger')).fontColor($r('app.color.text_on_primary'))
           .enabled(this.editConds.length > 1)
           .onClick(() => {
             this.editConds.splice(idx, 1)
@@ -383,7 +485,7 @@ struct DupRuleSettings {
     }
     .width('100%')
     .padding(10)
-    .backgroundColor('#f0f0f0')
+    .backgroundColor($r('app.color.bg_light'))
     .borderRadius(8)
   }
 
@@ -394,29 +496,34 @@ struct DupRuleSettings {
 
   async saveRule(): Promise<void> {
     if (this.editName.trim().length === 0) {
-      promptAction.showToast({ message: '请填写规则名称', duration: 1500 })
+      ToastUtil.show('请填写规则名称', 1500)
       return
     }
     const valid: EditCond[] = this.editConds.filter((c) => c.value.trim().length > 0)
     if (valid.length === 0) {
-      promptAction.showToast({ message: '请至少配置一个条件的值', duration: 1500 })
+      ToastUtil.show('请至少配置一个条件的值', 1500)
       return
     }
-    const rule: DupRuleConfig = new DupRuleConfig()
-    rule.ruleName = this.editName.trim()
-    rule.description = this.editDesc.trim()
-    rule.action = this.editAction
-    rule.conditions = this.condsToJson(this.editConds)
-    rule.isBuiltin = 0
-    rule.enabled = 1
-    if (this.editingId !== 0) {
-      rule.id = this.editingId
-      await DupRuleConfigDao.update(rule)
-    } else {
-      await DupRuleConfigDao.insert(rule)
+    try {
+      const rule: DupRuleConfig = new DupRuleConfig()
+      rule.ruleName = this.editName.trim()
+      rule.description = this.editDesc.trim()
+      rule.action = this.editAction
+      rule.conditions = this.condsToJson(this.editConds)
+      rule.isBuiltin = 0
+      rule.enabled = 1
+      if (this.editingId !== 0) {
+        rule.id = this.editingId
+        await DupRuleConfigDao.update(rule)
+      } else {
+        await DupRuleConfigDao.insert(rule)
+      }
+      this.showEditor = false
+      ToastUtil.show('已保存', 1500)
+      await this.load()
+    } catch (e) {
+      LogUtil.e('DupRuleSettings', `保存规则失败: ${(e as Error).message}`)
+      ToastUtil.show(`保存失败: ${(e as Error).message}`)
     }
-    this.showEditor = false
-    promptAction.showToast({ message: '已保存', duration: 1500 })
-    await this.load()
   }
 }

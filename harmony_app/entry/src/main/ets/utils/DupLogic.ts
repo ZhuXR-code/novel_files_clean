@@ -209,8 +209,13 @@ export class DupLogic {
     }
 
     LogUtil.i('DupLogic', `勾选重复 完成 run=${runId} enabledRules=${Array.from(enabled).join(',')} 重复子组=${subgroupsWithDups} 应勾选=${allResult.size} 个`);
+    // 限制明细日志条数，避免重复子组极多时拼成数 MB 巨大字符串拖慢/撑爆日志层。
+    const DETAIL_LOG_MAX: number = 200;
     if (detailLines.length > 0) {
-      LogUtil.i('DupLogic', detailLines.join('\n'));
+      const sample: string[] = detailLines.length > DETAIL_LOG_MAX
+        ? detailLines.slice(0, DETAIL_LOG_MAX).concat([`...另有 ${detailLines.length - DETAIL_LOG_MAX} 个重复子组未列出`])
+        : detailLines;
+      LogUtil.i('DupLogic', sample.join('\n'));
     }
 
     // ===================== 用户自定义去重规则 =====================
@@ -218,12 +223,19 @@ export class DupLogic {
     try {
       const userRules: DupRuleConfig[] = await DupRuleConfigDao.getEnabledUserRules();
       if (userRules.length > 0) {
+        // 预解析每条规则的条件，避免在 rows×rules 嵌套循环中重复正则解析
+        // （10w 行 × N 规则会产生百万次 parseUserConditions 调用，严重拖慢）。
+        const parsedRules: Array<{ rule: DupRuleConfig; conds: Array<Record<string, string>> | null }> =
+          userRules.map((ur) => ({ rule: ur, conds: DupLogic.parseUserConditions(ur.conditions) }));
         let applied: number = 0;
         for (const row of rows) {
-          for (const ur of userRules) {
-            if (DupLogic.evaluateUserRule(row, ur)) {
+          for (const pr of parsedRules) {
+            if (!pr.conds || pr.conds.length === 0) {
+              continue;
+            }
+            if (DupLogic.evalWithParsedConds(row, pr.conds)) {
               applied++;
-              if (ur.action === 'protect') {
+              if (pr.rule.action === 'protect') {
                 allResult.delete(row.id);
               } else {
                 allResult.add(row.id);
@@ -251,6 +263,11 @@ export class DupLogic {
     if (!conds || conds.length === 0) {
       return false;
     }
+    return DupLogic.evalWithParsedConds(row, conds);
+  }
+
+  /** 使用已解析的条件评估某行是否命中（全部条件 AND）。供预解析缓存路径调用，避免重复 parse。 */
+  private static evalWithParsedConds(row: DuplicateRow, conds: Array<Record<string, string>>): boolean {
     for (const c of conds) {
       if (!DupLogic.evalSingleCondition(row, c)) {
         return false;
@@ -259,17 +276,30 @@ export class DupLogic {
     return true;
   }
 
-  /** 解析条件 JSON 为 [{field,op,value}]；兼容安卓端紧凑格式。 */
+  /** 解析条件 JSON 为 [{field,op,value}]；兼容安卓端两种格式：
+   *  新格式 {"field":"x","regex":"y"}（对齐安卓 {field,regex}）
+   *  旧格式 {"field":"x","op":"y","value":"z"}（鸿蒙扩展 op 语义） */
   private static parseUserConditions(json: string): Array<Record<string, string>> | null {
     if (!json || json.trim().length === 0) {
       return null;
     }
     const items: Array<Record<string, string>> = [];
-    const re: RegExp = /\{"field":"([^"]+)","op":"([^"]+)","value":"([^"]*)"\}/g;
-    let m: RegExpExecArray | null = re.exec(json);
+    // F组 #18 先匹配新格式 field+regex，统一映射为 op=regex
+    const reNew: RegExp = /\{"field":"([^"]+)","regex":"([^"]*)"\}/g;
+    let m: RegExpExecArray | null = reNew.exec(json);
+    while (m !== null) {
+      items.push({ field: m[1], op: 'regex', value: m[2] });
+      m = reNew.exec(json);
+    }
+    if (items.length > 0) {
+      return items;
+    }
+    // 旧格式 field+op+value
+    const reOld: RegExp = /\{"field":"([^"]+)","op":"([^"]+)","value":"([^"]*)"\}/g;
+    m = reOld.exec(json);
     while (m !== null) {
       items.push({ field: m[1], op: m[2], value: m[3] });
-      m = re.exec(json);
+      m = reOld.exec(json);
     }
     return items;
   }

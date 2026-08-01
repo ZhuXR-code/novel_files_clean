@@ -64,6 +64,8 @@ enum Route: Hashable {
     case keywordReplace
     case logViewer
     case help
+    case privacy
+    case about
     case fileDetail(id: Int64)
     case filePreview(id: Int64, all: Bool)
     case deleteConfirm(runId: Int64, ids: [Int64], physical: Bool)

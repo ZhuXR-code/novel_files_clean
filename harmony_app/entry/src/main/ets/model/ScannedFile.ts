@@ -11,6 +11,8 @@ export class ScannedFile {
   author: string = '';
   progress: string = '';
   source: string = '';
+  /** 文件编码（如 UTF-8/GBK），对齐安卓 ScannedFileEntity.encoding */
+  encoding: string = '';
   titlePinyin: string = '';
   authorPinyin: string = '';
   contentHash: string = '';
@@ -22,4 +24,6 @@ export class ScannedFile {
   /** 所属文库（一次扫描）id */
   scanRunId: number = 0;
   createdAt: number = 0;
+  /** 文件在文件系统中的最后修改时间（毫秒时间戳），对齐安卓 fileDate */
+  fileDate: number = 0;
 }
