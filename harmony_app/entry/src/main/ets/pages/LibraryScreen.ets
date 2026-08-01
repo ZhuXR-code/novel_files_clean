@@ -1269,6 +1269,7 @@ struct LibraryScreen {
                 .layoutWeight(1)
                 .margin({ left: 8 })
                 .alignItems(HorizontalAlign.Start)
+                .onClick(() => this.toggleExpand(group.title))
 
                 // 展开/收起图标（对齐安卓 ExpandMore/ExpandLess：单图标 + 旋转动画）
                 Text('▼')
@@ -1279,9 +1280,9 @@ struct LibraryScreen {
                   .fontColor($r('app.color.text_hint'))
                   .rotate({ angle: this.expandedTitle === group.title ? 180 : 0 })
                   .animation({ duration: 250, curve: Curve.EaseInOut })
+                  .onClick(() => this.toggleExpand(group.title))
               }
               .width('100%')
-              .onClick(() => this.toggleExpand(group.title))
 
               if (this.expandedTitle === group.title) {
                 Column({ space: 6 }) {
@@ -1315,22 +1316,40 @@ struct LibraryScreen {
     .backgroundColor($r('app.color.bg_page'))
   }
 
-  // C组 #5 三态勾选框 Builder：未选□/部分▣/全选☑
+  // 三态勾选框 Builder（minilism 风格：圆角方块 + Path 对勾/横线，未选/部分/全选）
   @Builder
-  triStateCheckbox(group: GroupInfo) {
-    Text(this.triStateSymbol(this.getCollectionCheckStatus(group)))
-      .fontSize(this.fs(16))
-      .width(28)
-      .height(28)
-      .textAlign(TextAlign.Center)
-      .fontColor($r('app.color.primary'))
-      .onClick(() => this.toggleCollectionCheck(group.title))
-  }
-
-  private triStateSymbol(status: number): string {
-    if (status === 2) return '☑';
-    if (status === 1) return '▣';
-    return '☐';
+  triStateCheckbox(@ObjectLink group: GroupInfo) {
+    const status: number = this.getCollectionCheckStatus(group);
+    Column() {
+      if (status === 2) {
+        Path()
+          .width(13)
+          .height(13)
+          .commands('M3 7 L6 10 L11 4')
+          .stroke(Color.White)
+          .strokeWidth(2)
+          .strokeLineCap(LineCapStyle.Round)
+          .strokeLineJoin(LineJoinStyle.Round)
+      } else if (status === 1) {
+        Path()
+          .width(13)
+          .height(13)
+          .commands('M4 7 L10 7')
+          .stroke($r('app.color.primary'))
+          .strokeWidth(2)
+          .strokeLineCap(LineCapStyle.Round)
+      }
+    }
+    .width(22)
+    .height(22)
+    .borderRadius(6)
+    .border({
+      width: 2,
+      color: status === 0 ? $r('app.color.divider') : $r('app.color.primary')
+    })
+    .backgroundColor(status === 2 ? $r('app.color.primary') : Color.Transparent)
+    .align(Alignment.Center)
+    .onClick(() => this.toggleCollectionCheck(group.title))
   }
 
   private async changeFilter(f: FilterKind): Promise<void> {
