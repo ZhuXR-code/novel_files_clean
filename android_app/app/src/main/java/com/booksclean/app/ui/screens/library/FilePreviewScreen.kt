@@ -79,6 +79,9 @@ import java.io.Reader
 /** “前 50 行”模式的行数上限 */
 private const val HEAD_LINES = 50
 
+/** “后 100 行”模式的行数上限 */
+private const val TAIL_LINES = 100
+
 /** 全量模式下每批加载的行数（随滚动按需加载，避免一次性载入 50MB） */
 private const val BATCH_LINES = 400
 
@@ -191,12 +194,12 @@ internal class PreviewLoader(
 /**
  * 文件内容预览页。
  *
- * @param previewAll false = 仅前 50 行；true = 全部内容（随滚动分批加载）
+ * @param previewMode 预览模式："head" = 仅前 50 行；"tail" = 仅后 100 行；"all" = 全部内容（随滚动分批加载）
  */
 @Composable
 fun FilePreviewScreen(
     fileId: Long,
-    previewAll: Boolean,
+    previewMode: String,
     onBack: () -> Unit,
     viewModel: LibraryViewModel = viewModel()
 ) {
@@ -227,7 +230,7 @@ fun FilePreviewScreen(
     }
 
     // 首次进入：解析记录 → 打开文件（IO 线程）→ 加载首批内容
-    LaunchedEffect(fileId, previewAll) {
+    LaunchedEffect(fileId, previewMode) {
         loading = true
         error = null
         try {
@@ -236,16 +239,29 @@ fun FilePreviewScreen(
                     ?: throw IOException(context.getString(R.string.file_not_found))
                 val loader = PreviewLoader(context.applicationContext, f.path)
                 loader.open()
-                val first = loader.readLines(if (previewAll) BATCH_LINES else HEAD_LINES)
+                val first = when (previewMode) {
+                    "tail" -> loader.readLines(Int.MAX_VALUE)   // 读完整个文件，再截取末尾 100 行
+                    "all" -> loader.readLines(BATCH_LINES)
+                    else -> loader.readLines(HEAD_LINES)        // head：前 50 行
+                }
                 Triple(f, loader, first)
             }
             fileTitle = result.first.title.ifBlank { result.first.fileName }
             loaderHolder.value = result.second
             charsetName = result.second.charsetName
-            lines.addAll(result.third)
-            eof = result.second.isEof || !previewAll
-            if (!previewAll) {
-                // 前 50 行模式：读完即关流，尽早释放文件句柄
+            val loaded = when (previewMode) {
+                "tail" -> {
+                    // 仅保留文件末尾 100 行
+                    val src = result.third
+                    if (src.size > TAIL_LINES) src.subList(src.size - TAIL_LINES, src.size) else src
+                }
+                else -> result.third
+            }
+            lines.addAll(loaded)
+            // head / tail 模式为固定范围，读后即关流释放文件句柄；all 模式保留流以便滚动加载
+            val closeAfterFirst = previewMode != "all"
+            eof = result.second.isEof || closeAfterFirst
+            if (closeAfterFirst) {
                 withContext(Dispatchers.IO) { runCatching { result.second.close() } }
             }
         } catch (e: Exception) {
@@ -266,7 +282,7 @@ fun FilePreviewScreen(
     val shouldLoadMore by remember {
         derivedStateOf {
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            previewAll && !eof && !loading && !loadingMore &&
+            previewMode == "all" && !eof && !loading && !loadingMore &&
                 lines.isNotEmpty() && lastVisible >= lines.size - 60
         }
     }
@@ -408,7 +424,7 @@ fun FilePreviewScreen(
                         VerticalPreviewContent(
                             lines = lines,
                             listState = listState,
-                            previewAll = previewAll,
+                            previewMode = previewMode,
                             loadingMore = loadingMore,
                             eof = eof,
                             previewFontSize = previewFontSize,
@@ -420,7 +436,7 @@ fun FilePreviewScreen(
                         HorizontalPreviewContent(
                             lines = lines,
                             listState = listState,
-                            previewAll = previewAll,
+                            previewMode = previewMode,
                             loadingMore = loadingMore,
                             eof = eof,
                             previewFontSize = previewFontSize,
@@ -439,7 +455,7 @@ fun FilePreviewScreen(
 private fun PreviewLazyList(
     lines: List<String>,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    previewAll: Boolean,
+    previewMode: String,
     loadingMore: Boolean,
     eof: Boolean,
     previewFontSize: Int,
@@ -487,8 +503,11 @@ private fun PreviewLazyList(
                         )
                     }
 
-                    !previewAll -> Text(
-                        stringResource(R.string.preview_head_done, HEAD_LINES),
+                    previewMode != "all" -> Text(
+                        if (previewMode == "tail")
+                            stringResource(R.string.preview_tail_done, TAIL_LINES)
+                        else
+                            stringResource(R.string.preview_head_done, HEAD_LINES),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -508,7 +527,7 @@ private fun PreviewLazyList(
 private fun VerticalPreviewContent(
     lines: List<String>,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    previewAll: Boolean,
+    previewMode: String,
     loadingMore: Boolean,
     eof: Boolean,
     previewFontSize: Int,
@@ -525,7 +544,7 @@ private fun VerticalPreviewContent(
         PreviewLazyList(
             lines = lines,
             listState = listState,
-            previewAll = previewAll,
+            previewMode = previewMode,
             loadingMore = loadingMore,
             eof = eof,
             previewFontSize = previewFontSize
@@ -617,7 +636,7 @@ private fun VerticalPreviewContent(
 private fun HorizontalPreviewContent(
     lines: List<String>,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    previewAll: Boolean,
+    previewMode: String,
     loadingMore: Boolean,
     eof: Boolean,
     previewFontSize: Int,
@@ -683,7 +702,7 @@ private fun HorizontalPreviewContent(
         PreviewLazyList(
             lines = lines,
             listState = listState,
-            previewAll = previewAll,
+            previewMode = previewMode,
             loadingMore = loadingMore,
             eof = eof,
             previewFontSize = previewFontSize,

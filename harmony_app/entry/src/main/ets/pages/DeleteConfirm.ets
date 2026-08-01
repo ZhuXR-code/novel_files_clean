@@ -35,6 +35,10 @@ struct DeleteConfirm {
   @State allSelected: boolean = true;
   @State excludedIds: Set<number> = new Set<number>();
   @State selectedIds: Set<number> = new Set<number>();
+  /** 当前勾选数量（手动维护，避免 getter 类型推断导致 undefined）。 */
+  @State selectedCount: number = 0;
+  /** 当前是否处于"全部已选中"状态（用于顶部按钮文案：全选 / 取消全选 / 全不选）。 */
+  @State isAllChecked: boolean = true;
 
   async aboutToAppear(): Promise<void> {
     const params = router.getParams() as Record<string, Object>;
@@ -61,6 +65,7 @@ struct DeleteConfirm {
       this.allSelected = true;
       this.excludedIds = new Set<number>();
       this.selectedIds = new Set<number>();
+      this.refreshSelection();
       await this.loadPage(0);
     } catch (e) {
       LogUtil.e('DeleteConfirm', `加载失败: ${(e as Error).message}`);
@@ -68,12 +73,16 @@ struct DeleteConfirm {
     this.loading = false;
   }
 
-  /** 计算当前选中数。 */
-  private get selectedCount(): number {
+  /** 重新计算 selectedCount 与 isAllChecked。状态变更后必须调用。 */
+  private refreshSelection(): void {
     if (this.allSelected) {
-      return this.totalCount - this.excludedIds.size;
+      const excluded = this.excludedIds.size;
+      this.selectedCount = this.totalCount - excluded;
+      this.isAllChecked = this.selectedCount === this.totalCount;
+    } else {
+      this.selectedCount = this.selectedIds.size;
+      this.isAllChecked = this.selectedCount === this.totalCount;
     }
-    return this.selectedIds.size;
   }
 
   /** 加载指定页的完整文件对象（仅该页 pageSize 个 id 查库）。 */
@@ -114,11 +123,31 @@ struct DeleteConfirm {
     }
   }
 
-  /** 全选/取消全选（作用于全部文件，非仅可见）。 */
-  private selectAll(on: boolean): void {
-    this.allSelected = on;
-    this.excludedIds = new Set<number>();
-    this.selectedIds = new Set<number>();
+  /** 全选/取消全选/全不选（作用于全部文件，非仅可见）。
+   *  行为：
+   *  - 当前为「全部已选」→ 切到「全部不选」（一键全不选）；
+   *  - 当前为「全部不选」或「部分选中」→ 切到「全部选中」（一键全选）。
+   */
+  private selectAll(): void {
+    if (this.allSelected) {
+      // 当前默认全选态：若实际选中 == 全部，点击「取消全选」→ 全部不选；
+      // 若实际选中 < 全部（已被排除若干），点击则回到「全选」状态。
+      if (this.excludedIds.size === 0) {
+        this.allSelected = false;
+        this.excludedIds = new Set<number>();
+        this.selectedIds = new Set<number>();
+      } else {
+        this.allSelected = true;
+        this.excludedIds = new Set<number>();
+        this.selectedIds = new Set<number>();
+      }
+    } else {
+      // 默认不选态：点击「全选」→ 全部选中。
+      this.allSelected = true;
+      this.excludedIds = new Set<number>();
+      this.selectedIds = new Set<number>();
+    }
+    this.refreshSelection();
   }
 
   /** 切换单个文件勾选。 */
@@ -140,6 +169,7 @@ struct DeleteConfirm {
       }
       this.selectedIds = s;
     }
+    this.refreshSelection();
   }
 
   /** 判断某 id 是否处于选中态。 */
@@ -210,18 +240,37 @@ struct DeleteConfirm {
           .fontColor($r('app.color.text_hint'))
           .margin({ top: 40 })
       } else {
-        // 顶部操作栏：全选/取消 + 加载进度
+        // 顶部操作栏：全选/取消全选/全不选 + 加载进度
         Row({ space: 12 }) {
-          Text(`共 ${this.totalCount} 个，已加载 ${this.visibleFiles.length} 个`)
+          Text(`共 ${this.totalCount} 个，已加载 ${this.visibleFiles.length} 个，已选 ${this.selectedCount} 个`)
             .fontSize(11)
             .fontColor($r('app.color.text_hint'))
             .layoutWeight(1)
-          Button(this.selectedCount === this.totalCount ? '取消全选' : '全选')
-            .fontSize(12)
-            .height(30)
-            .backgroundColor($r('app.color.bg_light'))
-            .fontColor($r('app.color.text_primary'))
-            .onClick(() => this.selectAll(this.selectedCount !== this.totalCount))
+          if (this.selectedCount === 0) {
+            // 全部不选状态：显示「全选」按钮，一键全选
+            Button('全选')
+              .fontSize(12)
+              .height(30)
+              .backgroundColor($r('app.color.bg_light'))
+              .fontColor($r('app.color.text_primary'))
+              .onClick(() => this.selectAll())
+          } else if (this.isAllChecked) {
+            // 全部已选状态：显示「取消全选」按钮，一键全不选
+            Button('取消全选')
+              .fontSize(12)
+              .height(30)
+              .backgroundColor($r('app.color.bg_light'))
+              .fontColor($r('app.color.text_primary'))
+              .onClick(() => this.selectAll())
+          } else {
+            // 部分选中状态：显示「全选」按钮，一键补齐全部
+            Button('全选')
+              .fontSize(12)
+              .height(30)
+              .backgroundColor($r('app.color.bg_light'))
+              .fontColor($r('app.color.text_primary'))
+              .onClick(() => this.selectAll())
+          }
         }
         .width('100%')
         .padding({ left: 12, right: 12, top: 6, bottom: 6 })

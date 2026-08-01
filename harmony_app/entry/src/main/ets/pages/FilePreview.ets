@@ -33,10 +33,14 @@ struct FilePreview {
   // 滚动条方向通过 AppStorage 全局共享，Settings 修改后立即响应（无需手动读取 Preferences）
   @StorageProp('previewScrollbarMode') scrollbarMode: string = 'vertical';
   @State fontSize: number = 15;
+  // 字号调节面板折叠状态（对齐安卓 fontSizeExpanded：点击 Aa 图标切换显示/隐藏）
+  @State fontPanelExpanded: boolean = true;
   @State truncated: boolean = false;
   @State previewError: string = '';
   // 对齐安卓端：预览范围（head=前50行快速预览, full=全部内容）
   @State previewMode: string = 'full';
+  // 自动加载节流标志：避免滚动事件高频重复触发 loadMore
+  @State loadingMore: boolean = false;
 
   private scroller: Scroller = new Scroller();
   private scrollbarTimer: number | null = null;
@@ -184,7 +188,15 @@ struct FilePreview {
         this.lines = allLines;
 
         if (this.previewMode === 'head') {
-          this.displayCount = Math.min(this.lines.length, 50);
+          // 前 50 行快速预览
+          this.lines = this.lines.slice(0, 50);
+          this.displayCount = this.lines.length;
+        } else if (this.previewMode === 'tail') {
+          // 后 100 行预览：只保留文件末尾 100 行
+          if (this.lines.length > 100) {
+            this.lines = this.lines.slice(this.lines.length - 100);
+          }
+          this.displayCount = this.lines.length;
         } else {
           this.displayCount = Math.min(this.lines.length, INITIAL_LINES);
         }
@@ -265,9 +277,29 @@ struct FilePreview {
   }
 
   private loadMore(): void {
-    // head 模式下不自动加载更多（对齐安卓端前50行预览）
-    if (this.previewMode === 'head') return;
+    // head / tail 模式下不自动加载更多（head=前50行，tail=后100行，均为固定范围）
+    if (this.previewMode === 'head' || this.previewMode === 'tail') return;
+    if (this.getLoadedAll) return;
+    if (this.loadingMore) return;
+    this.loadingMore = true;
+    const prev: number = this.displayCount;
     this.displayCount = Math.min(this.displayCount + LOAD_MORE_LINES, this.lines.length);
+    // 加载是纯本地状态追加，无需异步等待；轻量 setTimeout 释放节流锁，
+    // 避免惯性滚动期间 onScrollIndex 高频重入导致一屏内多次跳增。
+    setTimeout(() => {
+      this.loadingMore = false;
+      // 若本次追加后仍未到底且用户已接近新末尾，继续预加载（惯性滑动兜底）
+      if (!this.getLoadedAll && prev + this.estimatedVisibleRows() + 20 >= this.displayCount) {
+        this.loadMore();
+      }
+    }, 0);
+  }
+
+  /** 估算当前一屏可见行数（基于字体大小+行高），用于积极的滚动预加载阈值。 */
+  private estimatedVisibleRows(): number {
+    const lineHeight: number = this.fontSize + 7;
+    if (lineHeight <= 0 || this.scrollbarTrackHeight <= 0) return 20;
+    return Math.max(5, Math.ceil(this.scrollbarTrackHeight / lineHeight));
   }
 
   private decFont(): void {
@@ -308,8 +340,8 @@ struct FilePreview {
   }
 
   get getLoadedAll(): boolean {
-    // head 模式视为已加载完毕，阻止自动加载更多
-    if (this.previewMode === 'head') return true;
+    // head / tail 模式视为已加载完毕，阻止自动加载更多
+    if (this.previewMode === 'head' || this.previewMode === 'tail') return true;
     return this.displayCount >= this.lines.length;
   }
 
@@ -364,15 +396,22 @@ struct FilePreview {
             .margin({ left: 8 })
         }
         Blank()
-        Button('A-')
-          .fontSize(12).height(28).backgroundColor($r('app.color.bg_card')).fontColor($r('app.color.text_primary'))
-          .onClick(() => this.decFont())
-        Text(`${this.fontSize}`)
-          .fontSize(12).fontColor($r('app.color.text_secondary'))
-          .margin({ left: 4, right: 4 })
-        Button('A+')
-          .fontSize(12).height(28).backgroundColor($r('app.color.bg_card')).fontColor($r('app.color.text_primary'))
-          .onClick(() => this.incFont())
+        // Aa 图标按钮：折叠/展开字号调节面板（对齐安卓 fontSizeExpanded）
+        Text('Aa')
+          .fontSize(14).fontColor($r('app.color.text_secondary'))
+          .margin({ right: 8 })
+          .onClick(() => this.fontPanelExpanded = !this.fontPanelExpanded)
+        if (this.fontPanelExpanded) {
+          Button('A-')
+            .fontSize(12).height(28).backgroundColor($r('app.color.bg_card')).fontColor($r('app.color.text_primary'))
+            .onClick(() => this.decFont())
+          Text(`${this.fontSize}`)
+            .fontSize(12).fontColor($r('app.color.text_secondary'))
+            .margin({ left: 4, right: 4 })
+          Button('A+')
+            .fontSize(12).height(28).backgroundColor($r('app.color.bg_card')).fontColor($r('app.color.text_primary'))
+            .onClick(() => this.incFont())
+        }
         Text(`${this.lines.length} 行`)
           .fontSize(12).fontColor($r('app.color.text_hint'))
           .margin({ left: 8 })
@@ -428,13 +467,23 @@ struct FilePreview {
         Text('— 仅预览前50行，返回选择「全部内容」可查看完整 —')
           .width('100%').textAlign(TextAlign.Center)
           .fontSize(12).fontColor($r('app.color.text_hint')).padding(12)
+      } else if (this.previewMode === 'tail') {
+        Text('— 仅预览后100行，返回选择「全部内容」可查看完整 —')
+          .width('100%').textAlign(TextAlign.Center)
+          .fontSize(12).fontColor($r('app.color.text_hint')).padding(12)
       } else if (this.getLoadedAll) {
         Text('— 已到末尾 —')
           .width('100%').textAlign(TextAlign.Center)
           .fontSize(12).fontColor($r('app.color.text_hint')).padding(12)
       } else {
-        Button('加载更多').width('100%').fontSize(14)
-          .onClick(() => this.loadMore())
+        // 自动加载模式：不再暴露「加载更多」按钮，滚动到底部自动追加
+        // （onScrollIndex 触发 loadMore），此处仅展示加载状态提示
+        Row() {
+          LoadingProgress().width(16).height(16)
+          Text('正在加载更多…').fontSize(12).fontColor($r('app.color.text_hint'))
+            .margin({ left: 8 })
+        }
+        .width('100%').justifyContent(FlexAlign.Center).padding(12)
       }
     }
   }
@@ -451,8 +500,9 @@ struct FilePreview {
       .width('100%').layoutWeight(1)
       .onScrollIndex((first: number) => {
         this.firstVisibleIndex = first;
-        // 接近末尾自动加载更多
-        if (first + 15 >= this.displayCount && !this.getLoadedAll) {
+        // 接近末尾即自动预加载：末可见项 + 一屏缓冲接近已加载末尾时触发，
+        // 不等用户真正滑到底才加载（解决"划到最下面才加载"的体感问题）
+        if (!this.getLoadedAll && this.displayCount - (first + this.estimatedVisibleRows()) <= 10) {
           this.loadMore();
         }
       })
@@ -563,8 +613,9 @@ struct FilePreview {
       .width('100%').layoutWeight(1)
       .onScrollIndex((first: number) => {
         this.firstVisibleIndex = first;
-        // 接近末尾自动加载更多
-        if (first + 15 >= this.displayCount && !this.getLoadedAll) {
+        // 接近末尾即自动预加载：末可见项 + 一屏缓冲接近已加载末尾时触发，
+        // 不等用户真正滑到底才加载（解决"划到最下面才加载"的体感问题）
+        if (!this.getLoadedAll && this.displayCount - (first + this.estimatedVisibleRows()) <= 10) {
           this.loadMore();
         }
       })

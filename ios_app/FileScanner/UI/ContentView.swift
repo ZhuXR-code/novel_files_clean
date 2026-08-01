@@ -7,7 +7,6 @@ struct ContentView: View {
     var body: some View {
         NavigationStack(path: $router.path) {
             HomeView()
-            HomeView()
                 .navigationDestination(for: Route.self) { route in
                     switch route {
                     case .home: HomeView()
@@ -24,7 +23,7 @@ struct ContentView: View {
                     case .privacy: PrivacyPolicyView()
                     case .about: AboutView()
                     case .fileDetail(let id): FileDetailView(fileId: id)
-                    case .filePreview(let id, let all): FilePreviewView(fileId: id, all: all)
+                    case .filePreview(let id, let mode): FilePreviewView(fileId: id, mode: mode)
                     case .deleteConfirm(let runId, let ids, let physical): DeleteConfirmView(runId: runId, ids: ids, physical: physical)
                     case .deleteProgress(let runId, let ids, let physical): DeleteProgressView(runId: runId, ids: ids, physical: physical)
                     }

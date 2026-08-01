@@ -67,7 +67,7 @@ enum Route: Hashable {
     case privacy
     case about
     case fileDetail(id: Int64)
-    case filePreview(id: Int64, all: Bool)
+    case filePreview(id: Int64, mode: String)
     case deleteConfirm(runId: Int64, ids: [Int64], physical: Bool)
     case deleteProgress(runId: Int64, ids: [Int64], physical: Bool)
 }

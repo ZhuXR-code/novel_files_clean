@@ -105,14 +105,20 @@ struct OneClickCleanupView: View {
 }
 
 /// 待删清单复核（对齐安卓 review 阶段）：逐条勾选 / 全选 / 全不选，保存后回写 checked 状态。
+/// 20w+ 量级下分页加载：全量 ids 仅保留 id 数组（极小），文件详情按页（200）从数据库取，避免一次性把全部文件塞进 List 导致 OOM。
 struct OneClickReviewSheet: View {
     @Environment(\.dismiss) private var dismiss
     let runId: Int64
     let onSaved: () -> Void
 
+    private let pageSize = 200
+
+    @State private var allIds: [Int64] = []
     @State private var items: [ScannedFile] = []
     @State private var draft: Set<Int64> = []
     @State private var loading = true
+    @State private var loadingMore = false
+    @State private var reachedEnd = false
 
     private var draftSize: Int64 {
         items.filter { draft.contains($0.id) }.reduce(0) { $0 + $1.fileSize }
@@ -127,7 +133,7 @@ struct OneClickReviewSheet: View {
                     .padding(.horizontal).padding(.top, 8)
 
                 HStack(spacing: 10) {
-                    Button("全选") { draft = Set(items.map { $0.id }) }
+                    Button("全选") { draft = Set(allIds) }
                         .buttonStyle(.bordered)
                     Button("全不选") { draft = [] }
                         .buttonStyle(.bordered)
@@ -143,22 +149,29 @@ struct OneClickReviewSheet: View {
                     Text("暂无待删文件").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(items) { f in
-                        Button {
-                            if draft.contains(f.id) { draft.remove(f.id) } else { draft.insert(f.id) }
-                        } label: {
-                            HStack(alignment: .top, spacing: 10) {
-                                Image(systemName: draft.contains(f.id) ? "checkmark.square.fill" : "square")
-                                    .foregroundColor(draft.contains(f.id) ? .fsPrimary : .fsSecondaryLabel)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(f.fileName).fsFont(.caption).fontWeight(.medium)
-                                        .foregroundColor(.primary).lineLimit(2)
-                                    Text("\(f.title)　\(f.author)　\(FormatUtil.formatSize(f.fileSize))")
-                                        .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                    List {
+                        ForEach(items) { f in
+                            Button {
+                                if draft.contains(f.id) { draft.remove(f.id) } else { draft.insert(f.id) }
+                            } label: {
+                                HStack(alignment: .top, spacing: 10) {
+                                    Image(systemName: draft.contains(f.id) ? "checkmark.square.fill" : "square")
+                                        .foregroundColor(draft.contains(f.id) ? .fsPrimary : .fsSecondaryLabel)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(f.fileName).fsFont(.caption).fontWeight(.medium)
+                                            .foregroundColor(.primary).lineLimit(2)
+                                        Text("\(f.title)　\(f.author)　\(FormatUtil.formatSize(f.fileSize))")
+                                            .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                                    }
                                 }
                             }
+                            .buttonStyle(.plain)
+                            .onAppear { loadMoreIfNeeded(current: f.id) }
                         }
-                        .buttonStyle(.plain)
+                        if loadingMore {
+                            HStack { Spacer(); ProgressView(); Spacer() }
+                                .listRowSeparator(.hidden)
+                        }
                     }
                     .listStyle(.plain)
                 }
@@ -175,19 +188,46 @@ struct OneClickReviewSheet: View {
         }
     }
 
+    /// 加载全部已勾选 id（分批，仅 id 数组），并取首页文件详情。
     private func load() {
         let ids = FileRepository.shared.getCheckedIds(runId: runId)
-        items = FileRepository.shared.getByIds(ids)
+        allIds = ids
         draft = Set(ids)
+        appendPage()
         loading = false
     }
 
+    /// 按需追加下一页文件详情（每页 pageSize 个）。
+    private func appendPage() {
+        guard !loadingMore, !reachedEnd else { return }
+        let start = items.count
+        guard start < allIds.count else { reachedEnd = true; return }
+        let end = min(start + pageSize, allIds.count)
+        let slice = Array(allIds[start..<end])
+        loadingMore = true
+        Task.detached(priority: .userInitiated) {
+            let page = FileRepository.shared.getByIds(slice)
+            Task { @MainActor in
+                self.items.append(contentsOf: page)
+                self.loadingMore = false
+                if self.items.count >= self.allIds.count { self.reachedEnd = true }
+            }
+        }
+    }
+
+    private func loadMoreIfNeeded(current: Int64) {
+        guard let last = items.last else { return }
+        if current == last.id { appendPage() }
+    }
+
     private func save() {
-        let all = items.map { $0.id }
-        let keep = all.filter { !draft.contains($0) }
-        // 取消勾选的文件恢复为不删除，其余保持勾选
-        FileRepository.shared.updateChecked(ids: keep, checked: false)
-        FileRepository.shared.updateChecked(ids: Array(draft), checked: true)
+        // 仅对发生变化的文件回写，避免 20w 全量 UPDATE。
+        let checkedNow = draft
+        let checkedPrev = Set(allIds)
+        let toUncheck = checkedPrev.subtracting(checkedNow)
+        let toCheck = checkedNow.subtracting(checkedPrev)
+        if !toUncheck.isEmpty { FileRepository.shared.updateChecked(ids: Array(toUncheck), checked: false) }
+        if !toCheck.isEmpty { FileRepository.shared.updateChecked(ids: Array(toCheck), checked: true) }
         onSaved()
         dismiss()
     }

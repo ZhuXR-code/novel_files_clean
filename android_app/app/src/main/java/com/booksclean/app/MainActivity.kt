@@ -164,21 +164,21 @@ fun AppNavigation() {
             FileDetailScreen(
                 fileId = id,
                 onBack = { navController.popBackStack() },
-                onPreview = { fid, all -> navController.navigate(NavRoutes.filePreview(fid, all)) }
+                onPreview = { fid, mode -> navController.navigate(NavRoutes.filePreview(fid, mode)) }
             )
         }
         composable(
             route = NavRoutes.FILE_PREVIEW,
             arguments = listOf(
                 navArgument("id") { type = NavType.LongType },
-                navArgument("all") { type = NavType.BoolType }
+                navArgument("mode") { type = NavType.StringType }
             )
         ) { backStack ->
             val id = backStack.arguments?.getLong("id") ?: -1L
-            val all = backStack.arguments?.getBoolean("all") ?: false
+            val mode = backStack.arguments?.getString("mode") ?: "full"
             FilePreviewScreen(
                 fileId = id,
-                previewAll = all,
+                previewMode = mode,
                 onBack = { navController.popBackStack() }
             )
         }

@@ -15,7 +15,7 @@ extension View {
     /// 按当前字号偏好缩放系统文本样式。
     func fsFont(_ style: Font.TextStyle, design: Font.Design = .default) -> some View {
         let scale = Preferences.shared.fontScaleFactor
-        return self.font(.system(style, design: design).size(Font.TextStyleSize(style) * scale))
+        return self.font(.system(size: Font_TextStyleSize(style) * scale, design: design))
     }
 
     /// 按当前字号偏好缩放固定 pt 字号（用于图标、数字等）。

@@ -292,6 +292,8 @@
     <string name="preview_choose_hint">请选择要读取的内容范围，大文件建议先预览前 50 行。</string>
     <string name="preview_head_50">仅前 50 行</string>
     <string name="preview_head_50_hint">快速查看文件开头内容</string>
+    <string name="preview_tail_100">仅后 100 行</string>
+    <string name="preview_tail_100_hint">快速查看文件末尾内容</string>
     <string name="preview_full">全部内容</string>
     <string name="preview_full_hint">随滚动分批加载，支持 50MB 级大文件</string>
     <string name="preview_start">开始预览</string>
@@ -301,6 +303,7 @@
     <string name="preview_encoding">编码：%1$s</string>
     <string name="preview_loaded_lines">已加载 %1$d 行</string>
     <string name="preview_head_done">已显示前 %1$d 行</string>
+    <string name="preview_tail_done">已显示后 %1$d 行</string>
     <string name="preview_eof">已到文件末尾</string>
     <string name="preview_empty_file">文件内容为空</string>
     <string name="original_name_prefix">原名：</string>

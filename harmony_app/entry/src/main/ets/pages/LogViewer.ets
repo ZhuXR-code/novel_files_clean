@@ -192,9 +192,11 @@ struct LogViewer {
       .padding(20)
       .backgroundColor($r('app.color.bg_card'))
       .borderRadius(12)
+      // 弹窗卡片居中：position + markAnchor 实现真正的中心对齐
+      .position({ x: '50%', y: '50%' })
+      .markAnchor({ x: '50%', y: '50%' })
     }
     .width('100%')
     .height('100%')
-    .alignContent(Alignment.Center)
   }
 }

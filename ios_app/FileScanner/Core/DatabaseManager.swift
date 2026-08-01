@@ -448,6 +448,37 @@ final class DatabaseManager {
         return groups
     }
 
+    /// 合集（按 书名+作者 分组）总数，支持与分页一致的筛选条件，用于分页栏「共 N 项」。
+    func countNovelGroups(runId: Int64, minCount: Int, maxCount: Int, excludeNames: [String]) -> Int {
+        var sql = "SELECT COUNT(*) FROM (SELECT title FROM scanned_file WHERE scan_run_id=? GROUP BY title, author HAVING COUNT(*) >= ?"
+        var binds: [Any?] = [runId, minCount.coerceAtLeast(0)]
+        if maxCount >= 0 { sql += " AND COUNT(*) <= ?"; binds.append(maxCount) }
+        for n in excludeNames where !n.isEmpty { sql += " AND title NOT LIKE ?"; binds.append("%\(n)%") }
+        sql += ") t"
+        return count(sql, binds)
+    }
+
+    /// 合集分页查询（对齐安卓 groupsPageFlow），按 文件数降序、书名升序。
+    func getNovelGroupsPaged(runId: Int64, minCount: Int, maxCount: Int, excludeNames: [String], offset: Int, limit: Int) -> [NovelGroup] {
+        var sql = "SELECT title, author, COUNT(*) AS c, SUM(file_size) AS s, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k FROM scanned_file WHERE scan_run_id=? GROUP BY title, author HAVING c >= ?"
+        var binds: [Any?] = [runId, minCount.coerceAtLeast(0)]
+        if maxCount >= 0 { sql += " AND c <= ?"; binds.append(maxCount) }
+        for n in excludeNames where !n.isEmpty { sql += " AND title NOT LIKE ?"; binds.append("%\(n)%") }
+        sql += " ORDER BY c DESC, title ASC LIMIT ? OFFSET ?"
+        binds.append(limit); binds.append(offset)
+        let rows = fetchAll(sql, binds)
+        var groups: [NovelGroup] = []
+        for r in rows {
+            let title = (r[0] as? String) ?? ""
+            let author = (r[1] as? String) ?? ""
+            let count = (r[2] as? Int64).map(Int.init) ?? 0
+            let size = (r[3] as? Int64) ?? 0
+            let checked = (r[4] as? Int64).map(Int.init) ?? 0
+            groups.append(NovelGroup(title: title.isEmpty ? "(无书名)" : title, author: author, fileCount: count, totalSize: size, checkedCount: checked))
+        }
+        return groups
+    }
+
     func getGroupFiles(runId: Int64, title: String, author: String) -> [ScannedFile] {
         fetchAll("SELECT \(SF_COLS) FROM scanned_file WHERE scan_run_id=? AND title=? AND author=? ORDER BY created_at DESC, id DESC", [runId, title, author]).map(mapScannedFile)
     }
@@ -458,6 +489,56 @@ final class DatabaseManager {
                         author: (r[3] as? String) ?? "", progress: (r[4] as? String) ?? "", source: (r[5] as? String) ?? "",
                         fileSize: (r[6] as? Int64) ?? 0, createdAt: (r[7] as? Int64) ?? 0)
         }
+    }
+
+    /// 分批取全部文件详情（用于勾选重复的内存分组计算），避免一次性 SELECT 20w 行。
+    func getDuplicateRowsPaged(runId: Int64, offset: Int, limit: Int) -> [DuplicateRow] {
+        fetchAll("SELECT id,file_name,title,author,progress,source,file_size,created_at FROM scanned_file WHERE scan_run_id=? ORDER BY id LIMIT ? OFFSET ?",
+                 [runId, limit, offset]).map { r in
+            DuplicateRow(id: (r[0] as? Int64) ?? 0, fileName: (r[1] as? String) ?? "", title: (r[2] as? String) ?? "",
+                        author: (r[3] as? String) ?? "", progress: (r[4] as? String) ?? "", source: (r[5] as? String) ?? "",
+                        fileSize: (r[6] as? Int64) ?? 0, createdAt: (r[7] as? Int64) ?? 0)
+        }
+    }
+
+    /// 分批取全部文件详情（供同名重复等需要全量数据的场景），避免一次性 SELECT 20w 行。
+    func getAllRowsPaged(runId: Int64, offset: Int, limit: Int) -> [DuplicateRow] {
+        getDuplicateRowsPaged(runId: runId, offset: offset, limit: limit)
+    }
+
+    // MARK: - 分批勾选重复（20w+ 量级防 OOM）
+    /// 分批取「已勾选」文件 id，避免一次性 SELECT 巨量行导致内存峰值。
+    func getCheckedIdsBatched(runId: Int64, chunkSize: Int = 5000) -> [Int64] {
+        var result: [Int64] = []
+        var offset = 0
+        while true {
+            let rows = fetchAll(
+                "SELECT id FROM scanned_file WHERE scan_run_id=? AND checked=1 ORDER BY id LIMIT ? OFFSET ?",
+                [runId, chunkSize, offset])
+            if rows.isEmpty { break }
+            for r in rows { if let id = r.first as? Int64 { result.append(id) } }
+            if rows.count < chunkSize { break }
+            offset += chunkSize
+        }
+        return result
+    }
+
+    // MARK: - 分批按文件名找重复（20w+ 量级防 OOM）
+    /// 用 SQL 子查询直接定位「同名且 >=2 个」的文件 id，分批游标返回，避免全表载入内存。
+    func findDuplicateIdsByFileNameBatched(runId: Int64, chunkSize: Int = 5000) -> [Int64] {
+        var result: [Int64] = []
+        var offset = 0
+        let dupNamesSql = "SELECT file_name FROM scanned_file WHERE scan_run_id=? GROUP BY file_name HAVING COUNT(*) >= 2"
+        while true {
+            let rows = fetchAll(
+                "SELECT id FROM scanned_file WHERE scan_run_id=? AND file_name IN (\(dupNamesSql)) ORDER BY id LIMIT ? OFFSET ?",
+                [runId, runId, chunkSize, offset])
+            if rows.isEmpty { break }
+            for r in rows { if let id = r.first as? Int64 { result.append(id) } }
+            if rows.count < chunkSize { break }
+            offset += chunkSize
+        }
+        return result
     }
 
     func getEnabledBuiltinRuleKeys() -> Set<String> {

@@ -68,7 +68,7 @@ import kotlinx.coroutines.withContext
 fun FileDetailScreen(
     fileId: Long,
     onBack: () -> Unit,
-    onPreview: (Long, Boolean) -> Unit = { _, _ -> },
+    onPreview: (Long, String) -> Unit = { _, _ -> },
     viewModel: LibraryViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -79,9 +79,9 @@ fun FileDetailScreen(
     var deleteSourceChoice by remember { mutableStateOf(false) }
     // 二次确认对话框：防止误删
     var showConfirmDialog by remember { mutableStateOf(false) }
-    // 预览范围选择对话框：false=前50行，true=全部内容
+    // 预览范围选择对话框：head=前50行，tail=后100行，all=全部内容
     var showPreviewDialog by remember { mutableStateOf(false) }
-    var previewAllChoice by remember { mutableStateOf(false) }
+    var previewModeChoice by remember { mutableStateOf("head") }
 
     LaunchedEffect(fileId) {
         file = withContext(Dispatchers.IO) { viewModel.getById(fileId) }
@@ -96,7 +96,7 @@ fun FileDetailScreen(
                     file?.let { f ->
                         // 顶部预览入口
                         IconButton(onClick = {
-                            previewAllChoice = false
+                            previewModeChoice = "head"
                             showPreviewDialog = true
                         }) {
                             Icon(
@@ -160,7 +160,7 @@ fun FileDetailScreen(
                 // 预览内容（应用内直接查看，弹窗选择范围）
                 AppButton(
                     onClick = {
-                        previewAllChoice = false
+                        previewModeChoice = "head"
                         showPreviewDialog = true
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -217,11 +217,11 @@ fun FileDetailScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { previewAllChoice = false }
+                            .clickable { previewModeChoice = "head" }
                             .padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        RadioButton(selected = !previewAllChoice, onClick = { previewAllChoice = false })
+                        RadioButton(selected = previewModeChoice == "head", onClick = { previewModeChoice = "head" })
                         Column(modifier = Modifier.padding(start = 8.dp)) {
                             Text(stringResource(R.string.preview_head_50))
                             Text(
@@ -231,15 +231,33 @@ fun FileDetailScreen(
                             )
                         }
                     }
-                    // 选项二：全部内容
+                    // 选项二：仅后 100 行
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { previewAllChoice = true }
+                            .clickable { previewModeChoice = "tail" }
                             .padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        RadioButton(selected = previewAllChoice, onClick = { previewAllChoice = true })
+                        RadioButton(selected = previewModeChoice == "tail", onClick = { previewModeChoice = "tail" })
+                        Column(modifier = Modifier.padding(start = 8.dp)) {
+                            Text(stringResource(R.string.preview_tail_100))
+                            Text(
+                                stringResource(R.string.preview_tail_100_hint),
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    // 选项三：全部内容
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { previewModeChoice = "all" }
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = previewModeChoice == "all", onClick = { previewModeChoice = "all" })
                         Column(modifier = Modifier.padding(start = 8.dp)) {
                             Text(stringResource(R.string.preview_full))
                             Text(
@@ -255,7 +273,7 @@ fun FileDetailScreen(
                 AppButton(
                     onClick = {
                         showPreviewDialog = false
-                        onPreview(target.id, previewAllChoice)
+                        onPreview(target.id, previewModeChoice)
                     }
                 ) { Text(stringResource(R.string.preview_start)) }
             },

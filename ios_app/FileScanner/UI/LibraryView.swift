@@ -1,6 +1,6 @@
 import SwiftUI
+import UIKit
 
-private let LIBRARY_PAGE_SIZE = 50
 private let SORT_OPTIONS: [(String, String)] = [
     ("created_at", "扫描顺序"), ("file_size", "文件大小"), ("file_name", "文件名"),
     ("title", "书名"), ("author", "作者"), ("progress", "进度"), ("source", "来源")
@@ -39,6 +39,97 @@ struct FileRow: View {
             }
         }
         .contentShape(Rectangle()).onTapGesture { onTap() }
+    }
+}
+
+// 分页栏（对齐安卓 PageNavBar）：每页行数自定义、跳转到指定页、首页/上页/下页/末页
+struct PageNavBar: View {
+    @Binding var page: Int
+    let pageCount: Int
+    let totalItems: Int
+    @Binding var pageSize: Int
+    let onPageChange: () -> Void
+    let onPageSizeChange: () -> Void
+
+    @State private var pageSizeText: String = ""
+    @State private var jumpText: String = ""
+
+    private var safePageCount: Int { max(pageCount, 1) }
+    private var currentPage1: Int { min(max(page, 0), safePageCount - 1) + 1 }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            // 第一行：每页行数 + 总数 + 页码
+            HStack(spacing: 8) {
+                HStack(spacing: 4) {
+                    Text("每页").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                    TextField("\(pageSize)", text: $pageSizeText)
+                        .fsFont(.caption2).frame(width: 46)
+                        .keyboardType(.numberPad)
+                        .textFieldStyle(.roundedBorder)
+                    Text("行").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                    Button("应用") {
+                        if let v = Int(pageSizeText), v >= 10, v <= 2000 {
+                            pageSize = v
+                            page = 0
+                            onPageSizeChange()
+                        }
+                        pageSizeText = ""
+                        hideKeyboard()
+                    }
+                    .fsFont(.caption2)
+                }
+                Spacer()
+                Text("共 \(totalItems) 条 · 第 \(currentPage1)/\(safePageCount) 页")
+                    .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+            }
+            // 第二行：翻页 + 跳页
+            HStack(spacing: 6) {
+                navButton("«", disabled: currentPage1 <= 1) { jump(to: 0) }
+                navButton("‹", disabled: currentPage1 <= 1) { jump(to: currentPage1 - 2) }
+                navButton("›", disabled: currentPage1 >= safePageCount) { jump(to: currentPage1) }
+                navButton("»", disabled: currentPage1 >= safePageCount) { jump(to: safePageCount - 1) }
+                Spacer()
+                HStack(spacing: 4) {
+                    Text("跳至").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                    TextField("", text: $jumpText)
+                        .fsFont(.caption2).frame(width: 42)
+                        .keyboardType(.numberPad)
+                        .textFieldStyle(.roundedBorder)
+                    Text("页").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                    Button("跳转") {
+                        if let v = Int(jumpText), v >= 1, v <= safePageCount {
+                            jump(to: v - 1)
+                        }
+                        jumpText = ""
+                        hideKeyboard()
+                    }
+                    .fsFont(.caption2)
+                }
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(Color.fsTertiaryBg)
+    }
+
+    private func navButton(_ label: String, disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).fsFont(.callout).frame(minWidth: 34)
+                .padding(.vertical, 4).background(Color.fsPrimary.opacity(disabled ? 0.3 : 1))
+                .foregroundColor(.white).cornerRadius(8)
+        }
+        .disabled(disabled)
+    }
+
+    private func jump(to p: Int) {
+        let clamped = min(max(p, 0), safePageCount - 1)
+        guard clamped != page else { return }
+        page = clamped
+        onPageChange()
+    }
+
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
 
@@ -82,6 +173,9 @@ struct LibraryView: View {
     @State private var total = 0
     @State private var page = 0
     @State private var pageCount = 1
+    @State private var pageSize = 100          // 对齐安卓默认每页 100 行，可自定义
+    @State private var groupTotal = 0
+    @State private var groupPageCount = 1
     @State private var sortBy = "created_at"
     @State private var ascending = false
     @State private var search = ""
@@ -124,6 +218,18 @@ struct LibraryView: View {
             .padding(.bottom, 6)
 
             if mode == "list" { listContent } else { groupContent }
+
+            // 分页栏（对齐安卓 PageNavBar：每页行数自定义、跳页、首页/上页/下页/末页）
+            let totalItems = mode == "list" ? total : groupTotal
+            let pgCount = mode == "list" ? pageCount : groupPageCount
+            PageNavBar(
+                page: $page,
+                pageCount: pgCount,
+                totalItems: totalItems,
+                pageSize: $pageSize,
+                onPageChange: { reload() },
+                onPageSizeChange: { reload() }
+            )
         }
         .overlay(alignment: .bottom) {
             if let t = toastText {
@@ -184,54 +290,74 @@ struct LibraryView: View {
         }
     }
 
+    /// 空状态引导（对齐安卓空状态：图标 + 说明 + 操作入口，minimalism）。
+    private func emptyStateView(message: String) -> some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "tray")
+                .fsFontSize(48)
+                .foregroundColor(.fsSecondaryLabel)
+            Text(message)
+                .fsFont(.subheadline)
+                .foregroundColor(.fsSecondaryLabel)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 280)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     // MARK: 列表模式
     private var listContent: some View {
-        List {
-            ForEach(files) { f in
-                FileRow(
-                    file: f,
-                    onToggleCheck: { toggleCheck(f) },
-                    onToggleMark: { toggleMark(f) },
-                    onTap: { router.navigate(.fileDetail(id: f.id)) }
-                )
-                .swipeActions(edge: .leading) {
-                    Button { router.navigate(.filePreview(id: f.id, all: false)) } label: { Label("预览", systemImage: "eye") }
+        Group {
+            if files.isEmpty {
+                emptyStateView(message: "暂无文件\n\n可返回首页选择文件夹扫描，或使用顶部「一键勾选重复」按规则批量勾选。")
+            } else {
+                List {
+                    ForEach(files) { f in
+                        FileRow(
+                            file: f,
+                            onToggleCheck: { toggleCheck(f) },
+                            onToggleMark: { toggleMark(f) },
+                            onTap: { router.navigate(.fileDetail(id: f.id)) }
+                        )
+                        .swipeActions(edge: .leading) {
+                            Button { router.navigate(.filePreview(id: f.id, mode: "head")) } label: { Label("预览", systemImage: "eye") }
+                        }
+                    }
                 }
-            }
-            if total > LIBRARY_PAGE_SIZE {
-                HStack {
-                    Button { if page > 0 { page -= 1; reload() } } label: { Image(systemName: "chevron.left") }.disabled(page <= 0)
-                    Spacer()
-                    Text("第 \(page + 1) / \(pageCount) 页").fsFont(.caption)
-                    Spacer()
-                    Button { if page < pageCount - 1 { page += 1; reload() } } label: { Image(systemName: "chevron.right") }.disabled(page >= pageCount - 1)
-                }.padding(.vertical, 6)
+                .listStyle(.plain)
             }
         }
-        .listStyle(.plain)
     }
 
     // MARK: 合集模式
     private var groupContent: some View {
-        List {
-            ForEach(groups) { g in
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(g.title).fsFont(.subheadline).fontWeight(.medium)
-                        Text("作者: \(g.author) · \(g.fileCount) 本 · \(FormatUtil.formatSize(g.totalSize))")
-                            .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+        Group {
+            if groups.isEmpty {
+                emptyStateView(message: "暂无合集\n\n合集按「书名 / 作者」自动归并。可先到列表模式扫描并解析文件，或在更多菜单中进入「合集设置」调整分组规则。")
+            } else {
+                List {
+                    ForEach(groups) { g in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(g.title).fsFont(.subheadline).fontWeight(.medium)
+                                Text("作者: \(g.author) · \(g.fileCount) 本 · \(FormatUtil.formatSize(g.totalSize))")
+                                    .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                            }
+                            Spacer()
+                            if g.checkedCount > 0 {
+                                Text("勾选 \(g.checkedCount)").fsFont(.caption).foregroundColor(.red)
+                            }
+                            Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedGroup = g }
                     }
-                    Spacer()
-                    if g.checkedCount > 0 {
-                        Text("勾选 \(g.checkedCount)").fsFont(.caption).foregroundColor(.red)
-                    }
-                    Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { selectedGroup = g }
+                .listStyle(.plain)
             }
         }
-        .listStyle(.plain)
     }
 
     private var toolbarItems: some ToolbarContent {
@@ -390,8 +516,15 @@ struct LibraryView: View {
     private func reload() {
         let repo = FileRepository.shared
         if mode == "group" {
-            groups = repo.dbGroupFiles(runId: runId, min: prefs.groupMinCount, max: prefs.groupMaxCount,
-                                       exclude: LibraryLogic.parseExcludeNames(prefs.groupExcludeNames))
+            // 合集分页（对齐安卓 groupsPageFlow）：总数 + 当前页
+            let exclude = LibraryLogic.parseExcludeNames(prefs.groupExcludeNames)
+            groupTotal = repo.dbCountGroups(runId: runId, min: prefs.groupMinCount, max: prefs.groupMaxCount, exclude: exclude)
+            groupPageCount = LibraryLogic.computePageCount(total: max(groupTotal, 1), pageSize: pageSize)
+            if page >= groupPageCount { page = groupPageCount - 1 }
+            if page < 0 { page = 0 }
+            groups = repo.dbPageGroups(runId: runId, min: prefs.groupMinCount, max: prefs.groupMaxCount,
+                                       exclude: exclude, page: page, pageSize: pageSize)
+            selectAllOnPage = false
             return
         }
         // 筛选 chips 映射（对齐安卓文库全部/已勾选/未勾选/已标记/未标记）
@@ -407,10 +540,10 @@ struct LibraryView: View {
         total = repo.dbCountFiles(runId: runId, title: titleFilter, author: authorFilter,
                                   progress: progressFilter, source: sourceFilter, search: search,
                                   checkedFilter: cf, markedFilter: mf)
-        pageCount = LibraryLogic.computePageCount(total: max(total, 1), pageSize: LIBRARY_PAGE_SIZE)
+        pageCount = LibraryLogic.computePageCount(total: max(total, 1), pageSize: pageSize)
         if page >= pageCount { page = pageCount - 1 }
         if page < 0 { page = 0 }
-        files = repo.dbPageFiles(runId: runId, page: page, pageSize: LIBRARY_PAGE_SIZE, sortBy: sortBy,
+        files = repo.dbPageFiles(runId: runId, page: page, pageSize: pageSize, sortBy: sortBy,
                                  ascending: ascending, title: titleFilter, author: authorFilter,
                                  progress: progressFilter, source: sourceFilter, search: search,
                                  checkedFilter: cf, markedFilter: mf)
@@ -436,6 +569,13 @@ extension FileRepository {
     }
     func dbGroupFiles(runId: Int64, min: Int, max: Int, exclude: [String]) -> [NovelGroup] {
         DatabaseManager.shared.getNovelGroups(runId: runId, minCount: min, maxCount: max, excludeNames: exclude)
+    }
+    func dbCountGroups(runId: Int64, min: Int, max: Int, exclude: [String]) -> Int {
+        DatabaseManager.shared.countNovelGroups(runId: runId, minCount: min, maxCount: max, excludeNames: exclude)
+    }
+    func dbPageGroups(runId: Int64, min: Int, max: Int, exclude: [String], page: Int, pageSize: Int) -> [NovelGroup] {
+        DatabaseManager.shared.getNovelGroupsPaged(runId: runId, minCount: min, maxCount: max,
+                                                    excludeNames: exclude, offset: page * pageSize, limit: pageSize)
     }
 }
 
@@ -487,6 +627,7 @@ struct FileDetailView: View {
     @State private var file: ScannedFile?
     @State private var showRename = false
     @State private var newName = ""
+    @State private var fileToDelete: ScannedFile? = nil
 
     var body: some View {
         Group {
@@ -523,7 +664,7 @@ struct FileDetailView: View {
                         // 操作按钮（对齐安卓：预览 / 重命名 / 删除）
                         VStack(spacing: 12) {
                             PrimaryButton(title: "预览内容") {
-                                router.navigate(.filePreview(id: f.id, all: false))
+                                router.navigate(.filePreview(id: f.id, mode: "head"))
                             }
                             Button {
                                 newName = f.fileName; showRename = true
@@ -535,7 +676,7 @@ struct FileDetailView: View {
                                     .cornerRadius(10)
                             }
                             Button {
-                                FileRepository.shared.setMarked(id: f.id, marked: f.marked == 1)
+                                FileRepository.shared.setMarked(id: f.id, marked: f.marked != 1)
                                 file = FileRepository.shared.getById(f.id)
                             } label: {
                                 Text(f.marked == 1 ? "取消标记" : "标记为已读").frame(maxWidth: .infinity)
@@ -545,8 +686,7 @@ struct FileDetailView: View {
                                     .cornerRadius(10)
                             }
                             Button(role: .destructive) {
-                                FileRepository.shared.deleteFiles(ids: [f.id])
-                                router.pop()
+                                fileToDelete = f
                             } label: {
                                 Text("删除该文件").frame(maxWidth: .infinity)
                                     .padding(.vertical, 10)
@@ -578,6 +718,23 @@ struct FileDetailView: View {
                         }
                     }
                 }
+            }
+        }
+        .alert("删除文件", isPresented: Binding(
+            get: { fileToDelete != nil },
+            set: { if !$0 { fileToDelete = nil } }
+        )) {
+            Button("取消", role: .cancel) { fileToDelete = nil }
+            Button("删除", role: .destructive) {
+                if let f = fileToDelete {
+                    FileRepository.shared.deleteFiles(ids: [f.id])
+                    router.pop()
+                }
+                fileToDelete = nil
+            }
+        } message: {
+            if let f = fileToDelete {
+                Text("确定要删除文件「\(f.fileName)」吗？该操作不可撤销。")
             }
         }
     }
@@ -619,14 +776,20 @@ private func DetailRowColumns(_ items: [(String, String)]) -> some View {
 // MARK: - 文件预览（阅读，对齐安卓）
 struct FilePreviewView: View {
     let fileId: Int64
-    let all: Bool
+    let mode: String
     @EnvironmentObject var prefs: Preferences
     @State private var text = "加载中…"
     @State private var totalLines = 0
-    @State private var showAll = false
+    @State private var modeState: String
     @State private var fontPt: CGFloat = 16
     @StateObject private var scrollState = PreviewScrollState()
     @State private var file: ScannedFile?
+
+    init(fileId: Int64, mode: String) {
+        self.fileId = fileId
+        self.mode = mode
+        self._modeState = State(initialValue: mode)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -662,7 +825,9 @@ struct FilePreviewView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button(showAll ? "仅显示解析行" : "显示全部内容") { showAll.toggle(); Task { await load() } }
+                    Button { if modeState != "head" { modeState = "head"; Task { await load() } } } label: { Label("前 50 行", systemImage: modeState == "head" ? "checkmark" : "text.line.first") }
+                    Button { if modeState != "tail" { modeState = "tail"; Task { await load() } } } label: { Label("后 100 行", systemImage: modeState == "tail" ? "checkmark" : "text.line.last") }
+                    Button { if modeState != "all" { modeState = "all"; Task { await load() } } } label: { Label("全部内容", systemImage: modeState == "all" ? "checkmark" : "doc.plaintext") }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
         }
@@ -672,11 +837,11 @@ struct FilePreviewView: View {
     private func load() async {
         guard let f = FileRepository.shared.getById(fileId) else { text = "文件不存在"; return }
         file = f
-        let content = readFileContent(f)
+        let content = readFileContent(f, mode: modeState)
         await MainActor.run { text = content ?? "无法读取文件内容（可能缺少文件夹访问权限，请重新扫描以刷新授权）" }
     }
 
-    private func readFileContent(_ f: ScannedFile) -> String? {
+    private func readFileContent(_ f: ScannedFile, mode: String) -> String? {
         guard let run = FileRepository.shared.getScanRun(f.scanRunId),
               let url = URL(string: f.path),
               let folderURL = resolveBookmarkURL(run.folderUri) else { return nil }
@@ -684,15 +849,37 @@ struct FilePreviewView: View {
         defer { folderURL.stopAccessingSecurityScopedResource() }
         let enc = f.encoding.isEmpty ? "UTF-8" : f.encoding
         let encoding = EncodingUtil.stringEncoding(named: enc)
-        // 仅读取前 200KB 预览，避免大文件（数十 MB）整篇载入导致内存暴涨与界面卡死。
+        // 预览仅读取前/后 200KB，避免大文件（数十 MB）整篇载入导致内存暴涨与界面卡死。
+        // all 模式读取完整文件（小文件可读全，大文件受 200KB 上限保护）。
         let maxBytes = 200 * 1024
         guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? fh.close() }
-        let data = fh.readData(ofLength: maxBytes)
-        let truncated = data.count >= maxBytes
-        let tail = truncated ? "\n\n…（预览仅显示前 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
-        if let s = String(data: data, encoding: encoding) { return s + tail }
-        if let s = String(data: data, encoding: .utf8) { return s + tail }
+
+        var data: Data
+        var truncatedSuffix: String
+        if mode == "tail" {
+            // 后 100 行：从文件末尾前 200KB 处开始读取
+            let total = (try? fh.seekToEnd()) ?? 0
+            let offset = max(0, Int64(total) - Int64(maxBytes))
+            fh.seek(toFileOffset: UInt64(offset))
+            data = fh.readData(ofLength: maxBytes)
+            let truncated = offset > 0
+            truncatedSuffix = truncated ? "\n\n…（预览仅显示末尾 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
+        } else if mode == "all" {
+            // 全部内容：读取完整文件（受 200KB 上限保护，超大文件仅显示开头部分）
+            fh.seek(toFileOffset: 0)
+            data = fh.readData(ofLength: maxBytes)
+            let truncated = data.count >= maxBytes
+            truncatedSuffix = truncated ? "\n\n…（预览仅显示前 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
+        } else {
+            // 前 50 行（默认）：读取文件开头 200KB
+            fh.seek(toFileOffset: 0)
+            data = fh.readData(ofLength: maxBytes)
+            let truncated = data.count >= maxBytes
+            truncatedSuffix = truncated ? "\n\n…（预览仅显示前 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
+        }
+        if let s = String(data: data, encoding: encoding) { return s + truncatedSuffix }
+        if let s = String(data: data, encoding: .utf8) { return s + truncatedSuffix }
         return nil
     }
 }

@@ -117,11 +117,12 @@ export struct MinePage {
   }
 
   // ── 预览滚动条 ──
-  private toggleScrollbarMode(): void {
-    this.scrollbarMode = this.scrollbarMode === 'vertical' ? 'horizontal' : 'vertical';
-    PreferencesUtil.putString(PREVIEW_SCROLLBAR_MODE_KEY, this.scrollbarMode);
-    // 同步到 AppStorage，FilePreview 通过 @StorageProp 立即响应
-    AppStorage.set('previewScrollbarMode', this.scrollbarMode);
+  private handleScrollbarModeChange(label: string): void {
+    const mode: ScrollbarMode = label === '横向' ? 'horizontal' : 'vertical';
+    this.scrollbarMode = mode;
+    PreferencesUtil.putString(PREVIEW_SCROLLBAR_MODE_KEY, mode);
+    AppStorage.set('previewScrollbarMode', mode);
+    ToastUtil.show(`滚动条方向已切换为「${label}」`);
   }
 
   // ── 清除所有数据 ──
@@ -261,16 +262,18 @@ export struct MinePage {
             .fontColor($r('app.color.text_hint'))
             .margin({ top: 20, left: 16, bottom: 4 })
           Column({ space: 1 }) {
-            // 预览滚动条方向（内联以响应 @State 变化）
+            // 预览滚动条方向（Select 选择器，对齐安卓 RadioButton 明确选项）
             Row() {
               Text('预览滚动条方向').fontSize(this.fs(16)).fontColor($r('app.color.text_primary'))
               Blank()
-              Text(this.scrollbarMode === 'vertical' ? '竖向' : '横向')
-                .fontSize(this.fs(15))
-                .fontColor($r('app.color.text_hint'))
+              Select([{ value: '竖向' }, { value: '横向' }])
+                .value(this.scrollbarMode === 'vertical' ? '竖向' : '横向')
+                .font({ size: 14 })
+                .fontColor($r('app.color.text_secondary'))
+                .margin({ right: 8 })
+                .onSelect((_idx: number, label: string) => this.handleScrollbarModeChange(label))
             }
             .width('100%').height(52).padding({ left: 16, right: 16 })
-            .onClick(() => this.toggleScrollbarMode())
           }
           .width('100%')
           .backgroundColor($r('app.color.bg_card'))

@@ -5,6 +5,7 @@ struct HomeView: View {
     @State private var runs: [ScanRun] = []
     @State private var showingFolderPicker = false
     @State private var showingOneClickSheet = false
+    @State private var runToDelete: ScanRun? = nil
 
     // 统计汇总（对齐安卓：总文件数 / 标记文件数）
     private var totalFiles: Int { runs.reduce(0) { $0 + $1.fileCount } }
@@ -70,8 +71,7 @@ struct HomeView: View {
                             .contextMenu {
                                 // 注意：swipeActions 只在 List 中生效，这里是 ScrollView，故用长按菜单
                                 Button(role: .destructive) {
-                                    FileRepository.shared.deleteScanRun(runId: run.id)
-                                    reload()
+                                    runToDelete = run
                                 } label: { Label("删除文库", systemImage: "trash") }
 
                                 Button {
@@ -109,6 +109,23 @@ struct HomeView: View {
             OneClickRunPicker(runs: runs) { run in
                 showingOneClickSheet = false
                 router.navigate(.oneClick(runId: run.id))
+            }
+        }
+        .alert("删除文库", isPresented: Binding(
+            get: { runToDelete != nil },
+            set: { if !$0 { runToDelete = nil } }
+        )) {
+            Button("取消", role: .cancel) { runToDelete = nil }
+            Button("删除", role: .destructive) {
+                if let run = runToDelete {
+                    FileRepository.shared.deleteScanRun(runId: run.id)
+                    reload()
+                }
+                runToDelete = nil
+            }
+        } message: {
+            if let run = runToDelete {
+                Text("确定要删除文库「\(run.name)」吗？该操作不可撤销，文库内的文件记录将被清除。")
             }
         }
     }

@@ -77,15 +77,16 @@ struct ScanConfigList {
   }
 
   build() {
-    Column() {
-      TopBar({ title: '扫描配置', rightText: '新增', onRight: () => this.newConfig() })
+    Stack({ alignContent: Alignment.BottomEnd }) {
+      Column() {
+      TopBar({ title: '扫描配置' })
 
       if (this.configs.length === 0) {
         Column() {
           Text('暂无配置')
             .fontSize(16)
             .fontColor($r('app.color.text_hint'))
-          Text('点击右上角「新增」创建扫描配置')
+          Text('点击右下角 + 按钮创建扫描配置')
             .fontSize(13)
             .fontColor($r('app.color.text_hint'))
             .margin({ top: 8 })
@@ -146,6 +147,19 @@ struct ScanConfigList {
         .onRefreshing(() => { this.load().finally(() => { this.refreshing = false; }); })
         .layoutWeight(1)
       }
+    }
+    .width('100%').height('100%')
+
+      // FAB 悬浮按钮（对齐安卓 FloatingActionButton，Material 惯例）
+      Button('+')
+        .width(56).height(56)
+        .fontSize(28)
+        .backgroundColor($r('app.color.primary'))
+        .fontColor($r('app.color.text_on_primary'))
+        .borderRadius(28)
+        .shadow({ radius: 8, color: '#66000000', offsetX: 0, offsetY: 4 })
+        .margin({ right: 20, bottom: 20 })
+        .onClick(() => this.newConfig())
     }
     .width('100%')
     .height('100%')

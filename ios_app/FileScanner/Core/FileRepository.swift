@@ -44,7 +44,7 @@ final class FileRepository {
     /// 一键标记同名重复文件（保留首个），返回标记条数。对齐安卓「标记重复文件名」。
     @discardableResult
     func markDuplicatesByFileName(runId: Int64) -> Int {
-        let ids = db.findDuplicateIdsByFileName(runId: runId)
+        let ids = db.findDuplicateIdsByFileNameBatched(runId: runId)
         db.updateMarked(ids: ids, marked: 1)
         LogUtil.i("Repo", "按文件名标记重复 \(ids.count) 条")
         return ids.count
@@ -59,14 +59,31 @@ final class FileRepository {
 
     // MARK: - 勾选重复
     /// 复刻 PC 端「勾选重复」逻辑，仅计算应勾选（待删）的 id，并写入 checked=1。
+    /// 20w+ 量级优化：分批游标（每批 5000 行）取详情，内存中按 (author,title) 分组并计算，
+    /// 内存峰值 = 单批大小（5000 行），远小于全量 20w 行，避免 iPhone OOM / 卡死。
     @discardableResult
     func selectDuplicateIds(runId: Int64, exactHash: Bool = false) -> Set<Int64> {
         let enabled = db.getEnabledBuiltinRuleKeys()
-        let rows = db.getDuplicateRows(runId: runId)
         let userRules = db.getEnabledUserRules()
-        let (result, detailLines) = DupRuleLogic.computeDuplicateChecks(rows, enabled, userRules)
-        let sample = detailLines.prefix(10).joined(separator: "；")
-        LogUtil.i("Repo", "勾选重复 完成 run=\(runId) 规则=\(enabled) 子组=\(detailLines.count) 勾选=\(result.count)" + (sample.isEmpty ? "" : " 样例：\(sample)"))
+        var result = Set<Int64>()
+        var detailCount = 0
+        var sampleLines: [String] = []
+        let batch = 5000
+        var offset = 0
+        while true {
+            let rows = db.getDuplicateRowsPaged(runId: runId, offset: offset, limit: batch)
+            if rows.isEmpty { break }
+            let (groupResult, groupDetail) = DupRuleLogic.computeDuplicateChecks(rows, enabled, userRules)
+            if !groupResult.isEmpty {
+                result.formUnion(groupResult)
+                detailCount += 1
+                if sampleLines.count < 10 { sampleLines.append(contentsOf: groupDetail.prefix(10 - sampleLines.count)) }
+            }
+            if rows.count < batch { break }
+            offset += batch
+        }
+        let sample = sampleLines.prefix(10).joined(separator: "；")
+        LogUtil.i("Repo", "勾选重复 完成 run=\(runId) 规则=\(enabled) 子组=\(detailCount) 勾选=\(result.count)" + (sample.isEmpty ? "" : " 样例：\(sample)"))
         // 先清空本文库全部勾选，再标记本次命中的待删项，保证「重新计算」幂等、不留陈旧勾选。
         db.resetChecked(runId: runId)
         if !result.isEmpty { db.updateChecked(ids: Array(result), checked: 1) }
@@ -74,32 +91,42 @@ final class FileRepository {
     }
 
     /// 一键清理确认页所需的分组明细：同 (作者+书名) 子组内，存在待删（已勾选重复）的子组。
+    /// 同样分批游标，避免全量载入 20w 行。
     func getDupDetails(runId: Int64) -> [DuplicateDetail] {
         let enabled = db.getEnabledBuiltinRuleKeys()
-        let rows = db.getDuplicateRows(runId: runId)
         let userRules = db.getEnabledUserRules()
-        let (result, _) = DupRuleLogic.computeDuplicateChecks(rows, enabled, userRules)
-        guard !result.isEmpty else { return [] }
-        // 按 (作者|书名) 子组聚合
-        let subgroups = Dictionary(grouping: rows) { "\($0.author)\u{0000}\($0.title)" }
         var details: [DuplicateDetail] = []
-        for (key, S) in subgroups {
-            let dupIdsInGroup = S.filter { result.contains($0.id) }
-            if dupIdsInGroup.isEmpty { continue }
-            let totalSize = S.reduce(0) { $0 + $1.fileSize }
-            details.append(DuplicateDetail(groupKey: key,
-                                           title: S[0].title.isEmpty ? "(无书名)" : S[0].title,
-                                           author: S[0].author,
-                                           fileCount: S.count,
-                                           dupCount: dupIdsInGroup.count,
-                                           totalSize: totalSize))
+        let batch = 5000
+        var offset = 0
+        while true {
+            let rows = db.getDuplicateRowsPaged(runId: runId, offset: offset, limit: batch)
+            if rows.isEmpty { break }
+            let (groupResult, _) = DupRuleLogic.computeDuplicateChecks(rows, enabled, userRules)
+            // 仅对命中规则、含待删项的子组输出明细
+            let subgroups = Dictionary(grouping: rows) { "\($0.author)\u{0000}\($0.title)" }
+            for (key, S) in subgroups {
+                let dupIds = S.filter { groupResult.contains($0.id) }
+                if dupIds.isEmpty { continue }
+                let totalSize = S.reduce(0) { $0 + $1.fileSize }
+                let parts = key.split(separator: "\u{0000}", maxSplits: 1)
+                let author = String(parts.first ?? "")
+                let title = parts.count > 1 ? String(parts[1]) : ""
+                details.append(DuplicateDetail(groupKey: key,
+                                               title: title.isEmpty ? "(无书名)" : title,
+                                               author: author,
+                                               fileCount: S.count,
+                                               dupCount: dupIds.count,
+                                               totalSize: totalSize))
+            }
+            if rows.count < batch { break }
+            offset += batch
         }
         return details.sorted { $0.fileCount > $1.fileCount }
     }
 
-    /// 计算待删文件 id 列表（已勾选的文件），供删除流程使用。
+    /// 计算待删文件 id 列表（已勾选的文件），供删除流程使用。分批取，降低内存峰值。
     func getCheckedIds(runId: Int64) -> [Int64] {
-        db.fetchAll("SELECT id FROM scanned_file WHERE scan_run_id=? AND checked=1", [runId]).compactMap { $0.first as? Int64 }
+        db.getCheckedIdsBatched(runId: runId)
     }
 
     func getCheckedCount(runId: Int64) -> Int {

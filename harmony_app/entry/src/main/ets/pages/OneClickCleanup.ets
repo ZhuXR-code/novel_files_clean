@@ -539,6 +539,11 @@ struct OneClickCleanup {
         .fontSize(15)
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))
+      // 进度指示（扫描时总文件数未知，用旋转加载动画表示进行中）
+      LoadingProgress()
+        .width(36)
+        .height(36)
+        .color($r('app.color.primary'))
       Text(`已处理: ${this.scanProcessed}  命中: ${this.scanFound}`)
         .fontSize(13)
         .fontColor($r('app.color.text_secondary'))

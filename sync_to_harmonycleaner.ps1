@@ -1,22 +1,32 @@
 # =====================================================================
 # sync_to_harmonycleaner.ps1
-# 双工程同步脚本：harmony_app <-> HarmonyCleaner
+# Dual-project sync: harmony_app <-> HarmonyCleaner
 #
-# 用法：
-#   .\sync_to_harmonycleaner.ps1           # harmony_app -> HarmonyCleaner（默认）
-#   .\sync_to_harmonycleaner.ps1 -Reverse  # HarmonyCleaner -> harmony_app（反向）
+# Usage:
+#   .\sync_to_harmonycleaner.ps1           # harmony_app -> HarmonyCleaner (default)
+#   .\sync_to_harmonycleaner.ps1 -Reverse  # HarmonyCleaner -> harmony_app
 #
-# 说明：harmony_app 是源工程（AI 编辑），HarmonyCleaner 是 DevEco 调试工作空间。
-#       两者代码必须保持一致。本脚本全量同步 ets/ts 源码文件。
+# harmony_app is the source project (edited by AI); HarmonyCleaner is the
+# DevEco debug workspace. Their code must stay in sync. This script does a
+# full sync of ets/ts source files.
+#
+# NOTE: The project path contains non-ASCII characters. We derive it from
+# $PSScriptRoot at runtime instead of a hardcoded literal, so the script is
+# not misread under an ANSI (GBK) codepage. All content below is ASCII-only.
 # =====================================================================
 param([switch]$Reverse)
 
-$srcBase = "d:\user\project\批量文件清理和文件内容识别\txt文件清理-单工程清理\harmony_app\entry\src\main\ets"
+$projectRoot = $PSScriptRoot
+if (-not $projectRoot) {
+    $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+
+$srcBase = Join-Path $projectRoot "harmony_app\entry\src\main\ets"
 $dstBase = "D:\Harmony\HarmonyCleaner\entry\src\main\ets"
 
 if ($Reverse) {
     $srcBase = "D:\Harmony\HarmonyCleaner\entry\src\main\ets"
-    $dstBase = "d:\user\project\批量文件清理和文件内容识别\txt文件清理-单工程清理\harmony_app\entry\src\main\ets"
+    $dstBase = Join-Path $projectRoot "harmony_app\entry\src\main\ets"
     $direction = "HarmonyCleaner -> harmony_app"
 } else {
     $direction = "harmony_app -> HarmonyCleaner"
@@ -24,6 +34,11 @@ if ($Reverse) {
 
 if (-not (Test-Path $srcBase)) {
     Write-Output "ERROR: Source path not found: $srcBase"
+    exit 1
+}
+if (-not (Test-Path $dstBase)) {
+    Write-Output "ERROR: Destination path not found: $dstBase"
+    Write-Output "Ensure DevEco workspace D:\Harmony\HarmonyCleaner exists."
     exit 1
 }
 

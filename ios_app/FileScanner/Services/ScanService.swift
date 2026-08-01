@@ -35,11 +35,49 @@ final class ScanService {
         let minSize = Int64(config.minSizeKb) * 1024
         let excluded = Set(config.excludedFolders.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
 
-        // 收集阶段
-        var collected: [(url: URL, name: String, size: Int64, date: Int64)] = []
-        collect(in: folderURL, recursive: config.recursive, types: types, minSize: minSize, excluded: excluded, into: &collected)
-        let total = collected.count
-        await MainActor.run { sm.totalFiles = total; sm.phase = "scanning" }
+        // 收集 + 解析阶段（流式分批，避免一次性把 20w+ 文件 URL/元信息全量驻留内存导致 OOM）。
+        // collect 每收集 BATCH 个文件就回调一次，本函数在回调内就地解析并批量落库，随后释放该批。
+        let scanRules = FileRepository.shared.getEnabledRules(scope: KeywordReplace.SCOPE_SCAN)
+        let parseRules = FileRepository.shared.getEnabledRules(scope: KeywordReplace.SCOPE_PARSE)
+        let useScan = !scanRules.isEmpty
+        let useParse = !parseRules.isEmpty
+        let deep = config.scanMode == "deep"
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
+
+        var total = 0
+        var scanned = 0
+        var buffer: [ScannedFile] = []
+        let batchSize = 5000
+
+        await MainActor.run { sm.phase = "scanning" }
+
+        let processBatch = { (batch: [(url: URL, name: String, size: Int64, date: Int64)]) in
+            for item in batch {
+                if sm.shouldStop() { return }
+                let entity = self.parseItem(url: item.url, name: item.name, size: item.size, date: item.date,
+                                            runId: runId, scanRules: useScan ? scanRules : [], parseRules: useParse ? parseRules : [],
+                                            deep: deep, exactHash: config.exactHash, now: now)
+                buffer.append(entity)
+                scanned += 1
+                if buffer.count >= 100 {
+                    FileRepository.shared.insertAll(buffer); buffer.removeAll()
+                }
+                if scanned % 64 == 0 {
+                    let s = scanned, n = item.name, t = total
+                    Task { @MainActor in
+                        sm.scannedFiles = s
+                        sm.totalFiles = t
+                        sm.progress = t > 0 ? s * 100 / t : 0
+                        sm.currentFile = n
+                    }
+                }
+            }
+        }
+
+        total = collect(in: folderURL, recursive: config.recursive, types: types, minSize: minSize,
+                        excluded: excluded, batchSize: batchSize, onBatch: processBatch)
+        if !buffer.isEmpty { FileRepository.shared.insertAll(buffer) }
+        await MainActor.run { sm.totalFiles = total }
         LogUtil.i("ScanService", "收集到 \(total) 个文件 run=\(runId)")
 
         if total == 0 {
@@ -47,37 +85,6 @@ final class ScanService {
             await MainActor.run { sm.isScanning = false; sm.finished = true; sm.status = "empty" }
             return runId
         }
-
-        let scanRules = FileRepository.shared.getEnabledRules(scope: KeywordReplace.SCOPE_SCAN)
-        let parseRules = FileRepository.shared.getEnabledRules(scope: KeywordReplace.SCOPE_PARSE)
-        let useScan = !scanRules.isEmpty
-        let useParse = !parseRules.isEmpty
-        let deep = config.scanMode == "deep"
-
-        var buffer: [ScannedFile] = []
-        var scanned = 0
-        let now = Int64(Date().timeIntervalSince1970 * 1000)
-
-        for item in collected {
-            if sm.shouldStop() { break }
-            let entity = parseItem(url: item.url, name: item.name, size: item.size, date: item.date,
-                                  runId: runId, scanRules: useScan ? scanRules : [], parseRules: useParse ? parseRules : [],
-                                  deep: deep, exactHash: config.exactHash, now: now)
-            buffer.append(entity)
-            scanned += 1
-            if buffer.count >= 100 {
-                FileRepository.shared.insertAll(buffer); buffer.removeAll()
-            }
-            if scanned % 64 == 0 {
-                let s = scanned, n = item.name
-                await MainActor.run {
-                    sm.scannedFiles = s
-                    sm.progress = s * 100 / total
-                    sm.currentFile = n
-                }
-            }
-        }
-        if !buffer.isEmpty { FileRepository.shared.insertAll(buffer) }
 
         FileRepository.shared.setRunFileCount(runId: runId, count: scanned)
         let done = scanned
@@ -93,11 +100,17 @@ final class ScanService {
     }
 
     // MARK: - 枚举
-    private func collect(in dir: URL, recursive: Bool, types: Set<String>, minSize: Int64, excluded: Set<String>, into result: inout [(url: URL, name: String, size: Int64, date: Int64)]) {
+    /// 流式枚举：边遍历边把文件按 batchSize 聚合成批，通过 onBatch 回调就地处理（解析+落库），
+    /// 随后该批内存即被释放，避免一次性把 20w+ 文件 URL/元信息全量驻留内存。
+    /// 返回累计收集到的匹配文件总数（供进度分母使用）。
+    private func collect(in dir: URL, recursive: Bool, types: Set<String>, minSize: Int64, excluded: Set<String>, batchSize: Int, onBatch: ([(url: URL, name: String, size: Int64, date: Int64)]) -> Void) -> Int {
         let fm = FileManager.default
-        guard let enumerator = fm.enumerator(at: dir, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles]) else { return }
+        guard let enumerator = fm.enumerator(at: dir, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles]) else { return 0 }
+        var batch: [(url: URL, name: String, size: Int64, date: Int64)] = []
+        batch.reserveCapacity(batchSize)
+        var count = 0
         for case let url as URL in enumerator {
-            if ScanStateManager.shared.shouldStop() { return }
+            if ScanStateManager.shared.shouldStop() { break }
             // 排除文件夹：URL 路径含被排除的目录名段
             let lastComp = url.lastPathComponent
             if excluded.contains(lastComp) {
@@ -113,8 +126,15 @@ final class ScanService {
             let size = Int64(res.fileSize ?? 0)
             guard size >= minSize else { continue }
             let date = (res.contentModificationDate ?? Date(timeIntervalSince1970: 0)).timeIntervalSince1970
-            result.append((url: url, name: url.lastPathComponent, size: size, date: Int64(date * 1000)))
+            batch.append((url: url, name: url.lastPathComponent, size: size, date: Int64(date * 1000)))
+            count += 1
+            if batch.count >= batchSize {
+                onBatch(batch)
+                batch.removeAll(keepingCapacity: true)
+            }
         }
+        if !batch.isEmpty { onBatch(batch) }
+        return count
     }
 
     // MARK: - 单文件解析
