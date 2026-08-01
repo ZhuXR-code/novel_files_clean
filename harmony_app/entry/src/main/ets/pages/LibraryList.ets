@@ -1,5 +1,5 @@
 import { router } from '@kit.ArkUI';
-import { promptAction } from '@kit.ArkUI';
+import { promptAction, window } from '@kit.ArkUI';
 import { ScanRun } from '../model/ScanRun';
 import { ScanRunDao } from '../database/ScanRunDao';
 import { ScannedFileDao } from '../database/ScannedFileDao';
@@ -7,6 +7,7 @@ import { FormatUtil } from '../utils/FormatUtil';
 import { LogUtil } from '../utils/LogUtil';
 import { TopBar } from '../components/TopBar';
 import { ToastUtil } from '../utils/ToastUtil';
+import { AppContext } from '../utils/AppContext';
 
 /**
  * 文库 Tab：列出全部文库，点击进入 LibraryScreen；左滑快速删除；下拉刷新。
@@ -20,8 +21,20 @@ export struct LibraryTab {
   @State selectMode: boolean = false;
   @State selectedIds: number[] = [];
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
+  // 状态栏高度（px）：用于把顶栏下推到状态栏正下方，避免被系统状态栏覆盖。
+  @State statusBarHeight: number = 0;
 
   async aboutToAppear(): Promise<void> {
+    // 读取状态栏安全区高度，使顶栏不被系统状态栏遮挡。
+    try {
+      const win: window.Window | null = AppContext.getMainWindow();
+      if (win) {
+        const area: window.AvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+        this.statusBarHeight = area.topRect.height;
+      }
+    } catch (e) {
+      this.statusBarHeight = 0;
+    }
     await this.load();
   }
 
@@ -180,6 +193,11 @@ export struct LibraryTab {
       // 注意：Stack 子组件的 .layoutWeight(1) 无效（原方案 List 不会撑满且会被 TopBar 覆盖），
       // 因此把顶栏 + 内容放进一个 Column，让 layoutWeight(1) 在 List 上正确生效。
       Column() {
+        // 顶部状态栏占位：避免顶栏被系统状态栏覆盖。
+        if (this.statusBarHeight > 0) {
+          Row().width('100%').height(this.statusBarHeight)
+        }
+
         if (this.selectMode) {
           // 多选模式顶部栏
           Row() {
