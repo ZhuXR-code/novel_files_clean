@@ -3,9 +3,14 @@ package com.booksclean.app
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import com.booksclean.app.ui.screens.privacy.PrivacyPolicyScreen
 import android.content.Intent
 import android.os.Bundle

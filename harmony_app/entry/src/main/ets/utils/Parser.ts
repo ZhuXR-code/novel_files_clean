@@ -38,11 +38,11 @@ export class Parser {
   private static readonly RE_NAME_BY2: RegExp = /^(.+?)\s*[bB][yY]\s*(.+)/;
   private static readonly RE_BRACKET_NAME_AUTHOR: RegExp = /\[[^\]]+\]\s*(.+?)\s*(?:作家|作者)[：:]\s*(.+)/;
   private static readonly RE_NAME_AUTHOR2: RegExp = /^(.+?)\s*(?:作家|作者)[：:]\s*(.+)/;
-  private static readonly RE_OPT_TAG_BOOK_AUTHOR: RegExp = /^(?:\[.*?\])?\s*《(.+?)》\s*(?:作家|作者)\s*(.+?)/;
+  private static readonly RE_OPT_TAG_BOOK_AUTHOR: RegExp = /^(?:\[.*?\])?\s*《(.+?)》\s*(?:作家|作者)\s*(.+?)$/;
   private static readonly RE_BOOK_ONLY: RegExp = /《(.+?)》/;
   private static readonly RE_TITLE_PAREN_VER: RegExp = /^(.+?)\s*[（(]\s*[\w\-]+(?:\.[\w\-]+)+\s*[）)]\s*$/;
-  private static readonly RE_CATEGORY: RegExp = /^(?:BG|BL|GL|GB|DM|言情|耽美|百合|同人|原创|武侠|玄幻|古言|现言|仙侠|科幻|悬疑|惊悚|轻小说|海棠|popo|废文|po18|SF)\s*(.+?)[_\-—](.+)/;
-  private static readonly RE_DASH_UNDER: RegExp = /^(.+?)[_\-—](.+?)/;
+  private static readonly RE_CATEGORY: RegExp = /^(?:BG|BL|GL|GB|DM|言情|耽美|百合|同人|原创|武侠|玄幻|古言|现言|仙侠|科幻|悬疑|惊悚|轻小说|海棠|popo|废文|po18|SF)\s*(.+?)[_\-—](.+?)$/i;
+  private static readonly RE_DASH_UNDER: RegExp = /^(.+?)[_\-—](.+?)$/;
   private static readonly RE_TITLE_BRACKET_END: RegExp = /^(.+?)\s*\[([^\]]+)\]\s*$/;
 
   // 作者后缀清洗（支持【】、[]、（）、()）
@@ -72,7 +72,7 @@ export class Parser {
   private static readonly RE_BRACKET_CN: RegExp = /【([^】]*)】/g;
   private static readonly RE_BRACKET_PAREN_CN: RegExp = /（([^）]*)）/g;
   private static readonly RE_BRACKET_PAREN: RegExp = /\(([^)]*)\)/g;
-  private static readonly RE_TAIL_NUM: RegExp = /-(\d+)\s*$/;
+  private static readonly RE_TAIL_NUM: RegExp = /(?<!\-)(\d+)\s*$/;
   private static readonly RE_PROGRESS_GENG: RegExp = /更\s*(\d+)/;
   private static readonly RE_PROGRESS_WAN: RegExp = /完结[^\]\s]*/;
   private static readonly RE_PROGRESS_STATUS: RegExp = /(?:连载|断更|暂停|烂尾|坑|锁文|锁)/;
@@ -84,17 +84,23 @@ export class Parser {
   private static readonly LEAD_TAG: RegExp = /^[【\[（(][^】\]）)]*[】\]）)]\s*/;
 
   /** 从文件名（不含扩展名）解析出 书名 / 作者 / 进度 / 来源。 */
+  private static readonly EXT_RE: RegExp = /\.(txt|epub|pdf|docx?|md|text|rtf|mobi|azw3|html?|log)$/i;
+
   public static parseFileName(rawName: string): ParsedName {
     let name: string = rawName;
-    const dot: number = name.lastIndexOf('.');
-    if (dot > 0) {
-      name = name.substring(0, dot);
-    }
+    // 仅剥离真正的尾部扩展名（对齐 PC 端 _EXT_RE 白名单），避免 lastIndexOf('.') 因文件名内含的点（如 l.ili / 24.3.27）误截断
+    name = name.replace(Parser.EXT_RE, '');
     name = name.trim();
     name = ChineseConverter.toSimplified(name);
     const result: ParsedName = new ParsedName();
     if (name.length === 0) {
       result.title = rawName;
+      return result;
+    }
+    // 超长文件名保护：.*? / .+$ 一类正则在超长串上会灾难性回溯，直接整段作书名
+    // （对齐 PC 端 _parse_filename_by_regex 的 len(name) > 300 提前返回）
+    if (name.length > 300) {
+      result.title = name;
       return result;
     }
     const ta: { title: string; author: string } = Parser.parseTitleAuthor(name);

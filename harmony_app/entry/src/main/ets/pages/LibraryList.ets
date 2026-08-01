@@ -175,7 +175,7 @@ export struct LibraryTab {
   }
 
   build() {
-    Column() {
+    Stack({ alignContent: Alignment.TopStart }) {
       if (this.selectMode) {
         // 多选模式顶部栏
         Row() {
@@ -285,7 +285,7 @@ export struct LibraryTab {
         })
       }
 
-      // 多选模式底部删除栏
+      // 多选模式删除栏：固定在距页面顶部 20% 处（不再贴底）
       if (this.selectMode && this.selectedIds.length > 0) {
         Row() {
           Button('删除选中 (' + this.selectedIds.length + ')')
@@ -297,8 +297,9 @@ export struct LibraryTab {
             .onClick(() => this.deleteSelected())
         }
         .width('100%')
-        .padding({ left: 12, right: 12, bottom: 12, top: 8 })
+        .padding({ left: 12, right: 12 })
         .backgroundColor($r('app.color.bg_card'))
+        .position({ x: 0, y: '20%' })
       }
     }
     .width('100%')

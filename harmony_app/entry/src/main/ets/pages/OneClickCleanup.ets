@@ -822,7 +822,7 @@ struct OneClickCleanup {
           .onClick(() => {
             this.phase = 'confirm';
           })
-        Button(`保存 ${this.reviewSelectedCount} 个`)
+        Button(`确认 ${this.reviewSelectedCount} 个`)
           .layoutWeight(1)
           .height(42)
           .backgroundColor($r('app.color.primary'))

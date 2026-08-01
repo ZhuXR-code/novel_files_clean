@@ -26,6 +26,8 @@ object Parser {
     private val CN_REGEX = Regex("[一-龥]")
 
     // ============ 书名/作者 正则（对齐 PC 端 _parse_filename_by_regex，按顺序命中即返回） ============
+    // 仅剥离真正的尾部扩展名（对齐 PC 端 _EXT_RE 白名单），避免 lastIndexOf('.') 因文件名内含的点（如 l.ili / 24.3.27）误截断
+    private val EXT_RE = Regex("""\.(txt|epub|pdf|docx?|md|text|rtf|mobi|azw3|html?|log)$""", RegexOption.IGNORE_CASE)
     private val RE_BOOK_AUTHOR = Regex("""《([^》]+)》.*?(?:作家|作者)[：:]\s*(.+)""")
     private val RE_BOOK_BY = Regex("""《([^》]+)》.*?[bB][yY]\s*(.+)""")
     private val RE_BOOK_AUTHOR2 = Regex("""《(.+?)》\s*(?:作家|作者)[：:]\s*(.+)""")
@@ -39,11 +41,11 @@ object Parser {
     private val RE_NAME_BY2 = Regex("""^(.+?)\s*[bB][yY]\s*(.+)""")
     private val RE_BRACKET_NAME_AUTHOR = Regex("""\[[^\]]+\]\s*(.+?)\s*(?:作家|作者)[：:]\s*(.+)""")
     private val RE_NAME_AUTHOR2 = Regex("""^(.+?)\s*(?:作家|作者)[：:]\s*(.+)""")
-    private val RE_OPT_TAG_BOOK_AUTHOR = Regex("""^(?:\[.*?\])?\s*《(.+?)》\s*(?:作家|作者)\s*(.+?)""")
+    private val RE_OPT_TAG_BOOK_AUTHOR = Regex("""^(?:\[.*?\])?\s*《(.+?)》\s*(?:作家|作者)\s*(.+?)$""")
     private val RE_BOOK_ONLY = Regex("""《(.+?)》""")
     private val RE_TITLE_PAREN_VER = Regex("""^(.+?)\s*[（(]\s*[\w\-]+(?:\.[\w\-]+)+\s*[）)]\s*$""")
-    private val RE_CATEGORY = Regex("""^(?:BG|BL|GL|GB|DM|言情|耽美|百合|同人|原创|武侠|玄幻|古言|现言|仙侠|科幻|悬疑|惊悚|轻小说|海棠|popo|废文|po18|SF)\s*(.+?)[_\-—](.+)""")
-    private val RE_DASH_UNDER = Regex("""^(.+?)[_\-—](.+?)""")
+    private val RE_CATEGORY = Regex("""^(?:BG|BL|GL|GB|DM|言情|耽美|百合|同人|原创|武侠|玄幻|古言|现言|仙侠|科幻|悬疑|惊悚|轻小说|海棠|popo|废文|po18|SF)\s*(.+?)[_\-—](.+?)$""", RegexOption.IGNORE_CASE)
+    private val RE_DASH_UNDER = Regex("""^(.+?)[_\-—](.+?)$""")
     private val RE_TITLE_BRACKET_END = Regex("""^(.+?)\s*\[([^\]]+)\]\s*$""")
 
     // 作者后缀清洗（对齐 PC 端 _name_worker 的两次正则替换）
@@ -94,10 +96,12 @@ object Parser {
      */
     fun parseFileName(rawName: String): ParsedName {
         var name = rawName
-        val dot = name.lastIndexOf('.')
-        if (dot > 0) name = name.substring(0, dot)
+        name = EXT_RE.replace(name, "")
         name = name.trim()
         if (name.isEmpty()) return ParsedName(rawName, "", "", "")
+        // 超长文件名保护：.*? / .+$ 一类正则在超长串上会灾难性回溯，直接整段作书名
+        // （对齐 PC 端 _parse_filename_by_regex 的 len(name) > 300 提前返回）
+        if (name.length > 300) return ParsedName(name, "", "", "")
         // 繁体 → 简体：文件名可能为繁体，解析前先整体转简体，
         // 确保书名/作者/进度/来源均以简体入库（需求：解析结果若为繁体则转简体）。
         name = ChineseConverter.toSimplified(name)
@@ -246,7 +250,9 @@ object Parser {
         var a = raw.trim()
         // 反复清洗：先去状态后缀（如 精校/校对），再剥离末尾括号（含数字/进度词），
         // 直到不再变化，确保「（更50）精校」这类“括号+后缀”组合被完全清掉。
-        repeat(6) {
+        // 注意：此处必须用 for + break。Kotlin 的 `return@repeat` 只是跳过本次迭代（相当于
+        // continue），并不会终止循环，会导致稳定后仍空跑 5 轮正则（10 万级文件下开销可观）。
+        for (i in 0 until 6) {
             val before = a
             a = AUTHOR_TRAIL_BRACKET.replace(a, "").trim()
             a = AUTHOR_SUFFIX_STATUS.replace(a, "").trim()
@@ -254,7 +260,7 @@ object Parser {
             a = AUTHOR_TRAIL_UPDATE.replace(a, "").trim()
             a = AUTHOR_TRAIL_BUFAN.replace(a, "").trim()
             a = AUTHOR_TRAIL_REVISE.replace(a, "").trim()
-            if (a == before) return@repeat
+            if (a == before) break
         }
         return a
     }

@@ -21,7 +21,7 @@ import { LogUtil } from './LogUtil';
  */
 export class DupLogic {
   private static readonly COMPLETION_KW: string[] = ['完结', '完本', '全本', '全集', '完整', '全套', '全集版'];
-  private static readonly FANWAI_RE: RegExp = /^完结\+(\d+(?:\.\d+)?)番外$/;
+  private static readonly FANWAI_RE: RegExp = /^(?:完结\+)?完结\+番外(\d+(?:\.\d+)?)$|^完结\+(\d+(?:\.\d+)?)番外$/;
 
   /** 取已启用内置规则的 ruleKey 集合（默认全部启用）。优先读 DB，DB 为空时兜底全部启用。 */
   public static async getEnabledDupRuleKeys(): Promise<Set<string>> {
@@ -113,12 +113,14 @@ export class DupLogic {
       if (enabled.has('rule3a')) {
         for (const f of chineseFiles) {
           nc.add(f.id);
+          // 对齐安卓：若此前被规则1/2标记为「强制勾选」(fc)，含中文进度的保护优先级更高，撤销强制勾选
+          fc.delete(f.id);
         }
       }
 
       // ── 规则 3B：完结特例 ──
       if (enabled.has('rule3b')) {
-        if (chineseFiles.length > 0 && numericFiles.length > 0) {
+        if (numericFiles.length > 0) {
           let maxNumVal: number = -Infinity;
           for (const f of numericFiles) {
             maxNumVal = Math.max(maxNumVal, DupLogic.progressValue(f.progress)!);
@@ -155,6 +157,8 @@ export class DupLogic {
           for (const f of S) {
             if (f.fileSize === maxSize) {
               nc.add(f.id);
+              // 对齐安卓：被规则1/2强制勾选的文件若恰是唯一最大文件，撤销强制勾选
+              fc.delete(f.id);
             }
           }
         }
@@ -175,7 +179,8 @@ export class DupLogic {
             if (maxNIds.has(f.id)) {
               nc.add(f.id);
               fc.delete(f.id);
-            } else if (f.fileSize === maxSize) {
+            } else if (f.fileSize === maxSize && maxSizeCount === 1) {
+              // 对齐安卓：仅当唯一最大文件才保护，并列最大不保护
               nc.add(f.id);
               fc.delete(f.id);
             } else {
@@ -451,7 +456,8 @@ export class DupLogic {
     if (!m) {
       return null;
     }
-    const v: number = Number.parseFloat(m[1]);
+    // 兼容两种格式：「完结+番外N」落在 group1，「完结+N番外」落在 group2
+    const v: number = Number.parseFloat((m[1] ?? '') || (m[2] ?? ''));
     return isNaN(v) ? null : v;
   }
 

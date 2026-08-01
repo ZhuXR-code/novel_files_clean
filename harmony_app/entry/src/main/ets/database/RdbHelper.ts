@@ -2,6 +2,7 @@ import { relationalStore } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { DupRuleConfigDao } from './DupRuleConfigDao';
 import { LogUtil } from '../utils/LogUtil';
+import { ChineseConverter } from '../utils/ChineseConverter';
 
 /**
  * 关系型数据库单例封装，对齐安卓端 AppDatabase（v8 schema）。
@@ -179,6 +180,9 @@ export class RdbHelper {
     );
     // 复合索引：加速「勾选重复」按 (scan_run_id, title_author_key) 的分组聚合与过滤。
     await safe('CREATE INDEX IF NOT EXISTS idx_sf_run_tak ON scanned_file(scan_run_id, title_author_key)', 'idx_sf_run_tak');
+    // 拼音回填：历史数据在拼音列加入前已入库时，title_pinyin/author_pinyin 为空串，
+    // 导致按拼音搜索无法命中。仅在拼音列为空、原字段非空时回填，已有正确拼音的不覆盖。
+    await this.backfillPinyin(store);
   }
 
   private static async addColumnIfNotExists(store: relationalStore.RdbStore, table: string, column: string, def: string): Promise<void> {
@@ -192,6 +196,43 @@ export class RdbHelper {
       // 非预期错误：记录但不中断初始化，避免一条迁移失败导致整个数据库不可用。
       // 真实原因写入日志便于排查（如磁盘满/语法错误等仍需关注）。
       LogUtil.e('RdbHelper', `添加列失败 ${table}.${column}: ${msg}`);
+    }
+  }
+
+  /**
+   * 回填历史数据的拼音列。仅处理 title_pinyin/author_pinyin 为空串、但对应原字段非空的行，
+   * 已有正确拼音的不覆盖。逐行读取后用 ChineseConverter.toPinyin 重算并 UPDATE。
+   * 与安卓端对齐：避免「早期扫描的数据搜不了拼音」的问题。
+   */
+  private async backfillPinyin(store: relationalStore.RdbStore): Promise<void> {
+    try {
+      // 仅取需要回填的行（减少内存与计算量）
+      const result = await store.querySql(
+        `SELECT id, title, author FROM scanned_file WHERE (title_pinyin = '' AND title <> '') OR (author_pinyin = '' AND author IS NOT NULL AND author <> '')`
+      );
+      const updates: Array<Promise<void>> = [];
+      while (result.goToNextRow()) {
+        const id = result.getLong(result.getColumnIndex('id'));
+        const title = result.getString(result.getColumnIndex('title')) ?? '';
+        const author = result.getString(result.getColumnIndex('author')) ?? '';
+        const tp = title ? ChineseConverter.toPinyin(title) : '';
+        const ap = author ? ChineseConverter.toPinyin(author) : '';
+        updates.push(
+          store.executeSql(
+            `UPDATE scanned_file SET title_pinyin = ?, author_pinyin = ? WHERE id = ?`,
+            [tp, ap, id]
+          ).catch((e: Error) => {
+            LogUtil.e('RdbHelper', `回填拼音失败 id=${id}: ${e?.message ?? '未知错误'}`);
+          })
+        );
+      }
+      result.close();
+      await Promise.all(updates);
+      if (updates.length > 0) {
+        LogUtil.i('RdbHelper', `拼音回填完成，处理 ${updates.length} 行`);
+      }
+    } catch (e) {
+      LogUtil.e('RdbHelper', `拼音回填异常: ${(e as Error)?.message ?? '未知错误'}`);
     }
   }
 }

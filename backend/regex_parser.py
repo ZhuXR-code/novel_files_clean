@@ -358,6 +358,17 @@ RE_PROGRESS_FANWAI = re.compile(r'番外[^\]\s]*')                 # 番外合�
 RE_PROGRESS_UPDATE = re.compile(r'更新至?\s*(\d+)')             # 作者后缀“更新至89”兜底提取进度
 AUTHOR_TRAIL_UPDATE = re.compile(r'\s*[-—~]*更新至?\s*\d+\s*$')  # 清洗作者尾部 --更新至89
 AUTHOR_TRAIL_BUFAN = re.compile(r'\s*[-—~]?补番\s*$')           # 清洗作者尾部 ~补番
+# ===== 以下常量与 APP 端 Parser.kt / Parser.ts 严格对齐 =====
+# 作者尾部"【修】/（修）"修订标记清洗
+AUTHOR_TRAIL_REVISE = re.compile(r'\s*[【\[（(]修[】\]）)]\s*$')
+# 作者后缀（完结/番外/连载…），以及作者尾部残留的"精校/校对"等清洗
+AUTHOR_SUFFIX_STATUS = re.compile(r'\s*(?:完结|番外|全本|完本|连载|出版|实体书|定制书|定制|校对|精校).*$')
+# 末尾括号清洗（类型感知）：圆括号只配圆括号、方括号只配方括号，避免内部【】被误判为闭合。
+# 含 数字 / 进度词 / 单字母标识 / 修订标记 的括号整体剥离。
+AUTHOR_TRAIL_BRACKET = re.compile(
+    r'\s*(?:[（(][^）)]*?(?:\d+|[更完结番外npv1V修校]+)[^）)]*?[）)]|'
+    r'[【\[][^】\]]*?(?:\d+|[更完结番外npv1V修校]+)[^】\]]*?[】\]])\s*$'
+)
 LEAD_TAG = re.compile(r'^[【\[（(][^】\]）)]*[】\]）)]\s*')      # 书名开头残留的标签括号
 
 _EXT_RE = re.compile(r'\.(txt|epub|pdf|docx?|md|text|rtf|mobi|azw3|html?|log)$', re.IGNORECASE)
@@ -377,6 +388,40 @@ def clean_title(raw: str) -> str:
             break
         t = t[m.end():]
     return t.strip()
+
+
+def clean_author(raw: str) -> str:
+    """作者清洗：去掉"著/作者/作家/：/: "前缀，并清掉尾部（数字）/ -数字 / 进度词 / 修订标记等残留。
+
+    严格对齐 APP 端 Parser.kt / Parser.ts 的 cleanAuthor + stripAuthor：
+    - 前缀去除（著/作者/作家/：/:）
+    - 反复清洗直到稳定（最多 6 轮）：类型感知括号剥离 → 状态后缀(含精校) → -数字 → 更新至N → 补番 → 【修】
+    """
+    a = raw.strip()
+    for prefix in ('著', '作者', '作家'):
+        if a.startswith(prefix):
+            a = a[len(prefix):]
+    a = a.strip()
+    for prefix in ('：', ':'):
+        if a.startswith(prefix):
+            a = a[len(prefix):]
+    a = a.strip()
+
+    for _ in range(6):
+        before = a
+        a = AUTHOR_TRAIL_BRACKET.sub('', a).strip()
+        a = AUTHOR_SUFFIX_STATUS.sub('', a).strip()
+        a = AUTHOR_TRAIL_DASH_NUM.sub('', a).strip()
+        a = AUTHOR_TRAIL_UPDATE.sub('', a).strip()
+        a = AUTHOR_TRAIL_BUFAN.sub('', a).strip()
+        a = AUTHOR_TRAIL_REVISE.sub('', a).strip()
+        if a == before:
+            break
+    return a
+
+
+# 作者尾部 -数字 清洗（对齐 APP 端 AUTHOR_TRAIL_DASH_NUM）
+AUTHOR_TRAIL_DASH_NUM = re.compile(r'\s*-\d+\s*$')
 
 
 def _extract_source_progress(file_name: str):
@@ -493,21 +538,21 @@ def _parse_filename_by_regex(file_name: str) -> Optional[dict]:
         if title and author:
             return {'title': title, 'author': author}
 
-    m = re.search(r'^[【\[(][^】\])\n]+[】\])]\s*(.+?)\s*[bB][yY]\s*(.+)$', name)
+    m = re.search(r'^[【\[（(][^】\]）)\n]+[】\]）)]\s*(.+?)\s*[bB][yY]\s*(.+)$', name)
     if m:
         title = m.group(1).strip()
         author = m.group(2).strip()
         if title and author:
             return {'title': title, 'author': author}
 
-    m = re.search(r'^[【\[(][^】\])\n]+[】\])]\s*(.+?)\s*(?:作家|作者)[：:]\s*(.+)$', name)
+    m = re.search(r'^[【\[（(][^】\]）)\n]+[】\]）)]\s*(.+?)\s*(?:作家|作者)[：:]\s*(.+)$', name)
     if m:
         title = m.group(1).strip()
         author = m.group(2).strip()
         if title and author:
             return {'title': title, 'author': author}
 
-    m = re.search(r'^[【\[(][^】\])\n]+[】\])]\s*(.+)$', name)
+    m = re.search(r'^[【\[（(][^】\]）)\n]+[】\]）)]\s*(.+)$', name)
     if m:
         title = m.group(1).strip()
         if title and len(title) >= 2 and not re.match(r'^[\d\s\.\-_#@!*&]+$', title) and '作者' not in title and '《' not in title:
@@ -531,7 +576,7 @@ def _parse_filename_by_regex(file_name: str) -> Optional[dict]:
     if m:
         title = m.group(1).strip()
         author = m.group(2).strip()
-        author = re.sub(r'\s+(?:完结|番外|全本|完本|连载|出版|实体书|定制书|定制|校对).*$', '', author, flags=re.IGNORECASE).strip()
+        author = AUTHOR_SUFFIX_STATUS.sub('', author).strip()
         if title and author:
             return {'title': title, 'author': author}
 
@@ -696,21 +741,9 @@ def _name_worker(args: tuple) -> dict:
     if parsed_title:
         parsed_title = clean_title(parsed_title)
     if parsed_author:
-        # 循环清洗末尾的"进度/标识"括号后缀，如（更50）（完结）（d）等，避免只洗一个导致残留
-        for _ in range(5):
-            m = re.search(r'\s*[\[【（(]([^]】）)]*?)[\]】）)]\s*$', parsed_author)
-            if not m:
-                break
-            inner = m.group(1)
-            # 仅清洗含"数字/进度词/单字母标识"的括号，保留合法括号（如作者笔名）
-            if re.search(r'\d|更|完结|完本|全本|连载|番外|补番|修|np|出版|实体|校对|定制|断更|暂停|烂尾|坑|锁', inner) or re.fullmatch(r'[a-zA-Z]', inner):
-                parsed_author = parsed_author[:m.start()].strip()
-            else:
-                break
-        parsed_author = re.sub(r'\s*-\d+\s*$', '', parsed_author).strip()
-        # 清洗作者尾部的“更新至N”（如 --更新至89）与“补番”（如 ~补番）
-        parsed_author = AUTHOR_TRAIL_UPDATE.sub('', parsed_author).strip()
-        parsed_author = AUTHOR_TRAIL_BUFAN.sub('', parsed_author).strip()
+        # 作者清洗：先去掉"著/作者/作家/：/: "前缀，再清掉尾部的（数字）/ -数字 / 进度词 / 修订标记等残留。
+        # 严格对齐 APP 端 Parser.kt / Parser.ts 的 cleanAuthor + stripAuthor 逻辑。
+        parsed_author = clean_author(parsed_author)
     parsed_progress = src_progress[1]
     parsed_source = src_progress[0]
 

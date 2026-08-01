@@ -32,11 +32,11 @@ enum Parser {
     private static let RE_NAME_BY2           = RX(#"^(.+?)\s*[bB][yY]\s*(.+)"#)
     private static let RE_BRACKET_NAME_AUTHOR = RX(#"\[[^\]]+\]\s*(.+?)\s*(?:作家|作者)[：:]\s*(.+)"#)
     private static let RE_NAME_AUTHOR2        = RX(#"^(.+?)\s*(?:作家|作者)[：:]\s*(.+)"#)
-    private static let RE_OPT_TAG_BOOK_AUTHOR = RX(#"^(?:\[.*?\])?\s*《(.+?)》\s*(?:作家|作者)\s*(.+?)"#)
+    private static let RE_OPT_TAG_BOOK_AUTHOR = RX(#"^(?:\[.*?\])?\s*《(.+?)》\s*(?:作家|作者)\s*(.+?)$"#)
     private static let RE_BOOK_ONLY          = RX(#"《(.+?)》"#)
     private static let RE_TITLE_PAREN_VER    = RX(#"^(.+?)\s*[（(]\s*[\w\-]+(?:\.[\w\-]+)+\s*[）)]\s*$"#)
-    private static let RE_CATEGORY           = RX(#"^(?:BG|BL|GL|GB|DM|言情|耽美|百合|同人|原创|武侠|玄幻|古言|现言|仙侠|科幻|悬疑|惊悚|轻小说|海棠|popo|废文|po18|SF)\s*(.+?)[_\-—](.+)"#)
-    private static let RE_DASH_UNDER         = RX(#"^(.+?)[_\-—](.+?)"#)
+    private static let RE_CATEGORY           = RX(#"(?i)^(?:BG|BL|GL|GB|DM|言情|耽美|百合|同人|原创|武侠|玄幻|古言|现言|仙侠|科幻|悬疑|惊悚|轻小说|海棠|popo|废文|po18|SF)\s*(.+?)[_\-—](.+)"#)
+    private static let RE_DASH_UNDER         = RX(#"^(.+?)[_\-—](.+?)$"#)
     private static let RE_TITLE_BRACKET_END  = RX(#"^(.+?)\s*\[([^\]]+)\]\s*$"#)
 
     // 作者后缀清洗
@@ -69,6 +69,10 @@ enum Parser {
 
     private static let LEAD_TAG = RX(#"^[【\[（(][^】\]）)]*[】\]）)]\s*"#)
 
+    /// 真正后缀白名单：仅剥离这些扩展名（对齐安卓 EXT_RE / PC _EXT_RE）。
+    /// 注意必须是 $ 锚定的整体后缀匹配，避免误伤文件名内部的点。
+    private static let _EXT_RE = RX(#"\.(txt|epub|pdf|mobi|azw|azw3|doc|docx|rtf|html|htm|zip|rar|7z|lrc|csv|json|xml|jpg|jpeg|png|gif|mp3|wav|md|fb2|cbz|cbr|djvu|chm|ppt|pptx|odt|txtx)$"#)
+
     /// 是否含 CJK 字符
     private static func hasCJK(_ s: String) -> Bool {
         for c in s { let o = c.unicodeScalars.first!.value; if (0x4E00...0x9FFF).contains(o) || (0x3400...0x4DBF).contains(o) { return true } }
@@ -83,10 +87,16 @@ enum Parser {
     /// 从文件名（不含扩展名）解析出 书名 / 作者 / 进度 / 来源。
     static func parseFileName(_ rawName: String) -> ParsedName {
         var name = rawName
-        let dot = name.lastIndex(of: ".")
-        if let dot = dot, dot != name.startIndex { name = String(name[name.startIndex..<dot]) }
+        // 仅剥离真正的扩展名（白名单），对齐安卓 Parser.kt 的 EXT_RE / PC 的 _EXT_RE。
+        // 不能用 lastIndex(of: ".") 截断最后一个点——无扩展名但含点的书名
+        // （如 “l.ili 的奇妙冒险”）会被误截，与安卓/PC 结果不一致。
+        let extMatch = Parser._EXT_RE.firstMatch(in: name)
+        if let rng = extMatch?.range { name = String(name[name.startIndex..<rng.lowerBound]) }
         name = name.trimmingCharacters(in: .whitespaces)
         if name.isEmpty { return ParsedName(title: rawName, author: "", progress: "", source: "") }
+        // 超长文件名保护：.*? / .+$ 一类正则在超长串上会灾难性回溯，直接整段作书名
+        // （对齐 PC 端 _parse_filename_by_regex 的 len(name) > 300 提前返回）
+        if name.count > 300 { return ParsedName(title: name, author: "", progress: "", source: "") }
         // 繁体 → 简体（解析前先整体转简体，确保入库一致）
         name = ChineseConverter.toSimplified(name)
 
