@@ -58,7 +58,8 @@ enum Route: Hashable {
     case configList
     case configEdit(id: Int64)
     case scanProgress
-    case oneClick(runId: Int64)
+    case oneClick(config: ScanConfig)            // 引导式一键清理（从零选择文件夹/类型/排除目录后扫描）
+    case oneClickExisting(runId: Int64)          // 对已有文库执行一键清理（文库长按菜单入口）
     case settings
     case dupRule
     case keywordReplace

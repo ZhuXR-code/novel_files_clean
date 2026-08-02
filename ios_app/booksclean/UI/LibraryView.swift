@@ -517,7 +517,7 @@ struct LibraryView: View {
                     }
 
                     Divider()
-                    Button("一键清理") { router.navigate(.oneClick(runId: runId)) }
+                    Button("一键清理") { router.navigate(.oneClickExisting(runId: runId)) }
                     Divider()
                     Button { showExportSheet = true } label: { Label("导出列表", systemImage: "square.and.arrow.up") }
                 } label: { Image(systemName: "ellipsis.circle") }

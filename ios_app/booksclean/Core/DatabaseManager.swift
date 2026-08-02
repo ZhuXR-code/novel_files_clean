@@ -566,6 +566,19 @@ final class DatabaseManager {
         return result
     }
 
+    /// 取「已勾选」文件完整详情（用于待删清单展示）。
+    func getCheckedFiles(runId: Int64) -> [ScannedFile] {
+        let rows = fetchAll(
+            "SELECT \(SF_COLS) FROM scanned_file WHERE scan_run_id=? AND checked=1 ORDER BY title,author,id",
+            [runId])
+        return rows.map { mapScannedFile($0) }
+    }
+
+    /// 文库文件总数。
+    func countFiles(runId: Int64) -> Int {
+        Int(count("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id=?", [runId]))
+    }
+
     // MARK: - 分批按文件名找重复（20w+ 量级防 OOM）
     /// 用 SQL 子查询直接定位「同名且 >=2 个」的文件 id，分批游标返回，避免全表载入内存。
     func findDuplicateIdsByFileNameBatched(runId: Int64, chunkSize: Int = 5000) -> [Int64] {

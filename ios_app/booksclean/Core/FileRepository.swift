@@ -133,6 +133,27 @@ final class FileRepository {
         db.count("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id=? AND checked=1", [runId])
     }
 
+    /// 待删清单（已勾选文件完整详情）。
+    func getCheckedFiles(runId: Int64) -> [ScannedFile] {
+        db.getCheckedFiles(runId: runId)
+    }
+
+    /// 文库文件总数。
+    func countFiles(runId: Int64) -> Int {
+        db.countFiles(runId: runId)
+    }
+
+    /// 重复组数：已勾选文件按 (作者, 书名) 规范化分组后，组内文件数 >= 2 的组数。
+    func getDuplicateGroups(runId: Int64) -> Int {
+        let files = db.getCheckedFiles(runId: runId)
+        var groups: [String: Int] = [:]
+        for f in files {
+            let key = "\(f.author.trimmingCharacters(in: .whitespaces).lowercased())\u{0000}\(f.title.trimmingCharacters(in: .whitespaces).lowercased())"
+            groups[key, default: 0] += 1
+        }
+        return groups.values.filter { $0 >= 2 }.count
+    }
+
     // MARK: - 关键词 / 勾选规则持久化
     func getKeywordReplaceRules(scope: String? = nil) -> [KeywordReplaceRule] { db.getKeywordReplaceRules(scope: scope) }
     @discardableResult

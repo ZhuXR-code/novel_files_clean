@@ -1,234 +1,377 @@
 import SwiftUI
 
+/// 一键清理重复文件（对齐 Android `OneClickCleanup` 引导式流程）。
+/// 流程：选文件夹 → 选文件类型 → 选排除目录 → 扫描解析 → 计算重复 → 清单确认 → 删除。
+/// 两种入口：
+///   1. 引导式 `init(config:)`：从首页进入，用户需选择文件夹并从零扫描（对应安卓 Home 一键清理）。
+///   2. `init(runId:)`：对已有文库执行清理（文库长按菜单入口，扫描已完成，直接进入计算重复阶段）。
 struct OneClickCleanupView: View {
     @EnvironmentObject var router: Router
-    let runId: Int64
+    @EnvironmentObject var prefs: Preferences
+    @EnvironmentObject var scan: ScanStateManager
 
-    @State private var details: [DuplicateDetail] = []
-    @State private var checkedCount = 0
-    @State private var busy = false
+    enum Phase { case config, scanning, marking, confirm, deleting, done }
+
+    @State private var phase: Phase = .config
+    @State private var config: ScanConfig
+    @State private var runId: Int64 = -1
+    @State private var folderName: String = ""
+    @State private var folderUri: String = ""
+
+    @State private var fileTypes: String = "txt"
+    @State private var excludedFolders: String = ""      // 逗号分隔，对齐鸿蒙/PC 排除目录
+    @State private var recursive: Bool = true
+    @State private var deepScan: Bool = false
+    @State private var exactHash: Bool = false
+
+    @State private var marking = false
+    @State private var checkedCount: Int = 0
+    @State private var totalCount: Int = 0
+    @State private var dupGroups: Int = 0
     @State private var showReview = false
+    @State private var showError = false
+    @State private var errorMsg = ""
+    @State private var started = false
 
-    private var totalSize: Int64 {
-        details.reduce(0) { $0 + $1.totalSize }
+    // 引导式入口
+    init(config: ScanConfig) {
+        _config = State(initialValue: config)
+        _fileTypes = State(initialValue: config.fileTypes.isEmpty ? "txt" : config.fileTypes)
+        _recursive = State(initialValue: config.recursive)
+        _deepScan = State(initialValue: config.scanMode == "deep")
+        _exactHash = State(initialValue: config.exactHash)
+        _excludedFolders = State(initialValue: config.excludedFolders)
+        _phase = State(initialValue: .config)
+    }
+
+    // 已有文库入口
+    init(runId: Int64) {
+        _config = State(initialValue: ScanConfig())
+        _runId = State(initialValue: runId)
+        _phase = State(initialValue: .marking)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                VStack(alignment: .leading) {
-                    Text("勾选重复：共 \(checkedCount) 个待删文件")
-                        .fsFont(.subheadline).fontWeight(.medium)
-                    Text("涉及 \(details.count) 个重复子组 · 合计 \(FormatUtil.formatSize(totalSize))")
-                        .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+            stepBar
+            Divider()
+            switch phase {
+            case .config:
+                configView
+            case .scanning:
+                scanningView
+            case .marking:
+                markingView
+            case .confirm:
+                confirmView
+            case .deleting, .done:
+                // 删除交由 DeleteConfirmView / DeleteProgressView 路由承载
+                Color.clear
+            }
+        }
+        .navigationTitle("一键清理重复文件")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showReview) {
+            OneClickReviewSheet(runId: runId) { recompute() }
+        }
+        .alert("出错了", isPresented: $showError) {
+            Button("确定", role: .cancel) {}
+        } message: { Text(errorMsg) }
+        .onAppear { if phase == .marking && !started { started = true; runMarking() } }
+        // 扫描完成后自动进入"计算重复"阶段
+        .onChange(of: scan.finished) { finished in
+            guard phase == .scanning, finished else { return }
+            if scan.status == "completed" || scan.status == "stopped" {
+                runId = scan.runId
+                runMarking()
+            } else if scan.status == "empty" {
+                errorMsg = "所选文件夹中没有匹配的文件类型"; showError = true
+            } else {
+                errorMsg = scan.errorMsg.isEmpty ? "扫描出错" : scan.errorMsg; showError = true
+            }
+        }
+    }
+
+    // MARK: - 步骤条（对齐安卓顶部阶段指示）
+    private var stepBar: some View {
+        HStack(spacing: 4) {
+            stepItem(1, "选择", done: phase != .config, active: phase == .config)
+            stepLine
+            stepItem(2, "扫描", done: phase == .scanning || phase == .marking || phase == .confirm, active: phase == .scanning)
+            stepLine
+            stepItem(3, "去重", done: phase == .marking || phase == .confirm, active: phase == .marking)
+            stepLine
+            stepItem(4, "确认", done: phase == .confirm, active: phase == .confirm)
+        }
+        .padding(.vertical, 10).padding(.horizontal, 12)
+        .background(Color.fsSecondaryBg)
+    }
+
+    private func stepItem(_ n: Int, _ title: String, done: Bool, active: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: done ? "checkmark.circle.fill" : "\(n).circle")
+                .foregroundColor(done ? .green : active ? .fsPrimary : .fsSecondaryLabel)
+            Text(title).fsFont(.caption).foregroundColor(active || done ? .primary : .fsSecondaryLabel)
+        }
+    }
+
+    private var stepLine: some View {
+        Rectangle().fill(Color.fsSeparator).frame(height: 1).frame(maxWidth: 16)
+    }
+
+    // MARK: - 阶段1：选择文件夹/类型/排除目录
+    private var configView: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                FSSection("选择文件夹") {
+                    Button {
+                        showingFolderPicker = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "folder.fill").foregroundColor(.fsPrimary)
+                            Text(folderName.isEmpty ? "点击选择要清理的文件夹" : folderName)
+                                .fsFont(.subheadline).foregroundColor(folderName.isEmpty ? .fsSecondaryLabel : .primary)
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
+                        }
+                    }
+                    if !folderName.isEmpty {
+                        Text("将扫描该文件夹内的文件（可排除子目录）").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                    }
                 }
-                Spacer()
-                Button { recompute() } label: { if busy { ProgressView() } else { Text("重新计算") } }
-                    .disabled(busy)
+
+                FSSection("文件类型") {
+                    TextField("逗号分隔，如 txt,epub", text: $fileTypes)
+                        .textFieldStyle(.roundedBorder)
+                    Text("仅扫描匹配后缀的文件。").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                }
+
+                FSSection("排除文件夹") {
+                    TextField("逗号分隔，如 备份,已读", text: $excludedFolders)
+                        .textFieldStyle(.roundedBorder)
+                    Text("被排除的子目录将完全跳过扫描（对齐鸿蒙/PC 的排除目录能力）。").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                }
+
+                FSSection("扫描选项") {
+                    Toggle("递归扫描子目录", isOn: $recursive)
+                    Toggle("深度扫描（识别编码）", isOn: $deepScan)
+                    Toggle("精确内容去重（按内容指纹）", isOn: $exactHash)
+                }
+
+                PrimaryButton(title: "开始扫描") { startScan() }
+                    .disabled(folderName.isEmpty)
+                    .padding(.horizontal, 4)
             }
             .padding()
+        }
+        .sheet(isPresented: $showingFolderPicker) {
+            FolderPicker { url in
+                showingFolderPicker = false
+                folderUri = makeBookmark(url) ?? ""
+                folderName = url.lastPathComponent
+            }
+        }
+    }
 
-            List {
-                if details.isEmpty {
-                    VStack(spacing: 10) {
-                        Image(systemName: "checkmark.seal.fill")
-                            .fsFontSize(40).foregroundColor(.fsPrimary)
-                        Text("没有发现重复文件")
-                            .fsFont(.headline)
-                        Text("当前文库未匹配到可清理的重复项，或重复规则未勾选。")
-                            .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
-                            .multilineTextAlignment(.center)
+    @State private var showingFolderPicker = false
+
+    private func startScan() {
+        guard !folderUri.isEmpty else {
+            errorMsg = "请先选择文件夹"; showError = true; return
+        }
+        var cfg = config
+        cfg.name = folderName
+        cfg.folderUri = folderUri
+        cfg.folderName = folderName
+        cfg.fileTypes = fileTypes.trimmingCharacters(in: .whitespaces)
+        cfg.excludedFolders = excludedFolders.trimmingCharacters(in: .whitespaces)
+        cfg.recursive = recursive
+        cfg.scanMode = deepScan ? "deep" : "quick"
+        cfg.exactHash = exactHash
+        config = cfg
+        runId = -1
+        phase = .scanning
+        scan.reset()
+        Task { _ = await ScanService.shared.scan(config: cfg) }
+    }
+
+    // MARK: - 阶段2：扫描中（内嵌进度，复用 ScanStateManager）
+    private var scanningView: some View {
+        VStack(spacing: 22) {
+            Spacer().frame(height: 20)
+            Image(systemName: scan.finished ? "checkmark.circle.fill" : "doc.text.magnifyingglass")
+                .fsFontSize(54).foregroundColor(scan.finished ? .green : .fsPrimary)
+            Text(scan.phaseText).fsFont(.headline)
+            ProgressView(value: Double(scan.progress), total: 100).progressViewStyle(.linear).frame(maxWidth: 280)
+            Text("\(scan.scannedFiles) / \(scan.totalFiles)").foregroundColor(.fsSecondaryLabel)
+            if !scan.currentFile.isEmpty {
+                Text(scan.currentFile).fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                    .lineLimit(1).frame(maxWidth: 280)
+            }
+            if scan.isScanning {
+                Button { scan.requestStop() } label: {
+                    Text("停止扫描").foregroundColor(.red).padding(.horizontal, 24).padding(.vertical, 8)
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red))
+                }
+            }
+            if scan.finished {
+                Text(scan.statusText).foregroundColor(.fsSecondaryLabel)
+            }
+            Spacer()
+        }
+        .padding()
+    }
+
+    // MARK: - 阶段3：计算重复
+    private var markingView: some View {
+        VStack(spacing: 20) {
+            Spacer().frame(height: 20)
+            if marking {
+                ProgressView()
+                Text("正在计算重复文件…").fsFont(.headline)
+            } else if checkedCount == 0 {
+                Image(systemName: "checkmark.circle").fsFontSize(48).foregroundColor(.green)
+                Text("未发现重复文件").fsFont(.headline)
+                Text("当前规则下没有判定为重复的待删文件。").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+            } else {
+                Image(systemName: "exclamationmark.triangle.fill").fsFontSize(48).foregroundColor(.orange)
+                Text("发现 \(checkedCount) 个重复文件").fsFont(.headline)
+                Text("共 \(dupGroups) 组重复 · 来自 \(totalCount) 个文件")
+                    .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+            }
+            Spacer()
+        }
+        .padding()
+    }
+
+    // MARK: - 阶段4：确认删除（含查看清单）
+    private var confirmView: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                FSSection("待删除清单") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        statRow("重复文件数", "\(checkedCount)")
+                        statRow("重复组数", "\(dupGroups)")
+                        statRow("涉及文件总数", "\(totalCount)")
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
-                } else {
-                    ForEach(details) { d in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(d.title).fsFont(.subheadline).fontWeight(.medium)
-                            Text("作者: \(d.author) · \(d.fileCount) 本 · 待删 \(d.dupCount) · \(FormatUtil.formatSize(d.totalSize))")
-                                .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                }
+                FSSection("操作") {
+                    Button {
+                        showReview = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "list.bullet").foregroundColor(.fsPrimary)
+                            Text("查看待删除清单")
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
                         }
                     }
                 }
-            }
-            .listStyle(.plain)
-
-            // 确认区（对齐安卓 confirm 阶段：警示 + 查看清单 + 确认删除）
-            VStack(spacing: 8) {
-                Text("删除后文件将从设备移除，且无法恢复，请先核对清单。")
-                    .fsFont(.caption).foregroundColor(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Button {
-                    showReview = true
-                } label: {
-                    Text("查看待删清单（\(checkedCount) 个）").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .disabled(checkedCount == 0)
-
-                PrimaryButton(title: "确认删除（\(checkedCount) 个）") {
-                    let ids = FileRepository.shared.getCheckedIds(runId: runId)
-                    router.navigate(.deleteConfirm(runId: runId, ids: ids, physical: true))
-                }
-                .disabled(checkedCount == 0)
+                PrimaryButton(title: "确认删除") { confirmDelete() }
+                    .disabled(checkedCount == 0)
+                    .padding(.horizontal, 4)
+                Text("删除前请务必在清单中核对，操作不可恢复。").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             .padding()
         }
-        .navigationTitle("一键清理")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("规则") { router.navigate(.dupRule) }
-            }
+    }
+
+    private func statRow(_ k: String, _ v: String) -> some View {
+        HStack {
+            Text(k).fsFont(.subheadline).foregroundColor(.fsSecondaryLabel)
+            Spacer()
+            Text(v).fsFont(.subheadline).fontWeight(.medium)
         }
-        .onAppear { recompute() }
-        .sheet(isPresented: $showReview) {
-            OneClickReviewSheet(runId: runId) { recompute() }
+    }
+
+    // MARK: - 逻辑
+    private func runMarking() {
+        marking = true
+        phase = .marking
+        DispatchQueue.global(qos: .userInitiated).async {
+            let ids = FileRepository.shared.selectDuplicateIds(runId: runId)
+            let dup = FileRepository.shared.getDuplicateGroups(runId: runId)
+            let total = FileRepository.shared.countFiles(runId: runId)
+            DispatchQueue.main.async {
+                marking = false
+                checkedCount = ids.count
+                dupGroups = dup
+                totalCount = total
+                if ids.isEmpty {
+                    phase = .marking // 停留在提示界面
+                } else {
+                    phase = .confirm
+                }
+            }
         }
     }
 
     private func recompute() {
-        busy = true
-        Task {
-            let result = await Task.detached(priority: .userInitiated) {
-                FileRepository.shared.selectDuplicateIds(runId: runId)
-                return (FileRepository.shared.getDupDetails(runId: runId),
-                        FileRepository.shared.getCheckedCount(runId: runId))
-            }.value
-            await MainActor.run {
-                details = result.0
-                checkedCount = result.1
-                busy = false
-            }
-        }
+        runMarking()
+    }
+
+    private func confirmDelete() {
+        guard checkedCount > 0 else { return }
+        let ids = FileRepository.shared.getCheckedIds(runId: runId)
+        phase = .deleting
+        router.navigate(.deleteConfirm(runId: runId, ids: Array(ids), physical: true))
     }
 }
 
-/// 待删清单复核（对齐安卓 review 阶段）：逐条勾选 / 全选 / 全不选，保存后回写 checked 状态。
-/// 20w+ 量级下分页加载：全量 ids 仅保留 id 数组（极小），文件详情按页（200）从数据库取，避免一次性把全部文件塞进 List 导致 OOM。
+// MARK: - 待删除清单弹框（对齐安卓 confirm 页"查看清单"）
 struct OneClickReviewSheet: View {
-    @Environment(\.dismiss) private var dismiss
     let runId: Int64
-    let onSaved: () -> Void
+    var onClose: (() -> Void)? = nil
+    @Environment(\.dismiss) var dismiss
 
-    private let pageSize = 200
-
-    @State private var allIds: [Int64] = []
-    @State private var items: [ScannedFile] = []
-    @State private var draft: Set<Int64> = []
+    @State private var files: [ScannedFile] = []
     @State private var loading = true
-    @State private var loadingMore = false
-    @State private var reachedEnd = false
-
-    private var draftSize: Int64 {
-        items.filter { draft.contains($0.id) }.reduce(0) { $0 + $1.fileSize }
-    }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                Text("以下是本次将被删除的文件，取消勾选可保留该文件。")
-                    .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal).padding(.top, 8)
-
-                HStack(spacing: 10) {
-                    Button("全选") { draft = Set(allIds) }
-                        .buttonStyle(.bordered)
-                    Button("全不选") { draft = [] }
-                        .buttonStyle(.bordered)
-                    Spacer()
-                    Text("已选 \(draft.count) · \(FormatUtil.formatSize(draftSize))")
-                        .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
-                }
-                .padding(.horizontal).padding(.vertical, 8)
-
+            Group {
                 if loading {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if items.isEmpty {
-                    Text("暂无待删文件").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ProgressView()
+                } else if files.isEmpty {
+                    Text("暂无待删除文件").foregroundColor(.fsSecondaryLabel).padding()
                 } else {
-                    List {
-                        ForEach(items) { f in
-                            Button {
-                                if draft.contains(f.id) { draft.remove(f.id) } else { draft.insert(f.id) }
-                            } label: {
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: draft.contains(f.id) ? "checkmark.square.fill" : "square")
-                                        .foregroundColor(draft.contains(f.id) ? .fsPrimary : .fsSecondaryLabel)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(f.fileName).fsFont(.caption).fontWeight(.medium)
-                                            .foregroundColor(.primary).lineLimit(2)
-                                        Text("\(f.title)　\(f.author)　\(FormatUtil.formatSize(f.fileSize))")
-                                            .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
-                                    }
+                    List(files) { f in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(f.fileName).fsFont(.subheadline).fontWeight(.medium)
+                            HStack {
+                                Text(f.title.isEmpty ? "未解析" : f.title)
+                                    .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                                if !f.author.isEmpty {
+                                    Text("· \(f.author)").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
                                 }
+                                Spacer()
+                                Text(FormatUtil.formatSize(f.fileSize)).fsFont(.caption)
+                                    .foregroundColor(.fsSecondaryLabel)
                             }
-                            .buttonStyle(.plain)
-                            .onAppear { loadMoreIfNeeded(current: f.id) }
-                        }
-                        if loadingMore {
-                            HStack { Spacer(); ProgressView(); Spacer() }
-                                .listRowSeparator(.hidden)
                         }
                     }
-                    .listStyle(.plain)
                 }
             }
-            .navigationTitle("待删清单")
+            .navigationTitle("待删除清单（\(files.count)）")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) { Button("返回") { dismiss() } }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("保存(\(draft.count))") { save() }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
                 }
             }
-            .onAppear { load() }
+            .task { load() }
         }
     }
 
-    /// 加载全部已勾选 id（分批，仅 id 数组），并取首页文件详情。
     private func load() {
-        let ids = FileRepository.shared.getCheckedIds(runId: runId)
-        allIds = ids
-        draft = Set(ids)
-        appendPage()
-        loading = false
-    }
-
-    /// 按需追加下一页文件详情（每页 pageSize 个）。
-    private func appendPage() {
-        guard !loadingMore, !reachedEnd else { return }
-        let start = items.count
-        guard start < allIds.count else { reachedEnd = true; return }
-        let end = min(start + pageSize, allIds.count)
-        let slice = Array(allIds[start..<end])
-        loadingMore = true
-        Task.detached(priority: .userInitiated) {
-            let page = FileRepository.shared.getByIds(slice)
-            Task { @MainActor in
-                self.items.append(contentsOf: page)
-                self.loadingMore = false
-                if self.items.count >= self.allIds.count { self.reachedEnd = true }
+        loading = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let rows = FileRepository.shared.getCheckedFiles(runId: runId)
+            DispatchQueue.main.async {
+                files = rows
+                loading = false
             }
         }
-    }
-
-    private func loadMoreIfNeeded(current: Int64) {
-        guard let last = items.last else { return }
-        if current == last.id { appendPage() }
-    }
-
-    private func save() {
-        // 仅对发生变化的文件回写，避免 20w 全量 UPDATE。
-        let checkedNow = draft
-        let checkedPrev = Set(allIds)
-        let toUncheck = checkedPrev.subtracting(checkedNow)
-        let toCheck = checkedNow.subtracting(checkedPrev)
-        if !toUncheck.isEmpty { FileRepository.shared.updateChecked(ids: Array(toUncheck), checked: false) }
-        if !toCheck.isEmpty { FileRepository.shared.updateChecked(ids: Array(toCheck), checked: true) }
-        onSaved()
-        dismiss()
     }
 }

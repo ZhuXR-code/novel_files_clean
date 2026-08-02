@@ -5,7 +5,6 @@ struct HomeView: View {
     @State private var runs: [ScanRun] = []
     @State private var markedFiles: Int = 0
     @State private var showingFolderPicker = false
-    @State private var showingOneClickSheet = false
     @State private var runToDelete: ScanRun? = nil
 
     // 统计汇总（对齐安卓：总文件数 / 标记文件数）。totalFiles 由内存中的 runs 计算，
@@ -23,9 +22,11 @@ struct HomeView: View {
                 }
                 .padding(.top, 4)
 
-                // 一键清理（对齐安卓绿色大按钮）
-                PrimaryButton(title: "一键清理重复文件") { showingOneClickSheet = true }
-                    .padding(.horizontal, 2)
+                // 一键清理（对齐安卓：引导式流程，从零选择文件夹/类型/排除目录）
+                PrimaryButton(title: "一键清理重复文件") {
+                    router.navigate(.oneClick(config: ScanConfig()))
+                }
+                .padding(.horizontal, 2)
 
                 FSSection("快速开始") {
                     VStack(spacing: 10) {
@@ -74,7 +75,7 @@ struct HomeView: View {
                                 } label: { Label("删除文库", systemImage: "trash") }
 
                                 Button {
-                                    router.navigate(.oneClick(runId: run.id))
+                                    router.navigate(.oneClickExisting(runId: run.id))
                                 } label: { Label("一键清理", systemImage: "wand.and.stars") }
                             }
                         }
@@ -114,12 +115,6 @@ struct HomeView: View {
                 let name = url.lastPathComponent
                 let cfg = ScanConfig(name: name, folderUri: bookmark, folderName: name)
                 beginScan(cfg)
-            }
-        }
-        .sheet(isPresented: $showingOneClickSheet) {
-            OneClickRunPicker(runs: runs) { run in
-                showingOneClickSheet = false
-                router.navigate(.oneClick(runId: run.id))
             }
         }
         .alert("删除文库", isPresented: Binding(
@@ -173,48 +168,6 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).fsFont(.subheadline).fontWeight(.medium)
                 Text(desc).fsFont(.caption).foregroundColor(.fsSecondaryLabel).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
-
-// 一键清理：选择一个文库（对齐安卓从首页进入一键清理的"选文件夹/文库"起点）
-struct OneClickRunPicker: View {
-    let runs: [ScanRun]
-    let onSelect: (ScanRun) -> Void
-    @Environment(\.dismiss) var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List {
-                if runs.isEmpty {
-                    Text("暂无文库，请先扫描文件夹。").foregroundColor(.fsSecondaryLabel)
-                } else {
-                    ForEach(runs) { run in
-                        Button {
-                            onSelect(run)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(run.folderName.isEmpty ? run.name : run.folderName)
-                                        .fsFont(.subheadline).fontWeight(.medium)
-                                        .foregroundColor(.primary)
-                                    Text("\(run.fileCount) 个文件 · \(formatRunDate(run.createdAt))")
-                                        .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
-                                }
-                                Spacer()
-                                Image(systemName: "wand.and.stars").foregroundColor(.fsPrimary)
-                            }
-                        }
-                    }
-                }
-            }
-            .navigationTitle("选择文库")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
-                }
             }
         }
     }
