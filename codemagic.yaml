@@ -5,8 +5,12 @@ workflows:
     max_build_duration: 30
     environment:
       xcode: 16.0
+      groups:
+        - ios_signing
+      vars:
+        APP_DEVELOPMENT_TEAM: SGY2APMUQ5
       ios_signing:
-        distribution_type: development
+        distribution_type: ad_hoc
         bundle_identifier: com.booksclean.app
     triggering:
       events:
