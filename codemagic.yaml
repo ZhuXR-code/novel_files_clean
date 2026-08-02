@@ -6,6 +6,8 @@ workflows:
     environment:
       xcode: 16.0
       vars:
+        groups:
+          - ios_signing
         APP_DEVELOPMENT_TEAM: SGY2APMUQ5
     triggering:
       events:
