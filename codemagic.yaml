@@ -6,7 +6,7 @@ workflows:
     environment:
       xcode: 16.0
       ios_signing:
-        distribution_type: ad_hoc
+        distribution_type: development
         bundle_identifier: com.booksclean.app
     triggering:
       events:
