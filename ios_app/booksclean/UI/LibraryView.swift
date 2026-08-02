@@ -420,6 +420,14 @@ struct LibraryView: View {
 
                     Divider()
                     Button("一键清理") { router.navigate(.oneClick(runId: runId)) }
+                    Divider()
+                    Button { 
+                        if let p = FileRepository.shared.exportLibrary(runId: runId) {
+                            toast("已导出文库清单：\(p)")
+                        } else {
+                            toast("当前文库没有可导出的文件")
+                        }
+                    } label: { Label("导出列表", systemImage: "square.and.arrow.up") }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
             ToolbarItem(placement: .navigationBarLeading) {
@@ -659,12 +667,28 @@ struct FileDetailView: View {
 
                         // 单列行：内容哈希 / 路径
                         DetailRow("内容哈希", f.contentHash.isEmpty ? "—" : f.contentHash, isMono: true)
-                        DetailRow("路径", f.path.isEmpty ? "—" : f.path, isPath: true)
+                        DetailRow("路径", f.path.isEmpty ? "—" : FormatUtil.toHumanReadablePath(f.path), isPath: true)
 
-                        // 操作按钮（对齐安卓：预览 / 重命名 / 删除）
+                        // 操作按钮（对齐安卓：预览 / 用其他应用打开 / 重命名 / 删除）
                         VStack(spacing: 12) {
                             PrimaryButton(title: "预览内容") {
                                 router.navigate(.filePreview(id: f.id, mode: "head"))
+                            }
+                            Button {
+                                guard let url = URL(string: f.path),
+                                      FileManager.default.fileExists(atPath: url.path) else {
+                                    toast("无法打开：文件不存在或路径无效")
+                                    return
+                                }
+                                UIApplication.shared.open(url) { success in
+                                    if !success { toast("没有可打开该文件的应用") }
+                                }
+                            } label: {
+                                Text("用其他应用打开").frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(Color.fsTertiaryBg)
+                                    .foregroundColor(.fsPrimary)
+                                    .cornerRadius(10)
                             }
                             Button {
                                 newName = f.fileName; showRename = true
@@ -679,7 +703,7 @@ struct FileDetailView: View {
                                 FileRepository.shared.setMarked(id: f.id, marked: f.marked != 1)
                                 file = FileRepository.shared.getById(f.id)
                             } label: {
-                                Text(f.marked == 1 ? "取消标记" : "标记为已读").frame(maxWidth: .infinity)
+                                Text(f.marked == 1 ? "取消标记" : "标记为已标记").frame(maxWidth: .infinity)
                                     .padding(.vertical, 10)
                                     .background(Color.fsTertiaryBg)
                                     .foregroundColor(.fsPrimary)
