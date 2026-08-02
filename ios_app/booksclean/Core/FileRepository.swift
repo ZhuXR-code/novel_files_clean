@@ -271,7 +271,7 @@ final class FileRepository {
                 case "name":   parts.append(f.fileName)
                 case "title":  parts.append(f.title.isEmpty ? "" : f.title)
                 case "author": parts.append(f.author.isEmpty ? "" : f.author)
-                case "size":   parts.append(FormatUtil.formatFileSize(f.fileSize))
+                case "size":   parts.append(FormatUtil.formatSize(f.fileSize))
                 case "path":   parts.append(f.path.isEmpty ? "" : FormatUtil.toHumanReadablePath(f.path))
                 case "date":   parts.append(f.fileDate.map { df.string(from: Date(timeIntervalSince1970: TimeInterval($0) / 1000)) } ?? "")
                 case "extra":  parts.append("\(f.progress.isEmpty ? "" : "进度:\(f.progress) ")\(f.source.isEmpty ? "" : "来源:\(f.source)")")
