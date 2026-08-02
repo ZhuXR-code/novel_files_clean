@@ -398,7 +398,8 @@ final class DatabaseManager {
     func getScannedFilesPaged(runId: Int64, offset: Int, limit: Int, sortBy: String, ascending: Bool,
                               titleFilter: String?, authorFilter: String?, progressFilter: String?,
                               sourceFilter: String?, search: String?,
-                              checkedFilter: Int = -1, markedFilter: Int = -1) -> [ScannedFile] {
+                              checkedFilter: Int = -1, markedFilter: Int = -1,
+                              checkedSortToFront: Bool = false) -> [ScannedFile] {
         var whereClauses = ["scan_run_id=?"]
         var binds: [Any?] = [runId]
         if let t = titleFilter, !t.isEmpty { whereClauses.append("title LIKE ?"); binds.append("\(t)%") }
@@ -410,7 +411,9 @@ final class DatabaseManager {
         if markedFilter >= 0 { whereClauses.append("marked=?"); binds.append(markedFilter) }
         let orderCol = sortBy == "file_name" || sortBy == "title" || sortBy == "author" || sortBy == "progress" || sortBy == "source" || sortBy == "file_size" ? sortBy : "created_at"
         let dir = ascending ? "ASC" : "DESC"
-        let sql = "SELECT \(SF_COLS) FROM scanned_file WHERE \(whereClauses.joined(separator: " AND ")) ORDER BY \(orderCol) \(dir), id \(dir) LIMIT ? OFFSET ?"
+        // 勾选置顶（对齐安卓 filesPageFlow 的 checkedPrefix）：在原排序前追加 checked DESC
+        let checkedPrefix = checkedSortToFront ? "checked DESC, " : ""
+        let sql = "SELECT \(SF_COLS) FROM scanned_file WHERE \(whereClauses.joined(separator: " AND ")) ORDER BY \(checkedPrefix)\(orderCol) \(dir), id \(dir) LIMIT ? OFFSET ?"
         binds.append(limit); binds.append(offset)
         return fetchAll(sql, binds).map(mapScannedFile)
     }
@@ -458,13 +461,39 @@ final class DatabaseManager {
         return count(sql, binds)
     }
 
-    /// 合集分页查询（对齐安卓 groupsPageFlow），按 文件数降序、书名升序。
-    func getNovelGroupsPaged(runId: Int64, minCount: Int, maxCount: Int, excludeNames: [String], offset: Int, limit: Int) -> [NovelGroup] {
-        var sql = "SELECT title, author, COUNT(*) AS c, SUM(file_size) AS s, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k FROM scanned_file WHERE scan_run_id=? GROUP BY title, author HAVING c >= ?"
+    /// 合集排序 ORDER BY 构造（对齐安卓 FileRepository.buildGroupOrderBy）。
+    /// sort 取值：count_desc/count_asc/size_desc/size_asc/name_asc/name_desc/date_newest/date_oldest。
+    /// 安卓用 file_count/total_size/checked_count 别名，本端聚合别名为 c/s/k，语义一一对应。
+    static func buildGroupOrderBy(_ sort: String, checkedSortToFront: Bool) -> String {
+        let base: String
+        switch sort {
+        case "count_asc":   base = "(k > 0) DESC, (title = '') ASC, c ASC, title ASC"
+        case "size_desc":   base = "(k > 0) DESC, (title = '') ASC, s DESC, title ASC"
+        case "size_asc":    base = "(k > 0) DESC, (title = '') ASC, s ASC, title ASC"
+        case "name_asc":    base = "(title = '') ASC, (k > 0) DESC, title ASC"
+        case "name_desc":   base = "(title = '') ASC, (k > 0) DESC, title DESC"
+        case "date_newest": base = "(k > 0) DESC, newest_date DESC, title ASC"
+        case "date_oldest": base = "(k > 0) DESC, newest_date ASC, title ASC"
+        default:            base = "(k > 0) DESC, (title = '') ASC, c DESC, title ASC"
+        }
+        guard checkedSortToFront else {
+            return base
+                .replacingOccurrences(of: "(k > 0) DESC, ", with: "")
+                .replacingOccurrences(of: ", (k > 0) DESC", with: "")
+        }
+        return base
+    }
+
+    /// 合集分页查询（对齐安卓 groupsPageFlow），排序由 groupSort + checkedSortToFront 控制。
+    func getNovelGroupsPaged(runId: Int64, minCount: Int, maxCount: Int, excludeNames: [String], offset: Int, limit: Int,
+                             groupSort: String = "count_desc", checkedSortToFront: Bool = false) -> [NovelGroup] {
+        // date_* 排序依赖 newest_date 派生列，必须一并 SELECT，否则 ORDER BY 找不到该列
+        let selectExtra = groupSort.hasPrefix("date_") ? ", MAX(created_at) AS newest_date" : ""
+        var sql = "SELECT title, author, COUNT(*) AS c, SUM(file_size) AS s, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k\(selectExtra) FROM scanned_file WHERE scan_run_id=? GROUP BY title, author HAVING c >= ?"
         var binds: [Any?] = [runId, minCount.coerceAtLeast(0)]
         if maxCount >= 0 { sql += " AND c <= ?"; binds.append(maxCount) }
         for n in excludeNames where !n.isEmpty { sql += " AND title NOT LIKE ?"; binds.append("%\(n)%") }
-        sql += " ORDER BY c DESC, title ASC LIMIT ? OFFSET ?"
+        sql += " ORDER BY \(Self.buildGroupOrderBy(groupSort, checkedSortToFront: checkedSortToFront)) LIMIT ? OFFSET ?"
         binds.append(limit); binds.append(offset)
         let rows = fetchAll(sql, binds)
         var groups: [NovelGroup] = []

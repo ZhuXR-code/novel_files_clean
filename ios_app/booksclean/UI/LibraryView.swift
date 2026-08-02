@@ -6,6 +6,14 @@ private let SORT_OPTIONS: [(String, String)] = [
     ("title", "书名"), ("author", "作者"), ("progress", "进度"), ("source", "来源")
 ]
 
+/// 合集排序选项（对齐安卓 LibraryViewModel.GroupSortMode 的 8 档）
+private let GROUP_SORT_OPTIONS: [(String, String)] = [
+    ("count_desc", "文件数量（多→少）"), ("count_asc", "文件数量（少→多）"),
+    ("size_desc", "合集大小（大→小）"), ("size_asc", "合集大小（小→大）"),
+    ("name_asc", "合集名称（A→Z）"), ("name_desc", "合集名称（Z→A）"),
+    ("date_newest", "最新文件（新→旧）"), ("date_oldest", "最旧文件（旧→新）")
+]
+
 struct FileRow: View {
     let file: ScannedFile
     let onToggleCheck: () -> Void
@@ -390,6 +398,29 @@ struct LibraryView: View {
                     Button(ascending ? "切换为降序" : "切换为升序") { ascending.toggle() }
                     Button("筛选") { showFilter = true }
                     Button("合集设置") { showGroupSettings = true }
+                    // 合集排序：对齐安卓，仅在合集模式下出现
+                    if mode == "group" {
+                        Menu("合集排序") {
+                            ForEach(GROUP_SORT_OPTIONS, id: \.0) { opt in
+                                Button {
+                                    prefs.groupSort = opt.0
+                                    page = 0
+                                    reload()
+                                } label: {
+                                    Label(opt.1, systemImage: prefs.groupSort == opt.0 ? "checkmark" : "")
+                                }
+                            }
+                        }
+                    }
+                    // 勾选置顶（对齐安卓 auto_sort_checked 开关）
+                    Button {
+                        prefs.checkedSortToFront.toggle()
+                        page = 0
+                        reload()
+                        toast(prefs.checkedSortToFront ? "勾选文件已置顶" : "已取消勾选置顶")
+                    } label: {
+                        Label("勾选文件排到前面", systemImage: prefs.checkedSortToFront ? "checkmark" : "")
+                    }
 
                     Divider()
                     // 批量操作（对齐安卓文库「更多」菜单）
@@ -530,6 +561,8 @@ struct LibraryView: View {
         let curSource = sourceFilter, curSearch = search, curFilter = selectedFilter
         let curMin = prefs.groupMinCount, curMax = prefs.groupMaxCount
         let curExclude = LibraryLogic.parseExcludeNames(prefs.groupExcludeNames)
+        let curGroupSort = prefs.groupSort
+        let curCheckedFront = prefs.checkedSortToFront
         let repo = FileRepository.shared
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -538,7 +571,8 @@ struct LibraryView: View {
                 let gPageCount = LibraryLogic.computePageCount(total: max(gTotal, 1), pageSize: currentPageSize)
                 var p = min(max(currentPage, 0), max(gPageCount - 1, 0))
                 let gs = repo.dbPageGroups(runId: runId, min: curMin, max: curMax,
-                                           exclude: curExclude, page: p, pageSize: currentPageSize)
+                                           exclude: curExclude, page: p, pageSize: currentPageSize,
+                                           groupSort: curGroupSort, checkedSortToFront: curCheckedFront)
                 DispatchQueue.main.async {
                     groupTotal = gTotal; groupPageCount = gPageCount; page = p; groups = gs
                     selectAllOnPage = false
@@ -562,7 +596,8 @@ struct LibraryView: View {
             let fs = repo.dbPageFiles(runId: runId, page: p, pageSize: currentPageSize, sortBy: sortBy,
                                       ascending: ascending, title: curTitle, author: curAuthor,
                                       progress: curProgress, source: curSource, search: curSearch,
-                                      checkedFilter: cf, markedFilter: mf)
+                                      checkedFilter: cf, markedFilter: mf,
+                                      checkedSortToFront: curCheckedFront)
             DispatchQueue.main.async {
                 total = t; pageCount = pc; page = p; files = fs
                 selectAllOnPage = false
@@ -574,12 +609,14 @@ struct LibraryView: View {
 extension FileRepository {
     func dbPageFiles(runId: Int64, page: Int, pageSize: Int, sortBy: String, ascending: Bool,
                      title: String, author: String, progress: String, source: String, search: String,
-                     checkedFilter: Int = -1, markedFilter: Int = -1) -> [ScannedFile] {
+                     checkedFilter: Int = -1, markedFilter: Int = -1,
+                     checkedSortToFront: Bool = false) -> [ScannedFile] {
         DatabaseManager.shared.getScannedFilesPaged(runId: runId, offset: page * pageSize, limit: pageSize,
                                                      sortBy: sortBy, ascending: ascending, titleFilter: title,
                                                      authorFilter: author, progressFilter: progress,
                                                      sourceFilter: source, search: search,
-                                                     checkedFilter: checkedFilter, markedFilter: markedFilter)
+                                                     checkedFilter: checkedFilter, markedFilter: markedFilter,
+                                                     checkedSortToFront: checkedSortToFront)
     }
     func dbCountFiles(runId: Int64, title: String, author: String, progress: String, source: String, search: String,
                       checkedFilter: Int = -1, markedFilter: Int = -1) -> Int {
@@ -593,9 +630,11 @@ extension FileRepository {
     func dbCountGroups(runId: Int64, min: Int, max: Int, exclude: [String]) -> Int {
         DatabaseManager.shared.countNovelGroups(runId: runId, minCount: min, maxCount: max, excludeNames: exclude)
     }
-    func dbPageGroups(runId: Int64, min: Int, max: Int, exclude: [String], page: Int, pageSize: Int) -> [NovelGroup] {
+    func dbPageGroups(runId: Int64, min: Int, max: Int, exclude: [String], page: Int, pageSize: Int,
+                      groupSort: String = "count_desc", checkedSortToFront: Bool = false) -> [NovelGroup] {
         DatabaseManager.shared.getNovelGroupsPaged(runId: runId, minCount: min, maxCount: max,
-                                                    excludeNames: exclude, offset: page * pageSize, limit: pageSize)
+                                                    excludeNames: exclude, offset: page * pageSize, limit: pageSize,
+                                                    groupSort: groupSort, checkedSortToFront: checkedSortToFront)
     }
 }
 
