@@ -569,7 +569,7 @@ struct LibraryView: View {
             if currentMode == "group" {
                 let gTotal = repo.dbCountGroups(runId: runId, min: curMin, max: curMax, exclude: curExclude)
                 let gPageCount = LibraryLogic.computePageCount(total: max(gTotal, 1), pageSize: currentPageSize)
-                var p = min(max(currentPage, 0), max(gPageCount - 1, 0))
+                let p = min(max(currentPage, 0), max(gPageCount - 1, 0))
                 let gs = repo.dbPageGroups(runId: runId, min: curMin, max: curMax,
                                            exclude: curExclude, page: p, pageSize: currentPageSize,
                                            groupSort: curGroupSort, checkedSortToFront: curCheckedFront)
@@ -693,6 +693,16 @@ struct FileDetailView: View {
     @State private var showRename = false
     @State private var newName = ""
     @State private var fileToDelete: ScannedFile? = nil
+    @State private var toastText: String? = nil
+
+    /// 轻提示（本视图独立持有，LibraryView 的 toast 是其私有成员，此处访问不到）
+    private func toast(_ msg: String) {
+        withAnimation { toastText = msg }
+        let shown = msg
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            if toastText == shown { withAnimation { toastText = nil } }
+        }
+    }
 
     var body: some View {
         Group {
@@ -785,6 +795,18 @@ struct FileDetailView: View {
         }
         .navigationTitle("文件详情")
         .navigationBarTitleDisplayMode(.inline)
+        .overlay(alignment: .bottom) {
+            if let t = toastText {
+                Text(t)
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Color.black.opacity(0.8))
+                    .cornerRadius(10)
+                    .padding(.bottom, 40)
+                    .transition(.opacity)
+            }
+        }
         .onAppear { file = FileRepository.shared.getById(fileId) }
         .sheet(isPresented: $showRename) {
             NavigationStack {

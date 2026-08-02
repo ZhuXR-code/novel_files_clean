@@ -32,7 +32,7 @@ enum FormatUtil {
         // 2) 取 /document/ 之后的部分（SAF 文档真实相对路径）
         let docMarker = "/document/"
         let docPart: String
-        if let range = decoded.range(of: docMarker), !range.upperBound.equalTo(decoded.endIndex) {
+        if let range = decoded.range(of: docMarker), range.upperBound != decoded.endIndex {
             docPart = String(decoded[range.upperBound...])
         } else {
             docPart = decoded
