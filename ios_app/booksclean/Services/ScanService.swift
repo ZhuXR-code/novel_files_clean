@@ -186,7 +186,7 @@ final class ScanService {
     private func readSample(_ url: URL, maxBytes: Int) -> Data? {
         guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? fh.close() }
-        return try? fh.readData(ofLength: maxBytes)
+        return fh.readData(ofLength: maxBytes)
     }
 
     /// 简单内容指纹（FNV-1a，仅用于精确内容去重开关）：取文件前 64KB 计算。

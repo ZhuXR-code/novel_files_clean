@@ -91,7 +91,7 @@ enum Parser {
         // 不能用 lastIndex(of: ".") 截断最后一个点——无扩展名但含点的书名
         // （如 “l.ili 的奇妙冒险”）会被误截，与安卓/PC 结果不一致。
         let extMatch = Parser._EXT_RE.firstMatch(name)
-        if let rng = extMatch?.range { name = String(name[name.startIndex..<rng.lowerBound]) }
+        if let rng = extMatch?.range, let r = Range(rng, in: name) { name = String(name[name.startIndex..<r.lowerBound]) }
         name = name.trimmingCharacters(in: .whitespaces)
         if name.isEmpty { return ParsedName(title: rawName, author: "", progress: "", source: "") }
         // 超长文件名保护：.*? / .+$ 一类正则在超长串上会灾难性回溯，直接整段作书名

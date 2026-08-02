@@ -606,7 +606,7 @@ struct KeywordReplaceView: View {
                 rule.pattern = String(line)
                 rule.replacement = ""
             }
-            try? FileRepository.shared.saveKeywordReplaceRule(rule)
+            FileRepository.shared.saveKeywordReplaceRule(rule)
         }
         showBatch = false
         reload()
