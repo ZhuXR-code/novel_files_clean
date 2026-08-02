@@ -755,22 +755,24 @@ private func DetailRow(_ label: String, _ value: String, isPath: Bool = false, i
 }
 
 private func DetailRowColumns(_ items: [(String, String)]) -> some View {
-    HStack(spacing: 0) {
-        ForEach(items.indices, id: \.self) { i in
-            VStack(alignment: .leading, spacing: 2) {
-                Text(items[i].0).fsFont(.caption).foregroundColor(.fsSecondaryLabel)
-                Text(items[i].1).fsFont(.subheadline).fontWeight(.medium)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if i < items.count - 1 {
-                Divider().frame(height: 36).padding(.horizontal, 8)
+    VStack(spacing: 0) {
+        HStack(spacing: 0) {
+            ForEach(items.indices, id: \.self) { i in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(items[i].0).fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                    Text(items[i].1).fsFont(.subheadline).fontWeight(.medium)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if i < items.count - 1 {
+                    Divider().frame(height: 36).padding(.horizontal, 8)
+                }
             }
         }
+        .padding(.vertical, 8)
+        Divider()
     }
-    .padding(.vertical, 8)
-    Divider()
 }
 
 // MARK: - 文件预览（阅读，对齐安卓）

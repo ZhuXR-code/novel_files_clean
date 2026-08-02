@@ -593,7 +593,7 @@ struct KeywordReplaceView: View {
         var order = (rules.map { $0.sortOrder }.max() ?? 0)
         for line in lines {
             order += 1
-            let rule = KeywordReplaceRule()
+            var rule = KeywordReplaceRule()
             rule.scope = scope
             rule.enabled = batchEnabled
             rule.sortOrder = order

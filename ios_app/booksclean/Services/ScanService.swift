@@ -77,7 +77,8 @@ final class ScanService {
         total = collect(in: folderURL, recursive: config.recursive, types: types, minSize: minSize,
                         excluded: excluded, batchSize: batchSize, onBatch: processBatch)
         if !buffer.isEmpty { FileRepository.shared.insertAll(buffer) }
-        await MainActor.run { sm.totalFiles = total }
+        let totalCount = total
+        await MainActor.run { sm.totalFiles = totalCount }
         LogUtil.i("ScanService", "收集到 \(total) 个文件 run=\(runId)")
 
         if total == 0 {
@@ -88,9 +89,10 @@ final class ScanService {
 
         FileRepository.shared.setRunFileCount(runId: runId, count: scanned)
         let done = scanned
+        let totalForProgress = total
         await MainActor.run {
             sm.scannedFiles = done
-            sm.progress = total > 0 ? done * 100 / total : 100
+            sm.progress = totalForProgress > 0 ? done * 100 / totalForProgress : 100
             sm.isScanning = false
             sm.finished = true
             sm.status = sm.shouldStop() ? "stopped" : "completed"

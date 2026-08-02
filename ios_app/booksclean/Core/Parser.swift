@@ -90,7 +90,7 @@ enum Parser {
         // 仅剥离真正的扩展名（白名单），对齐安卓 Parser.kt 的 EXT_RE / PC 的 _EXT_RE。
         // 不能用 lastIndex(of: ".") 截断最后一个点——无扩展名但含点的书名
         // （如 “l.ili 的奇妙冒险”）会被误截，与安卓/PC 结果不一致。
-        let extMatch = Parser._EXT_RE.firstMatch(in: name)
+        let extMatch = Parser._EXT_RE.firstMatch(name)
         if let rng = extMatch?.range { name = String(name[name.startIndex..<rng.lowerBound]) }
         name = name.trimmingCharacters(in: .whitespaces)
         if name.isEmpty { return ParsedName(title: rawName, author: "", progress: "", source: "") }

@@ -34,6 +34,7 @@
 		000000000000000000000218 /* HelpView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000118 /* HelpView.swift */; };
 		000000000000000000000219 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000119 /* ContentView.swift */; };
 		00000000000000000000021A /* PrivacyPolicyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011A /* PrivacyPolicyView.swift */; };
+		00000000000000000000021B /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011D /* AboutView.swift */; };
 		000000000000000000000300 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000011C /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -66,6 +67,7 @@
 		000000000000000000000118 /* HelpView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpView.swift; sourceTree = "<group>"; };
 		000000000000000000000119 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		00000000000000000000011A /* PrivacyPolicyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPolicyView.swift; sourceTree = "<group>"; };
+		00000000000000000000011D /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		00000000000000000000011B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		00000000000000000000011C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -153,6 +155,7 @@
 				000000000000000000000118 /* HelpView.swift */,
 				000000000000000000000119 /* ContentView.swift */,
 				00000000000000000000011A /* PrivacyPolicyView.swift */,
+				00000000000000000000011D /* AboutView.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -254,6 +257,7 @@
 				000000000000000000000218 /* HelpView.swift in Sources */,
 				000000000000000000000219 /* ContentView.swift in Sources */,
 				00000000000000000000021A /* PrivacyPolicyView.swift in Sources */,
+				00000000000000000000021B /* AboutView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
