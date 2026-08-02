@@ -54,4 +54,41 @@ Get-ChildItem -Path $srcBase -Recurse -Include "*.ets", "*.ts" | ForEach-Object 
     $count++
 }
 
-Write-Output "[$direction] Synced $count files."
+Write-Output "[$direction] Synced $count ets/ts files."
+
+# ---------------------------------------------------------------------
+# Sync resources and module.json5 (not covered by the ets glob above).
+# These directories use the same layout under entry\src\main.
+# ---------------------------------------------------------------------
+$srcMain = Join-Path $projectRoot "harmony_app\entry\src\main"
+$dstMain = "D:\Harmony\HarmonyCleaner\entry\src\main"
+if ($Reverse) {
+    $srcMain = "D:\Harmony\HarmonyCleaner\entry\src\main"
+    $dstMain = Join-Path $projectRoot "harmony_app\entry\src\main"
+}
+
+# resources (icons, strings, colors, media ...)
+$srcRes = Join-Path $srcMain "resources"
+$dstRes = Join-Path $dstMain "resources"
+$resCount = 0
+if (Test-Path $srcRes) {
+    Get-ChildItem -Path $srcRes -Recurse | Where-Object { -not $_.PSIsContainer } | ForEach-Object {
+        $rel = $_.FullName.Substring($srcRes.Length)
+        $target = Join-Path $dstRes $rel
+        $targetDir = Split-Path $target -Parent
+        if (-not (Test-Path $targetDir)) {
+            New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+        }
+        Copy-Item $_.FullName $target -Force
+        $resCount++
+    }
+}
+Write-Output "[$direction] Synced $resCount resource files."
+
+# module.json5
+$srcMod = Join-Path $srcMain "module.json5"
+$dstMod = Join-Path $dstMain "module.json5"
+if (Test-Path $srcMod) {
+    Copy-Item $srcMod $dstMod -Force
+    Write-Output "[$direction] Synced module.json5."
+}

@@ -2823,7 +2823,7 @@ function switchDebugLog(mode) {
 
 // 读取当前模式的日志文本（纯文本，用于展示与复制）
 async function fetchDebugLogText() {
-    const url = debugLogMode === 'op' ? '/api/operation-logs' : '/api/pipeline-logs';
+    const url = debugLogMode === 'op' ? '/operation-logs' : '/pipeline-logs';
     const resp = await apiGet(url);
     const logs = resp.logs || [];
     if (debugLogMode === 'op') {
@@ -2896,7 +2896,7 @@ function switchLogView(mode) {
 
 // 读取当前模式的日志文本（纯文本，用于展示与复制）
 async function fetchLogPageText() {
-    const url = logViewMode === 'op' ? '/api/operation-logs' : '/api/app-logs';
+    const url = logViewMode === 'op' ? '/operation-logs' : '/app-logs';
     const resp = await apiGet(url);
     const logs = resp.logs || [];
     if (logViewMode === 'op') {
@@ -3339,6 +3339,112 @@ async function editKeywordRule(id) {
     } catch (e) {
         toast('保存失败: ' + (e.message || e), 'error');
     }
+}
+
+// —— 批量新增关键词替换规则 ——
+function openBatchKeywordDialog(scope) {
+    document.getElementById('batchKeywordScope').value = scope;
+    document.getElementById('batchKeywordText').value = '';
+    document.getElementById('batchKeywordEnabled').checked = true;
+    document.querySelector('input[name="batchKeywordMode"][value="remove"]').checked = true;
+    onBatchKeywordModeChange();
+    document.getElementById('batchKeywordDialog').style.display = 'flex';
+}
+
+function closeBatchKeywordDialog() {
+    document.getElementById('batchKeywordDialog').style.display = 'none';
+}
+
+function onBatchKeywordModeChange() {
+    const mode = document.querySelector('input[name="batchKeywordMode"]:checked').value;
+    const hint = document.getElementById('batchKeywordHint');
+    const ta = document.getElementById('batchKeywordText');
+    if (mode === 'remove') {
+        hint.innerHTML = '每行一个关键词，作为「删除替换」处理（整行内容将被移除）。<br>示例：<code>【草2莓】</code> 或 <code>水印文字</code>';
+        ta.placeholder = '每行一条关键词';
+    } else {
+        hint.innerHTML = '每行一条，用 <code>||</code> 分隔「被替换词」和「替换成词」。<br>示例：<code>AAA||B</code> 表示遇到 AAA 都替换成 B。';
+        ta.placeholder = '每行一条，如 AAA||B';
+    }
+    updateBatchKeywordCount();
+}
+
+function updateBatchKeywordCount() {
+    const lines = document.getElementById('batchKeywordText').value
+        .split('\n').map(s => s.trim()).filter(Boolean);
+    const el = document.getElementById('batchKeywordCount');
+    el.textContent = lines.length ? `共 ${lines.length} 条` : '';
+}
+
+async function submitBatchKeywordRules() {
+    const scope = document.getElementById('batchKeywordScope').value;
+    const mode = document.querySelector('input[name="batchKeywordMode"]:checked').value;
+    const enabled = document.getElementById('batchKeywordEnabled').checked;
+    const raw = document.getElementById('batchKeywordText').value;
+    const lines = raw.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!lines.length) {
+        toast('请至少填写一条', 'warning');
+        return;
+    }
+
+    const rules = [];
+    const errors = [];
+    lines.forEach((line, idx) => {
+        const no = idx + 1;
+        if (mode === 'remove') {
+            rules.push({ pattern: line, replacement: '' });
+        } else {
+            const sep = line.indexOf('||');
+            if (sep <= 0) {
+                errors.push(`第 ${no} 行缺少 "||" 分隔符`);
+                return;
+            }
+            const pattern = line.slice(0, sep).trim();
+            const replacement = line.slice(sep + 2).trim();
+            if (!pattern) {
+                errors.push(`第 ${no} 行被替换词为空`);
+                return;
+            }
+            rules.push({ pattern, replacement });
+        }
+    });
+
+    if (errors.length) {
+        toast('格式有误：' + errors.slice(0, 3).join('；') + (errors.length > 3 ? ' …' : ''), 'error');
+        return;
+    }
+    if (!rules.length) return;
+
+    // 计算起始顺序，避免覆盖已有顺序
+    let maxOrder = 0;
+    try {
+        const resp = await apiGet('/keyword-replaces');
+        (resp.rules || []).forEach(r => { if (r.scope === scope && r.sort_order > maxOrder) maxOrder = r.sort_order; });
+    } catch (e) { /* 忽略，顺序从 0 开始 */ }
+
+    let ok = 0, fail = 0;
+    for (const rule of rules) {
+        try {
+            await apiPost('/keyword-replaces', {
+                scope,
+                pattern: rule.pattern,
+                replacement: rule.replacement,
+                sort_order: ++maxOrder,
+                enabled,
+            });
+            ok++;
+        } catch (e) {
+            fail++;
+        }
+    }
+
+    closeBatchKeywordDialog();
+    if (fail === 0) {
+        toast(`批量新增成功，已添加 ${ok} 条规则`, 'success');
+    } else {
+        toast(`已添加 ${ok} 条，失败 ${fail} 条`, 'warning');
+    }
+    loadKeywordRules();
 }
 
 // ===================== 页面切换 =====================

@@ -6,6 +6,8 @@ import { ScanRunDao } from '../database/ScanRunDao';
 import { ScannedFileDao } from '../database/ScannedFileDao';
 import { DupLogic } from '../utils/DupLogic';
 import { ExportService } from '../service/ExportService';
+import { ListExportService } from '../service/ListExportService';
+import { ListExportUtil, ExportColumn } from '../utils/ListExportUtil';
 import { FormatUtil } from '../utils/FormatUtil';
 import { LogUtil } from '../utils/LogUtil';
 import { ToastUtil } from '../utils/ToastUtil';
@@ -85,6 +87,10 @@ struct LibraryScreen {
   @State showDeleteChoice: boolean = false;
   @State deleteSource: boolean = false;
   @State jumpPage: string = '';
+  // 导出列表为 TXT：弹框显隐、已勾选的导出列、导出范围（true=仅当前页）
+  @State showExportDialog: boolean = false;
+  @State exportKeys: string[] = ListExportUtil.DEFAULT_KEYS.slice();
+  @State exportCurrentPageOnly: boolean = true;
   // 全局字号缩放（与「我的」-字号联动）：AppStorage('fontScale') 变化时自动重渲染。
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
   private readonly MIN_PAGE_SIZE: number = 10;
@@ -579,8 +585,219 @@ struct LibraryScreen {
     items.push({ value: '按书名标重', action: () => this.markDuplicatesByName() });
     items.push({ value: '清空标记', action: () => this.clearMarked() });
     items.push({ value: '清空勾选', action: () => this.clearChecked() });
+    items.push({ value: '导出列表', action: () => this.openExportDialog() });
     items.push({ value: '删除已勾选', action: () => this.goDelete() });
     return items;
+  }
+
+  // ===================== 导出列表为 TXT =====================
+
+  /** 打开导出弹框：按当前模式重置可选列与默认勾选（仅「小说名」）。 */
+  private openExportDialog(): void {
+    this.exportKeys = ListExportUtil.DEFAULT_KEYS.slice();
+    this.exportCurrentPageOnly = true;
+    this.showExportDialog = true;
+  }
+
+  /** 勾选/取消某一导出列。 */
+  private toggleExportKey(key: string): void {
+    const idx: number = this.exportKeys.indexOf(key);
+    const next: string[] = this.exportKeys.slice();
+    if (idx >= 0) {
+      next.splice(idx, 1);
+    } else {
+      next.push(key);
+    }
+    this.exportKeys = next;
+  }
+
+  /**
+   * 执行导出：按当前模式与筛选条件取数 → 生成 TXT → 用系统「另存为」让用户选保存位置。
+   * 「仅当前页」取 this.page 那一页；「全部」不分页取全量（复用同一套 WHERE/ORDER BY）。
+   */
+  private async doExport(): Promise<void> {
+    if (this.exportKeys.length === 0) {
+      ToastUtil.show('请至少选择一项导出内容');
+      return;
+    }
+    this.showExportDialog = false;
+    const isGroup: boolean = this.mode === 'collection';
+    try {
+      // 全量导出用一个足够大的 limit（与安卓 page<0 不加 LIMIT 等效）
+      const BIG_LIMIT: number = 100000000;
+      const limit: number = this.exportCurrentPageOnly ? this.pageSize : BIG_LIMIT;
+      const offset: number = this.exportCurrentPageOnly ? this.page * this.pageSize : 0;
+
+      let content: string = '';
+      let rows: number = 0;
+      if (isGroup) {
+        const groups: GroupInfo[] = await ScannedFileDao.getGroupsPage(
+          this.runId, this.filter, this.query,
+          this.colMinCount, this.colMaxCount, this.colExcludeNames,
+          this.groupSort, this.checkedSortToFront, limit, offset
+        );
+        rows = groups.length;
+        content = ListExportUtil.buildGroupsText(groups, this.exportKeys);
+      } else {
+        const files: ScannedFile[] = await ScannedFileDao.getPageFiltered(
+          this.runId, this.filter, this.sort, this.query,
+          limit, offset, this.checkedSortToFront
+        );
+        rows = files.length;
+        content = ListExportUtil.buildFilesText(files, this.exportKeys);
+      }
+
+      if (rows === 0 || !content) {
+        ToastUtil.show('没有可导出的数据');
+        return;
+      }
+      const savedName: string = await ListExportService.saveAsTxt(
+        content, ListExportUtil.buildFileName(isGroup)
+      );
+      if (savedName) {
+        ToastUtil.show(`已导出 ${rows} 条到 ${savedName}`);
+        LogUtil.operation('导出列表', `文库ID=${this.runId} 模式=${isGroup ? '合集' : '列表'} 条数=${rows}`);
+      }
+    } catch (e) {
+      LogUtil.e('LibraryScreen', `导出失败: ${(e as Error).message}`);
+      ToastUtil.show(`导出失败: ${(e as Error).message}`);
+    }
+  }
+
+  /** 导出弹框：勾选导出内容 + 选择导出范围。 */
+  @Builder
+  exportDialog() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor($r('app.color.scrim'))
+        .onClick(() => { this.showExportDialog = false; })
+
+      Column({ space: 10 }) {
+        Text('导出列表')
+          .fontSize(this.fs(16))
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+
+        // 顶部操作按钮：防止底部按钮被小屏/模拟器截断时无法操作
+        Row({ space: 12 }) {
+          Button('取消')
+            .fontSize(this.fs(14))
+            .backgroundColor(Color.Transparent)
+            .fontColor($r('app.color.text_secondary'))
+            .layoutWeight(1)
+            .onClick(() => { this.showExportDialog = false; })
+          Button('导出')
+            .fontSize(this.fs(14))
+            .enabled(this.exportKeys.length > 0)
+            .layoutWeight(1)
+            .onClick(() => { this.doExport(); })
+        }
+        .width('100%')
+
+        // 中间内容可滚动：避免列数多或屏幕小时底部按钮被截断
+        Scroll() {
+          Column({ space: 10 }) {
+            Text('导出内容')
+              .fontSize(this.fs(13))
+              .fontColor($r('app.color.text_secondary'))
+              .width('100%')
+
+            // 可选列：列表模式与合集模式各一套，双列排布以节省高度
+            Flex({ wrap: FlexWrap.Wrap }) {
+              ForEach(
+                this.mode === 'collection' ? ListExportUtil.GROUP_COLUMNS : ListExportUtil.FILE_COLUMNS,
+                (col: ExportColumn) => {
+                  Row() {
+                    Checkbox()
+                      .select(this.exportKeys.includes(col.key))
+                      .onChange(() => { this.toggleExportKey(col.key); })
+                    Text(col.label)
+                      .fontSize(this.fs(13))
+                      .fontColor($r('app.color.text_primary'))
+                      .layoutWeight(1)
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  }
+                  .width('50%')
+                  .padding({ top: 4, bottom: 4 })
+                  .onClick(() => { this.toggleExportKey(col.key); })
+                },
+                (col: ExportColumn) => col.key
+              )
+            }
+            .width('100%')
+
+            Divider().color($r('app.color.divider'))
+
+            Text('导出范围')
+              .fontSize(this.fs(13))
+              .fontColor($r('app.color.text_secondary'))
+              .width('100%')
+
+            Row() {
+              Radio({ value: 'page', group: 'exportRange' })
+                .checked(this.exportCurrentPageOnly)
+                .onChange((isOn: boolean) => { if (isOn) this.exportCurrentPageOnly = true; })
+              Text('仅当前页')
+                .fontSize(this.fs(14))
+                .fontColor($r('app.color.text_primary'))
+                .margin({ left: 4 })
+                .layoutWeight(1)
+            }
+            .width('100%')
+            .onClick(() => { this.exportCurrentPageOnly = true; })
+
+            Row() {
+              Radio({ value: 'all', group: 'exportRange' })
+                .checked(!this.exportCurrentPageOnly)
+                .onChange((isOn: boolean) => { if (isOn) this.exportCurrentPageOnly = false; })
+              Text('全部（当前筛选条件下的所有数据）')
+                .fontSize(this.fs(14))
+                .fontColor($r('app.color.text_primary'))
+                .margin({ left: 4 })
+                .layoutWeight(1)
+            }
+            .width('100%')
+            .onClick(() => { this.exportCurrentPageOnly = false; })
+
+            Text('导出为 TXT，一行一条，各项之间用制表符分隔，首行为表头。')
+              .fontSize(this.fs(12))
+              .fontColor($r('app.color.text_secondary'))
+              .width('100%')
+          }
+          .width('100%')
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Auto)
+
+        Row({ space: 12 }) {
+          Button('取消')
+            .fontSize(this.fs(14))
+            .backgroundColor(Color.Transparent)
+            .fontColor($r('app.color.text_secondary'))
+            .layoutWeight(1)
+            .onClick(() => { this.showExportDialog = false; })
+          Button('导出')
+            .fontSize(this.fs(14))
+            .enabled(this.exportKeys.length > 0)
+            .layoutWeight(1)
+            .onClick(() => { this.doExport(); })
+        }
+        .width('100%')
+        .margin({ top: 4 })
+      }
+      .width('86%')
+      .constraintSize({ maxHeight: '70%' })
+      .padding(16)
+      .backgroundColor($r('app.color.bg_card'))
+      .borderRadius(12)
+      .offset({ y: -60 })
+    }
+    .width('100%')
+    .height('100%')
   }
 
   // 删除选择弹窗（对齐安卓 showDeleteChoice：仅记录 / 记录+源文件）
@@ -657,8 +874,8 @@ struct LibraryScreen {
       .padding(16)
       .backgroundColor($r('app.color.bg_card'))
       .borderRadius(12)
-      // 弹窗卡片居中：依赖外层 Stack 的 alignContent(Alignment.Center)，
-      // 比 position + markAnchor 组合在 HarmonyOS 上更可靠（后者在部分版本/分辨率下会偏到底部）
+      // 在居中基础上继续上移，使弹框视觉中心偏上，避免被底部手势条/安全区压低
+      .offset({ y: -120 })
     }
     .width('100%')
     .height('100%')
@@ -1085,6 +1302,11 @@ struct LibraryScreen {
       // 删除选择弹窗（对齐安卓 showDeleteChoice）
       if (this.showDeleteChoice) {
         this.deleteChoiceDialog()
+      }
+
+      // 导出列表弹窗（对齐安卓 ExportListDialog）
+      if (this.showExportDialog) {
+        this.exportDialog()
       }
     }
     .width('100%')

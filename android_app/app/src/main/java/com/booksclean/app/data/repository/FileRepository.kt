@@ -388,6 +388,71 @@ class FileRepository(
         return dao.groupsCountFlow(SimpleSQLiteQuery(sql))
     }
 
+    // ===================== 导出（复用与列表页完全一致的 WHERE/ORDER BY 口径） =====================
+
+    /**
+     * 导出用：列表模式一次性取数。[page] < 0 表示导出全量（不加 LIMIT/OFFSET），
+     * 否则只取该页，保证「导出当前页」与页面所见完全一致。
+     */
+    suspend fun exportFilesOnce(
+        filter: String,
+        query: String,
+        sort: String,
+        runId: Long,
+        pageSize: Int,
+        page: Int,
+        checkedSortToFront: Boolean = false
+    ): List<ScannedFileEntity> {
+        val where = buildFilesWhere(filter, query, runId)
+        val checkedPrefix = if (checkedSortToFront) "checked DESC, " else ""
+        val orderBy = when (sort) {
+            "NAME" -> "${checkedPrefix}file_name ASC"
+            "SIZE" -> "${checkedPrefix}file_size DESC"
+            else -> "${checkedPrefix}created_at DESC"
+        }
+        val sql = buildString {
+            append("SELECT * FROM scanned_file WHERE $where ORDER BY $orderBy")
+            if (page >= 0) {
+                val limit = pageSize.coerceAtLeast(1)
+                append(" LIMIT $limit OFFSET ${page * limit}")
+            }
+        }
+        return dao.filesPageOnce(SimpleSQLiteQuery(sql))
+    }
+
+    /**
+     * 导出用：合集模式一次性取数。[page] < 0 表示导出全量（不加 LIMIT/OFFSET）。
+     */
+    suspend fun exportGroupsOnce(
+        minCount: Int,
+        maxCount: Int,
+        excludeNames: List<String>,
+        query: String,
+        runId: Long,
+        pageSize: Int,
+        page: Int,
+        filter: String = "ALL",
+        groupSort: String = "count_desc",
+        checkedSortToFront: Boolean = false
+    ): List<NovelGroup> {
+        val (whereSql, havingSql) = buildGroupsClauses(minCount, maxCount, excludeNames, query, runId, filter)
+        val orderBy = buildGroupOrderBy(groupSort, checkedSortToFront)
+        // date_* 排序依赖 newest_date 派生列；导出时同样需要 SELECT 出来，否则 ORDER BY 找不到列
+        val selectExtra = if (groupSort.startsWith("date_")) ", MAX(created_at) AS newest_date" else ""
+        val sql = buildString {
+            append("SELECT title AS group_title, COUNT(*) AS file_count, SUM(file_size) AS total_size, SUM(checked) AS checked_count")
+            append(selectExtra)
+            append(" FROM scanned_file WHERE $whereSql GROUP BY title")
+            append(havingSql)
+            append(" ORDER BY $orderBy")
+            if (page >= 0) {
+                val limit = pageSize.coerceAtLeast(1)
+                append(" LIMIT $limit OFFSET ${page * limit}")
+            }
+        }
+        return dao.groupsPageOnce(SimpleSQLiteQuery(sql))
+    }
+
     /**
      * 合集模式：按书名分组的分页列表。
      * [minCount]/[maxCount]：合集文件数区间（maxCount<0 表示不限）。

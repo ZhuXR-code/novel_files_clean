@@ -93,6 +93,14 @@ export class ScanRunDao {
     await store.delete(predicates);
   }
 
+  /** 重命名文库（仅更新 name 字段）。 */
+  public static async rename(runId: number, newName: string): Promise<void> {
+    const store = ScanRunDao.store;
+    const predicates = new relationalStore.RdbPredicates('scan_run');
+    predicates.equalTo('id', runId);
+    await store.update({ name: newName }, predicates);
+  }
+
   public static async getById(runId: number): Promise<ScanRun | null> {
     const predicates = new relationalStore.RdbPredicates('scan_run');
     predicates.equalTo('id', runId);

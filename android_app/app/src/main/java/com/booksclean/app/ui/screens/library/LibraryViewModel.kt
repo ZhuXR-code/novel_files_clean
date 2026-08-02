@@ -10,6 +10,7 @@ import com.booksclean.app.data.database.entity.DuplicateRow
 import com.booksclean.app.data.model.DeleteStateManager
 import com.booksclean.app.data.model.NovelGroup
 import com.booksclean.app.util.LibraryLogic
+import com.booksclean.app.util.ListExportUtil
 import com.booksclean.app.util.LogUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -635,4 +636,55 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             _toast.value = "已删除文库及其书籍记录（源文件已保留）"
         }
     }
+
+    // ===================== 导出列表为 TXT =====================
+
+    /**
+     * 生成导出内容（不落盘）。列表/合集模式各自复用与当前页面完全一致的筛选、搜索、排序口径。
+     *
+     * [currentPageOnly] 为 true 时只导出当前页；为 false 时导出当前文库下满足筛选条件的全量数据。
+     * [selectedKeys] 是用户在弹框里勾选的列 key。
+     * 返回 (文本内容, 行数)；无数据或未选列时行数为 0。
+     */
+    suspend fun buildExportText(
+        currentPageOnly: Boolean,
+        selectedKeys: Set<String>
+    ): Pair<String, Int> {
+        val runId = _currentRunId.value ?: return "" to 0
+        if (selectedKeys.isEmpty()) return "" to 0
+        val pageSize = _pageSize.value
+        // page < 0 → Repository 不拼 LIMIT/OFFSET，即导出全量
+        val page = if (currentPageOnly) _currentPage.value else -1
+        return if (_groupMode.value) {
+            val groups = repo.exportGroupsOnce(
+                minCount = _groupMinCount.value,
+                maxCount = _groupMaxCount.value,
+                excludeNames = LibraryLogic.parseExcludeNames(_groupExcludeNames.value),
+                query = _query.value,
+                runId = runId,
+                pageSize = pageSize,
+                page = page,
+                filter = _filter.value.name,
+                groupSort = _groupSort.value.value,
+                checkedSortToFront = _checkedSortToFront.value
+            )
+            ListExportUtil.buildGroupsText(groups, selectedKeys) to groups.size
+        } else {
+            val files = repo.exportFilesOnce(
+                filter = _filter.value.name,
+                query = _query.value,
+                sort = _sort.value.name,
+                runId = runId,
+                pageSize = pageSize,
+                page = page,
+                checkedSortToFront = _checkedSortToFront.value
+            )
+            ListExportUtil.buildFilesText(files, selectedKeys) to files.size
+        }
+    }
+
+    /** 当前是否为合集模式（导出弹框据此决定展示哪套列）。 */
+    fun isGroupMode(): Boolean = _groupMode.value
+
+    fun showToast(msg: String) { _toast.value = msg }
 }

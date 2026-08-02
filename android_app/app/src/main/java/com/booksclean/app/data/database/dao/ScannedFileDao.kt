@@ -133,6 +133,15 @@ interface ScannedFileDao {
     @RawQuery(observedEntities = [ScannedFileEntity::class])
     fun groupsCountFlow(query: SupportSQLiteQuery): Flow<Int>
 
+    // ===================== 导出用一次性查询（非 Flow，避免导出时订阅表变化） =====================
+    /** 列表模式导出：一次性取一批文件（SQL 含 WHERE/ORDER BY/LIMIT/OFFSET，由 Repository 拼装）。 */
+    @RawQuery
+    suspend fun filesPageOnce(query: SupportSQLiteQuery): List<ScannedFileEntity>
+
+    /** 合集模式导出：一次性取一批分组。 */
+    @RawQuery
+    suspend fun groupsPageOnce(query: SupportSQLiteQuery): List<NovelGroup>
+
     /** 取某个合集（书名）内的全部文件，供展开时懒加载。空书名传 "" 匹配未解析组。
      *  [marked]：为 null 不过滤；为 1 仅已标记（已勾选）；为 0 仅未标记。 */
     @Query("""

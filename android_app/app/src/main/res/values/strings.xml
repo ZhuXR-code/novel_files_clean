@@ -5,6 +5,7 @@
     <!-- 通用 -->
     <string name="back">返回</string>
     <string name="cancel">取消</string>
+    <string name="save">保存</string>
     <string name="confirm">确定</string>
     <string name="close">关闭</string>
     <string name="yes">是</string>
@@ -103,6 +104,14 @@
     <string name="filter_checked">已勾选</string>
     <string name="filter_unchecked">未勾选</string>
     <string name="filter_has_checked">含已勾选</string>
+    <!-- 导出列表为 TXT -->
+    <string name="export_list">导出列表</string>
+    <string name="export_columns_label">导出内容</string>
+    <string name="export_range_label">导出范围</string>
+    <string name="export_range_current_page">仅当前页</string>
+    <string name="export_range_all">全部（当前筛选条件下的所有数据）</string>
+    <string name="export_confirm">导出</string>
+    <string name="export_hint">导出为 TXT，一行一条，各项之间用制表符分隔，首行为表头。</string>
     <string name="delete_choice_title">选择删除方式</string>
     <string name="delete_record_only">仅删除记录</string>
     <string name="delete_record_only_hint">只删除数据库记录，保留手机/存储中的源文件</string>
@@ -256,6 +265,16 @@
     <string name="rule_enabled">启用</string>
     <string name="replace_to">→ %1$s</string>
     <string name="delete_text">删除</string>
+    <string name="batch_add_rule">批量新增</string>
+    <string name="batch_add_rule_title">批量新增关键词替换规则</string>
+    <string name="batch_mode_remove">去掉关键词</string>
+    <string name="batch_mode_replace">替换关键词</string>
+    <string name="batch_hint_remove">每行一个关键词，作为「删除替换」处理（整行内容将被移除）。</string>
+    <string name="batch_hint_replace">每行一条，用“||”分隔「被替换词」和「替换成词」，如 AAA||B 表示 AAA 替换成 B。</string>
+    <string name="batch_placeholder_remove">每行一条关键词</string>
+    <string name="batch_placeholder_replace">每行一条，如 AAA||B</string>
+    <string name="batch_empty">请至少填写一条</string>
+    <string name="batch_format_error">替换模式每行需包含“||”分隔符，且被替换词不可为空</string>
     <string name="detail_delete_hint">将删除该文件，请选择删除方式：</string>
     <string name="delete_next_step">下一步</string>
     <string name="detail_delete_confirm_record">确定要删除该文件的数据库记录吗？（手机/存储中的源文件将保留）</string>

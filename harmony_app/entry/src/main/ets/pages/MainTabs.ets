@@ -63,6 +63,10 @@ struct MainTabs {
       .scrollable(true)
       .onChange((i: number) => {
         this.currentIndex = i;
+        // 切到首页/文库时推送刷新信号，触发列表重载（TabContent 子组件不触发 onPageShow）
+        if (i === 0 || i === 1) {
+          AppStorage.setOrCreate('libraryRefreshTick', Date.now());
+        }
       })
     }
     .width('100%')

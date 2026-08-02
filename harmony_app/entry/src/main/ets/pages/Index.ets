@@ -17,6 +17,8 @@ export struct HomePage {
   @State recentRuns: ScanRun[] = [];
   @State refreshing: boolean = false;
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
+  // 全局刷新信号：扫描/导入完成或切回首页时触发最近文库重载
+  @StorageLink('libraryRefreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
 
   async aboutToAppear(): Promise<void> {
     await this.loadStats();
@@ -29,6 +31,11 @@ export struct HomePage {
 
   private fs(base: number): number {
     return Math.round(base * this.fontScaleNum);
+  }
+
+  // 全局刷新信号变化（切 Tab / 扫描完成）时重载最近文库
+  private onRefreshTick(): void {
+    this.loadStats();
   }
 
   async loadStats(): Promise<void> {
@@ -217,10 +224,10 @@ export struct HomePage {
                     (run: ScanRun) => run.id.toString()
                   )
                 }
-                .constraintSize({ maxHeight: 240 })
+                .constraintSize({ maxHeight: 320 })
                 .width('100%')
               }
-              .margin({ bottom: 12 })
+              .margin({ bottom: 8 })
             }
 
             // 本地处理声明（对齐安卓端底部声明）
@@ -229,7 +236,7 @@ export struct HomePage {
               .fontColor($r('app.color.text_hint'))
               .textAlign(TextAlign.Center)
               .width('100%')
-              .padding({ top: 8, bottom: 20 })
+              .padding({ top: 4, bottom: 64 })
           }
           .width('100%')
         }

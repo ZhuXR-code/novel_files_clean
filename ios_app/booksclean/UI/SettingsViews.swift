@@ -417,6 +417,10 @@ struct KeywordReplaceView: View {
     @State private var editing: KeywordReplaceRule? = nil
     @State private var showEditor = false
     @State private var showRestoreConfirm = false
+    @State private var showBatch = false
+    @State private var batchMode = "remove" // remove | replace
+    @State private var batchText = ""
+    @State private var batchEnabled = true
     @State private var testText = ""
 
     private var scoped: [KeywordReplaceRule] {
@@ -486,6 +490,7 @@ struct KeywordReplaceView: View {
                         }
                     }
                     Button { editing = nil; showEditor = true } label: { Label("新增替换规则", systemImage: "plus") }
+                    Button { resetBatch(); showBatch = true } label: { Label("批量新增", systemImage: "text.badge.plus") }
                 }
 
                 Section("效果测试") {
@@ -520,6 +525,10 @@ struct KeywordReplaceView: View {
         .sheet(isPresented: $showEditor) {
             KeywordRuleEditorSheet(original: editing, scope: scope,
                                    nextOrder: (rules.map { $0.sortOrder }.max() ?? 0) + 1) { reload() }
+        }
+        .sheet(isPresented: $showBatch) {
+            KeywordBatchSheet(scope: scope, mode: $batchMode, text: $batchText,
+                               enabled: $batchEnabled, onSave: { saveBatch() })
         }
         .alert("恢复默认规则", isPresented: $showRestoreConfirm) {
             Button("取消", role: .cancel) {}
@@ -561,6 +570,47 @@ struct KeywordReplaceView: View {
     }
 
     private func reload() { rules = FileRepository.shared.getKeywordReplaceRules() }
+
+    private func resetBatch() {
+        batchMode = "remove"
+        batchText = ""
+        batchEnabled = true
+    }
+
+    private func saveBatch() {
+        let lines = batchText
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return }
+        if batchMode == "replace" {
+            let bad = lines.first(where: { line in
+                guard let idx = line.range(of: "||") else { return true }
+                return line[line.startIndex..<idx.lowerBound].trimmingCharacters(in: .whitespaces).isEmpty
+            })
+            if bad != nil { return }
+        }
+        var order = (rules.map { $0.sortOrder }.max() ?? 0)
+        for line in lines {
+            order += 1
+            let rule = KeywordReplaceRule()
+            rule.scope = scope
+            rule.enabled = batchEnabled
+            rule.sortOrder = order
+            if batchMode == "replace" {
+                if let idx = line.range(of: "||") {
+                    rule.pattern = String(line[line.startIndex..<idx.lowerBound]).trimmingCharacters(in: .whitespaces)
+                    rule.replacement = String(line[idx.upperBound...]).trimmingCharacters(in: .whitespaces)
+                }
+            } else {
+                rule.pattern = String(line)
+                rule.replacement = ""
+            }
+            try? FileRepository.shared.saveKeywordReplaceRule(rule)
+        }
+        showBatch = false
+        reload()
+    }
 }
 
 /// 关键词规则编辑器（新增/编辑通用）。
@@ -630,6 +680,53 @@ struct KeywordRuleEditorSheet: View {
         }
         onSaved()
         dismiss()
+    }
+}
+
+/// 关键词替换规则批量新增（去掉关键词 / 替换关键词）。
+struct KeywordBatchSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let scope: String
+    @Binding var mode: String        // remove | replace
+    @Binding var text: String
+    @Binding var enabled: Bool
+    let onSave: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("模式") {
+                    Picker("模式", selection: $mode) {
+                        Text("去掉关键词").tag("remove")
+                        Text("替换关键词").tag("replace")
+                    }
+                    .pickerStyle(.segmented)
+                    Toggle("启用", isOn: $enabled)
+                }
+                Section {
+                    TextEditor(text: $text)
+                        .frame(minHeight: 220)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                } header: {
+                    Text(mode == "remove"
+                         ? "每行一个关键词，作为「删除替换」处理（整行内容将被移除）。"
+                         : "每行一条，用 || 分隔「被替换词」和「替换成词」，如 AAA||B 表示 AAA 替换成 B。")
+                }
+            }
+            .navigationTitle("批量新增替换规则")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("保存") {
+                        onSave()
+                        dismiss()
+                    }
+                    .disabled(text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.isEmpty)
+                }
+            }
+        }
     }
 }
 

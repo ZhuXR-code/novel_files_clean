@@ -19,6 +19,10 @@ struct KeywordReplace {
   @State editing: KeywordReplaceRule | null = null;
   @State editPattern: string = '';
   @State editReplacement: string = '';
+  @State batching: boolean = false;
+  @State batchMode: string = 'remove'; // remove | replace
+  @State batchText: string = '';
+  @State batchEnabled: boolean = true;
 
   aboutToAppear(): void {
     this.load();
@@ -64,6 +68,59 @@ struct KeywordReplace {
     this.editing = r;
     this.editPattern = '';
     this.editReplacement = '';
+  }
+
+  private openBatch(): void {
+    this.batching = true;
+    this.batchMode = 'remove';
+    this.batchText = '';
+    this.batchEnabled = true;
+  }
+
+  private async saveBatch(): Promise<void> {
+    const lines: string[] = this.batchText
+      .split('\n')
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 0);
+    if (lines.length === 0) {
+      ToastUtil.show('请至少填写一条');
+      return;
+    }
+    if (this.batchMode === 'replace') {
+      const bad: string | undefined = lines.find((line: string) => {
+        const idx: number = line.indexOf('||');
+        return idx <= 0 || line.substring(0, idx).trim().length === 0;
+      });
+      if (bad !== undefined) {
+        ToastUtil.show('替换模式每行需包含 || 分隔符，且被替换词不可为空');
+        return;
+      }
+    }
+    try {
+      let order: number = await KeywordReplaceDao.maxSortOrder(this.scope);
+      for (const line of lines) {
+        const r: KeywordReplaceRule = new KeywordReplaceRule();
+        r.scope = this.scope;
+        r.enabled = this.batchEnabled;
+        r.createdAt = Date.now();
+        if (this.batchMode === 'replace') {
+          const idx: number = line.indexOf('||');
+          r.pattern = line.substring(0, idx).trim();
+          r.replacement = line.substring(idx + 2).trim();
+        } else {
+          r.pattern = line;
+          r.replacement = '';
+        }
+        r.sortOrder = ++order;
+        await KeywordReplaceDao.insert(r);
+      }
+      LogUtil.operation('关键词替换', `批量新增 ${lines.length} 条 scope=${this.scope} mode=${this.batchMode}`);
+      this.batching = false;
+      await this.load();
+    } catch (e) {
+      LogUtil.e('KeywordReplace', `批量新增失败: ${(e as Error).message}`);
+      ToastUtil.show(`保存失败: ${(e as Error).message}`);
+    }
   }
 
   private editRule(r: KeywordReplaceRule): void {
@@ -309,9 +366,78 @@ struct KeywordReplace {
                 .fontWeight(FontWeight.Bold)
                 .fontColor($r('app.color.text_secondary'))
               Blank()
+              Button('批量新增')
+                .fontSize(12)
+                .height(30)
+                .backgroundColor($r('app.color.primary_light'))
+                .fontColor($r('app.color.primary'))
+                .onClick(() => this.openBatch())
             }
             .width('100%')
             .padding({ left: 4, top: 8, bottom: 2 })
+
+            // 批量新增编辑区
+            if (this.batching) {
+              Column({ space: 10 }) {
+                Text('批量新增关键词替换规则')
+                  .fontSize(15)
+                  .fontColor($r('app.color.text_primary'))
+                Row({ space: 12 }) {
+                  Button('去掉关键词')
+                    .fontSize(13)
+                    .height(34)
+                    .layoutWeight(1)
+                    .backgroundColor(this.batchMode === 'remove' ? $r('app.color.primary') : $r('app.color.bg_card'))
+                    .fontColor(this.batchMode === 'remove' ? $r('app.color.text_on_primary') : $r('app.color.text_primary'))
+                    .onClick(() => (this.batchMode = 'remove'))
+                  Button('替换关键词')
+                    .fontSize(13)
+                    .height(34)
+                    .layoutWeight(1)
+                    .backgroundColor(this.batchMode === 'replace' ? $r('app.color.primary') : $r('app.color.bg_card'))
+                    .fontColor(this.batchMode === 'replace' ? $r('app.color.text_on_primary') : $r('app.color.text_primary'))
+                    .onClick(() => (this.batchMode = 'replace'))
+                }
+                .width('100%')
+
+                Text(this.batchMode === 'remove'
+                  ? '每行一个关键词，作为「删除替换」处理（整行内容将被移除）。'
+                  : '每行一条，用 || 分隔「被替换词」和「替换成词」，如 AAA||B 表示 AAA 替换成 B。')
+                  .fontSize(12)
+                  .fontColor($r('app.color.text_secondary'))
+                  .width('100%')
+
+                TextArea({ text: this.batchText, placeholder: this.batchMode === 'remove' ? '每行一条关键词' : '每行一条，如 AAA||B' })
+                  .onChange((v: string) => (this.batchText = v))
+                  .height(180)
+                  .width('100%')
+
+                Row({ space: 8 }) {
+                  Toggle({ type: ToggleType.Switch, isOn: this.batchEnabled })
+                    .onChange((v: boolean) => (this.batchEnabled = v))
+                    .width(36)
+                  Text('启用')
+                    .fontSize(13)
+                    .fontColor($r('app.color.text_primary'))
+                  Blank()
+                  Button('取消')
+                    .layoutWeight(1)
+                    .height(36)
+                    .onClick(() => (this.batching = false))
+                  Button('保存')
+                    .layoutWeight(1)
+                    .height(36)
+                    .backgroundColor($r('app.color.primary'))
+                    .fontColor($r('app.color.text_on_primary'))
+                    .onClick(() => this.saveBatch())
+                }
+                .width('100%')
+              }
+              .width('100%')
+              .padding(16)
+              .backgroundColor($r('app.color.bg_card'))
+              .borderRadius(10)
+            }
 
             if (this.customRules.length === 0) {
               Text('暂无自定义规则，点击右上角「新增」创建')

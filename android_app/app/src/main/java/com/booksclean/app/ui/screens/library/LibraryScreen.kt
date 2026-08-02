@@ -1,5 +1,7 @@
 package com.booksclean.app.ui.screens.library
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -65,6 +68,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import com.booksclean.app.ui.components.AppOutlinedButton
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.TriStateCheckbox
@@ -73,6 +77,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -83,6 +88,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.TextStyle
@@ -104,8 +110,11 @@ import com.booksclean.app.ui.components.CardItem
 import com.booksclean.app.ui.components.TopBar
 import com.booksclean.app.ui.components.AppButton
 import com.booksclean.app.util.FormatUtil
+import com.booksclean.app.util.ListExportUtil
 import com.booksclean.app.util.LogUtil
 import com.booksclean.app.ui.theme.fontScaled
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -292,6 +301,8 @@ private fun RunFilesScreen(
     var showGroupSort by remember { mutableStateOf(false) }
     // 批量删除选中：先弹窗让用户选择“仅删除记录”或“删除记录和源文件”
     var showDeleteChoice by remember { mutableStateOf(false) }
+    // 导出列表为 TXT：弹窗让用户勾选导出字段与导出范围（当前页/全量）
+    var showExportDialog by remember { mutableStateOf(false) }
     // 搜索框默认隐藏，顶部搜索图标点击后显示；再点切换回隐藏
     var searchVisible by remember { mutableStateOf(false) }
     // 顶部"模式切换 + 筛选"工具栏可收起/展开（默认展开），收起按钮在搜索按钮旁
@@ -345,6 +356,51 @@ private fun RunFilesScreen(
             onSelect = { sort ->
                 viewModel.setGroupSort(sort)
                 showGroupSort = false
+            }
+        )
+    }
+
+    // ===================== 导出列表为 TXT =====================
+    val context = LocalContext.current
+    // 待写出的内容：用户在弹框点「导出」后先生成文本，再拉起系统「另存为」选目录
+    var pendingExportText by remember { mutableStateOf<String?>(null) }
+    val createDocLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        val text = pendingExportText
+        pendingExportText = null
+        if (uri == null || text == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        // 带 BOM 的 UTF-8，Windows 记事本/Excel 打开中文不乱码
+                        out.write(0xEF); out.write(0xBB); out.write(0xBF)
+                        out.write(text.toByteArray(Charsets.UTF_8))
+                    } ?: throw IllegalStateException("无法打开输出流")
+                }.isSuccess
+            }
+            viewModel.showToast(if (ok) "导出成功" else "导出失败")
+        }
+    }
+
+    if (showExportDialog) {
+        ExportListDialog(
+            isGroupMode = groupMode,
+            onDismiss = { showExportDialog = false },
+            onConfirm = { selectedKeys, currentPageOnly ->
+                showExportDialog = false
+                scope.launch {
+                    val (text, rows) = withContext(Dispatchers.IO) {
+                        viewModel.buildExportText(currentPageOnly, selectedKeys)
+                    }
+                    if (rows == 0 || text.isBlank()) {
+                        viewModel.showToast("没有可导出的数据")
+                    } else {
+                        pendingExportText = text
+                        createDocLauncher.launch(ListExportUtil.buildFileName(groupMode))
+                    }
+                }
             }
         )
     }
@@ -490,6 +546,8 @@ private fun RunFilesScreen(
         onClick = { viewModel.clearMarked(); moreMenu = false })
     DropdownMenuItem(text = { Text(stringResource(R.string.clear_checked)) },
         onClick = { viewModel.clearChecked(); moreMenu = false })
+    DropdownMenuItem(text = { Text(stringResource(R.string.export_list)) },
+        onClick = { showExportDialog = true; moreMenu = false })
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.delete_selected)) },
                             onClick = { showDeleteChoice = true; moreMenu = false }
@@ -1525,4 +1583,105 @@ private fun CompactChip(
     ) {
         Text(label, fontSize = 13.sp, color = textColor)
     }
+}
+
+/**
+ * 「导出列表为 TXT」弹框：勾选导出字段 + 选择导出范围（当前页 / 全量）。
+ * 默认只勾「小说名」；至少要选一项才能点导出。
+ */
+@Composable
+private fun ExportListDialog(
+    isGroupMode: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (selectedKeys: Set<String>, currentPageOnly: Boolean) -> Unit
+) {
+    // 列表模式与合集模式的可选列不同，切换模式时重建默认勾选
+    val columns: List<Pair<String, String>> = remember(isGroupMode) {
+        if (isGroupMode) ListExportUtil.GroupColumn.entries.map { it.key to it.label }
+        else ListExportUtil.FileColumn.entries.map { it.key to it.label }
+    }
+    val defaults = remember(isGroupMode) {
+        if (isGroupMode) ListExportUtil.DEFAULT_GROUP_COLUMNS else ListExportUtil.DEFAULT_FILE_COLUMNS
+    }
+    val selected = remember(isGroupMode) { mutableStateListOf<String>().apply { addAll(defaults) } }
+    var currentPageOnly by remember { mutableStateOf(true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.export_list)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    stringResource(R.string.export_columns_label),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                columns.forEach { (key, label) ->
+                    val checked = key in selected
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (checked) selected.remove(key) else selected.add(key)
+                            }
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = {
+                                if (checked) selected.remove(key) else selected.add(key)
+                            }
+                        )
+                        Text(label, fontSize = 14.sp)
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    stringResource(R.string.export_range_label),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(4.dp))
+                listOf(
+                    true to stringResource(R.string.export_range_current_page),
+                    false to stringResource(R.string.export_range_all)
+                ).forEach { (value, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { currentPageOnly = value }
+                            .padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = currentPageOnly == value,
+                            onClick = { currentPageOnly = value }
+                        )
+                        Text(label, fontSize = 14.sp)
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.export_hint),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = selected.isNotEmpty(),
+                onClick = { onConfirm(selected.toSet(), currentPageOnly) }
+            ) { Text(stringResource(R.string.export_confirm)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        }
+    )
 }

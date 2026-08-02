@@ -693,15 +693,16 @@ def _migrate_file_metadata_pinyin():
         if 'file_metadata' not in insp.get_table_names():
             return
         existing_cols = {c['name'] for c in insp.get_columns('file_metadata')}
+        # 与 models.py 保持一致：MySQL 使用 VARCHAR（允许 DEFAULT ''），SQLite 使用 TEXT
         for col_name, col_type, comment in [
-            ('title_pinyin', 'TEXT', '书名拼音搜索字段'),
-            ('author_pinyin', 'TEXT', '作者拼音搜索字段'),
+            ('title_pinyin', 'VARCHAR(500)', '书名拼音搜索字段'),
+            ('author_pinyin', 'VARCHAR(300)', '作者拼音搜索字段'),
         ]:
             if col_name in existing_cols:
                 continue
             with engine.begin() as conn:
                 if IS_SQLITE:
-                    conn.execute(text(f"ALTER TABLE file_metadata ADD COLUMN {col_name} {col_type} NOT NULL DEFAULT ''"))
+                    conn.execute(text(f"ALTER TABLE file_metadata ADD COLUMN {col_name} TEXT NOT NULL DEFAULT ''"))
                 else:
                     conn.execute(text(f"ALTER TABLE file_metadata ADD COLUMN {col_name} {col_type} NOT NULL DEFAULT '' COMMENT '{comment}'"))
             logger.info(f'迁移: 添加列 file_metadata.{col_name}')
@@ -3421,6 +3422,23 @@ def _format_size(size: int) -> str:
 
 # ===================== 启动入口 =====================
 if __name__ == '__main__':
+    import socket
     import uvicorn
-    logger.info('启动服务: http://0.0.0.0:8000')
-    uvicorn.run(app, host='0.0.0.0', port=8000, log_level='info')
+
+    # 优先使用环境变量 WEB_PORT 指定的端口；否则从 8000 起自动顺延到可用端口，
+    # 避免本机已有其他服务（如 MySQL 网页版）占用 8000 时启动即崩溃。
+    _preferred = int(os.environ.get('WEB_PORT', '8000'))
+
+    def _find_free_port(preferred, limit=50):
+        for p in range(preferred, preferred + limit):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.bind(('0.0.0.0', p))
+                    return p
+            except OSError:
+                continue
+        return preferred
+
+    _port = _find_free_port(_preferred)
+    logger.info(f'启动服务: http://0.0.0.0:{_port}')
+    uvicorn.run(app, host='0.0.0.0', port=_port, log_level='info')

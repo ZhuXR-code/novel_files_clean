@@ -86,6 +86,8 @@ struct ScanProgress {
       this.resultRunId = res.runId;
       this.stopped = res.stopped;
       this.done = true;
+      // 推送全局刷新信号，让首页/文库列表在扫描完成后立即显示新文库
+      AppStorage.setOrCreate('libraryRefreshTick', Date.now());
     } catch (e) {
       LogUtil.e('ScanProgress', `扫描失败: ${(e as Error).message}`);
       ToastUtil.show('扫描失败，请查看日志');

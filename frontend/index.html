@@ -312,6 +312,42 @@
                         </div>
                     </div>
 
+                    <!-- 批量关键词替换弹窗 -->
+                    <div id="batchKeywordDialog" class="modal-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+                        <div style="background:var(--bg-primary);border-radius:12px;padding:24px;max-width:560px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+                            <h3 id="batchKeywordTitle" style="margin:0 0 6px;font-size:16px">批量新增关键词替换规则</h3>
+                            <input id="batchKeywordScope" type="hidden" value="scan">
+                            <p style="font-size:12px;color:var(--text-secondary);margin:0 0 14px">每行一条；保存后自动加入对应作用域的「自定义规则」列表，并在算法阶段按配置生效。</p>
+
+                            <div style="display:flex;gap:18px;margin-bottom:12px;font-size:13px">
+                                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                                    <input type="radio" name="batchKeywordMode" value="remove" checked onchange="onBatchKeywordModeChange()"> 去掉关键词
+                                </label>
+                                <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                                    <input type="radio" name="batchKeywordMode" value="replace" onchange="onBatchKeywordModeChange()"> 替换关键词
+                                </label>
+                            </div>
+
+                            <div id="batchKeywordHint" style="font-size:12px;color:var(--text-secondary);background:var(--bg-secondary);border-radius:6px;padding:8px 10px;margin-bottom:10px;line-height:1.6">
+                                每行一个关键词，作为「删除替换」处理（整行内容将被移除）。<br>示例：<code>【草2莓】</code> 或 <code>水印文字</code>
+                            </div>
+
+                            <textarea id="batchKeywordText" rows="10" placeholder="每行一条关键词" oninput="updateBatchKeywordCount()" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;box-sizing:border-box;resize:vertical;background:var(--bg-primary);color:var(--text-primary);font-family:var(--font-mono, monospace)"></textarea>
+
+                            <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+                                <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                                    <input type="checkbox" id="batchKeywordEnabled" checked> 启用
+                                </label>
+                                <span id="batchKeywordCount" style="font-size:12px;color:var(--text-secondary)"></span>
+                            </div>
+
+                            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+                                <button onclick="closeBatchKeywordDialog()" style="padding:6px 16px;font-size:13px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer">取消</button>
+                                <button onclick="submitBatchKeywordRules()" style="padding:6px 20px;font-size:13px;border:none;border-radius:6px;background:var(--accent);color:#fff;cursor:pointer">保存</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <p style="font-size:12px;color:var(--text-secondary);margin-bottom:20px">
                         配置关键词替换规则。规则按「作用域」分别生效：
                         <strong>扫描阶段</strong>作用于扫描得到的文件名（含后缀）；
@@ -336,6 +372,7 @@
                                 <input type="checkbox" id="scanEnabled" checked> 启用
                             </label>
                             <button class="btn btn-primary btn-sm" onclick="addKeywordRule('scan')">添加规则</button>
+                            <button class="btn btn-sm" onclick="openBatchKeywordDialog('scan')" style="border:1px solid var(--accent);color:var(--accent);background:transparent">批量新增</button>
                         </div>
                     </section>
 
@@ -357,6 +394,7 @@
                                 <input type="checkbox" id="parseEnabled" checked> 启用
                             </label>
                             <button class="btn btn-primary btn-sm" onclick="addKeywordRule('parse')">添加规则</button>
+                            <button class="btn btn-sm" onclick="openBatchKeywordDialog('parse')" style="border:1px solid var(--accent);color:var(--accent);background:transparent">批量新增</button>
                         </div>
                     </section>
                 </div>
@@ -566,6 +604,6 @@
         <button class="back-nav-btn" id="backToBottomBtn" title="回到底部" onclick="scrollToBottom()">↓</button>
     </div>
 
-    <script src="/static/js/app.js?v=20260725d"></script>
+    <script src="/static/js/app.js?v=20260802b"></script>
 </body>
 </html>

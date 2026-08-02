@@ -1,5 +1,5 @@
 import { router } from '@kit.ArkUI';
-import { promptAction, window } from '@kit.ArkUI';
+import { promptAction } from '@kit.ArkUI';
 import { ScanRun } from '../model/ScanRun';
 import { ScanRunDao } from '../database/ScanRunDao';
 import { ScannedFileDao } from '../database/ScannedFileDao';
@@ -7,7 +7,7 @@ import { FormatUtil } from '../utils/FormatUtil';
 import { LogUtil } from '../utils/LogUtil';
 import { TopBar } from '../components/TopBar';
 import { ToastUtil } from '../utils/ToastUtil';
-import { AppContext } from '../utils/AppContext';
+
 
 /**
  * 文库 Tab：列出全部文库，点击进入 LibraryScreen；左滑快速删除；下拉刷新。
@@ -20,26 +20,24 @@ export struct LibraryTab {
   @State refreshing: boolean = false;
   @State selectMode: boolean = false;
   @State selectedIds: number[] = [];
+  @State renamingRun: ScanRun | null = null;
+  @State showRename: boolean = false;
+  @State renameInput: string = '';
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
-  // 状态栏高度（px）：用于把顶栏下推到状态栏正下方，避免被系统状态栏覆盖。
-  @State statusBarHeight: number = 0;
+  // 全局刷新信号：扫描/导入完成或切到本 Tab 时由 MainTabs/ScanProgress 推送，触发重载
+  @StorageLink('libraryRefreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
 
   async aboutToAppear(): Promise<void> {
-    // 读取状态栏安全区高度，使顶栏不被系统状态栏遮挡。
-    try {
-      const win: window.Window | null = AppContext.getMainWindow();
-      if (win) {
-        const area: window.AvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-        this.statusBarHeight = area.topRect.height;
-      }
-    } catch (e) {
-      this.statusBarHeight = 0;
-    }
     await this.load();
   }
 
   private fs(base: number): number {
     return Math.round(base * this.fontScaleNum);
+  }
+
+  // 全局刷新信号变化（切 Tab / 扫描完成）时重新加载文库列表
+  private onRefreshTick(): void {
+    this.load();
   }
 
   async onPageShow(): Promise<void> {
@@ -66,6 +64,53 @@ export struct LibraryTab {
     router.pushUrl({ url: 'pages/ScanProgress' }).catch((err: Error) => {
       LogUtil.e('LibraryTab', `跳转失败: ${err.message}`);
     });
+  }
+
+  /** 从 folderUri 拆出可读路径片段（取末尾两段，URL 解码），用于区分同名文库。 */
+  private pathHint(run: ScanRun): string {
+    const uri: string = run.folderUri ?? '';
+    if (!uri || uri.trim().length === 0) {
+      return '';
+    }
+    let path: string = uri.replace(/^file:\/\//i, '').replace(/^content:\/\//i, '');
+    path = path.replace(/[\/\\]+$/, '');
+    const segments: string[] = path.split(/[\/\\]/).filter((s: string) => s.length > 0);
+    if (segments.length === 0) {
+      return '';
+    }
+    return segments
+      .slice(-2)
+      .map((s: string) => {
+        try {
+          return decodeURIComponent(s);
+        } catch (e) {
+          return s;
+        }
+      })
+      .join('/');
+  }
+
+  private openRename(run: ScanRun): void {
+    this.renamingRun = run;
+    this.renameInput = run.name || '';
+    this.showRename = true;
+  }
+
+  private async doRename(): Promise<void> {
+    const run = this.renamingRun;
+    const name = this.renameInput.trim();
+    this.showRename = false;
+    if (!run || name.length === 0) {
+      return;
+    }
+    try {
+      await ScanRunDao.rename(run.id, name);
+      await this.load();
+      ToastUtil.show('已重命名');
+    } catch (e) {
+      LogUtil.e('LibraryTab', `重命名失败: ${(e as Error).message}`);
+      ToastUtil.show('重命名失败');
+    }
   }
 
   // ===== 多选相关 =====
@@ -166,25 +211,21 @@ export struct LibraryTab {
 
   @Builder
   checkBox(run: ScanRun) {
-    Stack({ alignContent: Alignment.Center }) {
-      Circle({ width: this.fs(22), height: this.fs(22) })
-        .fill(this.isSelected(run.id) ? $r('app.color.primary') : Color.Transparent)
-        .stroke(this.isSelected(run.id) ? $r('app.color.primary') : $r('app.color.text_hint'))
-        .strokeWidth(2)
-      if (this.isSelected(run.id)) {
-        Path()
-          .width(this.fs(12))
-          .height(this.fs(12))
-          .commands('M4 7 L9 12 L16 4')
-          .stroke($r('app.color.text_on_primary'))
-          .strokeWidth(2)
-          .fill(Color.Transparent)
-          .antiAlias(true)
-      }
-    }
-    .width(this.fs(24))
-    .height(this.fs(24))
-    .margin({ right: 12 })
+    Checkbox({ name: 'lib_' + run.id.toString(), group: 'library_select' })
+      .select(this.isSelected(run.id))
+      .width(this.fs(20))
+      .height(this.fs(20))
+      .selectedColor($r('app.color.primary'))
+      .unselectedColor($r('app.color.text_hint'))
+      .mark({
+        strokeColor: $r('app.color.text_on_primary'),
+        size: this.fs(12),
+        strokeWidth: 2
+      })
+      .margin({ right: 12 })
+      .onChange(() => {
+        this.toggleSelect(run.id);
+      })
   }
 
   build() {
@@ -193,11 +234,6 @@ export struct LibraryTab {
       // 注意：Stack 子组件的 .layoutWeight(1) 无效（原方案 List 不会撑满且会被 TopBar 覆盖），
       // 因此把顶栏 + 内容放进一个 Column，让 layoutWeight(1) 在 List 上正确生效。
       Column() {
-        // 顶部状态栏占位：避免顶栏被系统状态栏覆盖。
-        if (this.statusBarHeight > 0) {
-          Row().width('100%').height(this.statusBarHeight)
-        }
-
         if (this.selectMode) {
           // 多选模式顶部栏
           Row() {
@@ -239,11 +275,12 @@ export struct LibraryTab {
               .fontColor($r('app.color.text_hint'))
               .margin({ top: 8 })
           }
-          .layoutWeight(1)
-          .justifyContent(FlexAlign.Center)
+          .width('100%')
+          .padding({ top: 80 })
+          .alignItems(HorizontalAlign.Center)
         } else {
           Refresh({ refreshing: $$this.refreshing }) {
-            List({ space: 10 }) {
+            List({ space: 8 }) {
               ForEach(
                 this.runs,
                 (run: ScanRun) => {
@@ -262,27 +299,47 @@ export struct LibraryTab {
                         Text(FormatUtil.formatTimestamp(run.createdAt))
                           .fontSize(this.fs(11))
                           .fontColor($r('app.color.text_hint'))
+                        // 小字路径差异：同名目录/同名文库时辅助区分来源
+                        Text(`路径: ${this.pathHint(run)}`)
+                          .fontSize(this.fs(10))
+                          .fontColor($r('app.color.text_hint'))
+                          .opacity(0.8)
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
                       }
                       .layoutWeight(1)
                       .alignItems(HorizontalAlign.Start)
 
                       if (!this.selectMode) {
-                        Text(' >')
-                          .fontSize(this.fs(16))
-                          .fontColor($r('app.color.text_hint'))
+                        Column({ space: 2 }) {
+                          Text(`#${run.id}`)
+                            .fontSize(this.fs(11))
+                            .fontColor($r('app.color.text_hint'))
+                          Text(' >')
+                            .fontSize(this.fs(16))
+                            .fontColor($r('app.color.text_hint'))
+                        }
+                        .alignItems(HorizontalAlign.End)
                       }
                     }
                     .width('100%')
-                    .padding(16)
+                    .padding(14)
                     .backgroundColor($r('app.color.bg_card'))
                     .borderRadius(10)
                     .onClick(() => {
-                      if (this.selectMode) {
-                        this.toggleSelect(run.id);
-                      } else {
+                      // 多选模式下由 Checkbox 自身响应切换，避免与 Row 点击重复触发
+                      if (!this.selectMode) {
                         this.openRun(run.id);
                       }
                     })
+                    .gesture(
+                      LongPressGesture({ repeat: false })
+                        .onAction(() => {
+                          if (!this.selectMode) {
+                            this.openRename(run);
+                          }
+                        })
+                    )
                   }
                   .swipeAction({
                     end: {
@@ -298,18 +355,16 @@ export struct LibraryTab {
           }
           .width('100%')
           .layoutWeight(1)
-          }
-          .onRefreshing(() => {
-            this.load().then(() => {
-              this.refreshing = false;
-            });
-          })
-        } // 闭合 else(runs.length===0)
-      } // 闭合 Column(主体)
-      .width('100%')
-      .height('100%')
+          .padding({ top: 4 })
+        }
+        .onRefreshing(() => {
+          this.load().then(() => {
+            this.refreshing = false;
+          });
+        })
+      } // 闭合 else(runs.length===0)
 
-      // 多选模式删除栏：固定在距页面顶部 20% 处（不再贴底）
+      // 多选模式删除栏：紧跟列表下方，自然排在 Tab 栏上方
       if (this.selectMode && this.selectedIds.length > 0) {
         Row() {
           Button('删除选中 (' + this.selectedIds.length + ')')
@@ -321,13 +376,55 @@ export struct LibraryTab {
             .onClick(() => this.deleteSelected())
         }
         .width('100%')
-        .padding({ left: 12, right: 12 })
+        .padding({ left: 12, right: 12, top: 10, bottom: 10 })
         .backgroundColor($r('app.color.bg_card'))
-        .position({ x: 0, y: '20%' })
+        .border({ width: { top: 1 }, color: $r('app.color.divider') })
+      }
+
+      // 重命名弹窗（长按文库条目触发）
+      if (this.showRename) {
+        Column() {
+          Column({ space: 12 }) {
+            Text('重命名文库')
+              .fontSize(this.fs(15))
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+            TextInput({ placeholder: '请输入文库名称', text: this.renameInput })
+              .onChange((v: string) => {
+                this.renameInput = v;
+              })
+            Row({ space: 12 }) {
+              Button('取消')
+                .layoutWeight(1)
+                .backgroundColor($r('app.color.bg_card'))
+                .fontColor($r('app.color.text_primary'))
+                .onClick(() => {
+                  this.showRename = false;
+                })
+              Button('保存')
+                .layoutWeight(1)
+                .backgroundColor($r('app.color.primary'))
+                .fontColor($r('app.color.text_on_primary'))
+                .onClick(() => this.doRename())
+            }
+          }
+          .padding(20)
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
+          .margin({ left: 24, right: 24 })
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#80000000')
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          this.showRename = false;
+        })
       }
     }
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.bg_page'))
   }
+  } // 闭合 build()
 }

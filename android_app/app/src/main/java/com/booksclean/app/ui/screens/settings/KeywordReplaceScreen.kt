@@ -11,8 +11,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -34,6 +37,12 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.Text
 import com.booksclean.app.ui.components.AppOutlinedButton
 import androidx.compose.runtime.Composable
@@ -71,6 +80,8 @@ fun KeywordReplaceScreen(
     var editing by remember { mutableStateOf<KeywordReplaceRuleEntity?>(null) }
     var showAdd by remember { mutableStateOf(false) }
     var toDelete by remember { mutableStateOf<KeywordReplaceRuleEntity?>(null) }
+    var fabMenu by remember { mutableStateOf(false) }
+    var batchOpen by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     val openEdit = { rule: KeywordReplaceRuleEntity? ->
@@ -85,7 +96,7 @@ fun KeywordReplaceScreen(
         topBar = { TopBar(title = stringResource(R.string.keyword_replace), onBack = onBack) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            FloatingActionButton(onClick = { openEdit(null) }) {
+            FloatingActionButton(onClick = { fabMenu = true }) {
                 Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.add_rule))
             }
         }
@@ -208,6 +219,109 @@ fun KeywordReplaceScreen(
             }
         )
     }
+
+    // 批量新增弹窗
+    DropdownMenu(
+        expanded = fabMenu,
+        onDismissRequest = { fabMenu = false }
+    ) {
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.add_rule)) },
+            onClick = {
+                fabMenu = false
+                openEdit(null)
+            },
+            leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) }
+        )
+        DropdownMenuItem(
+            text = { Text(stringResource(R.string.batch_add_rule)) },
+            onClick = {
+                fabMenu = false
+                batchOpen = true
+            },
+            leadingIcon = { Icon(Icons.Filled.PlaylistAdd, contentDescription = null) }
+        )
+    }
+
+    if (batchOpen) {
+        BatchKeywordReplaceDialog(
+            scope = scope,
+            onDismiss = { batchOpen = false },
+            onConfirm = { mode, text, enabled ->
+                viewModel.batchAdd(scope, mode, text, enabled) {
+                    batchOpen = false
+                }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BatchKeywordReplaceDialog(
+    scope: String,
+    onDismiss: () -> Unit,
+    onConfirm: (mode: String, text: String, enabled: Boolean) -> Unit
+) {
+    var mode by remember { mutableStateOf("remove") } // remove | replace
+    var text by remember { mutableStateOf("") }
+    var enabled by remember { mutableStateOf(true) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            AppButton(onClick = {
+                val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                if (lines.isEmpty()) return@AppButton
+                if (mode == "replace") {
+                    val bad = lines.firstOrNull {
+                        val idx = it.indexOf("||")
+                        idx <= 0 || it.substring(0, idx).trim().isEmpty()
+                    }
+                    if (bad != null) return@AppButton
+                }
+                onConfirm(mode, text, enabled)
+            }) { Text(stringResource(R.string.save)) }
+        },
+        dismissButton = {
+            AppOutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+        title = { Text(stringResource(R.string.batch_add_rule_title)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FilterChip(
+                        selected = mode == "remove",
+                        onClick = { mode = "remove" },
+                        label = { Text(stringResource(R.string.batch_mode_remove)) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    FilterChip(
+                        selected = mode == "replace",
+                        onClick = { mode = "replace" },
+                        label = { Text(stringResource(R.string.batch_mode_replace)) }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Checkbox(checked = enabled, onCheckedChange = { enabled = it })
+                    Text(stringResource(R.string.rule_enabled), fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    if (mode == "remove") stringResource(R.string.batch_hint_remove)
+                    else stringResource(R.string.batch_hint_replace),
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
+                    placeholder = { Text(if (mode == "remove") stringResource(R.string.batch_placeholder_remove) else stringResource(R.string.batch_placeholder_replace)) },
+                    singleLine = false
+                )
+            }
+        }
+    )
 }
 
 @Composable
