@@ -3,15 +3,14 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject var router: Router
     @State private var runs: [ScanRun] = []
+    @State private var markedFiles: Int = 0
     @State private var showingFolderPicker = false
     @State private var showingOneClickSheet = false
     @State private var runToDelete: ScanRun? = nil
 
-    // 统计汇总（对齐安卓：总文件数 / 标记文件数）
+    // 统计汇总（对齐安卓：总文件数 / 标记文件数）。totalFiles 由内存中的 runs 计算，
+    // markedFiles 在主线程外一次性聚合（避免每个文库各查一次 DB 卡住首屏）。
     private var totalFiles: Int { runs.reduce(0) { $0 + $1.fileCount } }
-    private var markedFiles: Int {
-        runs.reduce(0) { $0 + FileRepository.shared.countMarkedFiles(runId: $1.id) }
-    }
 
     var body: some View {
         ScrollView {
@@ -142,7 +141,16 @@ struct HomeView: View {
         }
     }
 
-    private func reload() { runs = FileRepository.shared.getScanRuns() }
+    private func reload() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let rs = FileRepository.shared.getScanRuns()
+            let marked = rs.reduce(0) { $0 + FileRepository.shared.countMarkedFiles(runId: $1.id) }
+            DispatchQueue.main.async {
+                runs = rs
+                markedFiles = marked
+            }
+        }
+    }
 
     private func statCard(title: String, value: String, icon: String) -> some View {
         VStack(spacing: 6) {

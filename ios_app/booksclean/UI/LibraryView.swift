@@ -522,40 +522,52 @@ struct LibraryView: View {
     }
 
     private func reload() {
+        // 后台线程执行 DB 查询，避免大文库（十万级文件）在主线程 GROUP BY/COUNT 导致卡顿。
+        let currentMode = mode
+        let currentPage = page
+        let currentPageSize = pageSize
+        let curTitle = titleFilter, curAuthor = authorFilter, curProgress = progressFilter
+        let curSource = sourceFilter, curSearch = search, curFilter = selectedFilter
+        let curMin = prefs.groupMinCount, curMax = prefs.groupMaxCount
+        let curExclude = LibraryLogic.parseExcludeNames(prefs.groupExcludeNames)
         let repo = FileRepository.shared
-        if mode == "group" {
-            // 合集分页（对齐安卓 groupsPageFlow）：总数 + 当前页
-            let exclude = LibraryLogic.parseExcludeNames(prefs.groupExcludeNames)
-            groupTotal = repo.dbCountGroups(runId: runId, min: prefs.groupMinCount, max: prefs.groupMaxCount, exclude: exclude)
-            groupPageCount = LibraryLogic.computePageCount(total: max(groupTotal, 1), pageSize: pageSize)
-            if page >= groupPageCount { page = groupPageCount - 1 }
-            if page < 0 { page = 0 }
-            groups = repo.dbPageGroups(runId: runId, min: prefs.groupMinCount, max: prefs.groupMaxCount,
-                                       exclude: exclude, page: page, pageSize: pageSize)
-            selectAllOnPage = false
-            return
-        }
-        // 筛选 chips 映射（对齐安卓文库全部/已勾选/未勾选/已标记/未标记）
-        let (cf, mf): (Int, Int) = {
-            switch selectedFilter {
-            case "checked":   return (1, -1)
-            case "unchecked": return (0, -1)
-            case "marked":    return (-1, 1)
-            case "unmarked":  return (-1, 0)
-            default:          return (-1, -1)
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            if currentMode == "group" {
+                let gTotal = repo.dbCountGroups(runId: runId, min: curMin, max: curMax, exclude: curExclude)
+                let gPageCount = LibraryLogic.computePageCount(total: max(gTotal, 1), pageSize: currentPageSize)
+                var p = min(max(currentPage, 0), max(gPageCount - 1, 0))
+                let gs = repo.dbPageGroups(runId: runId, min: curMin, max: curMax,
+                                           exclude: curExclude, page: p, pageSize: currentPageSize)
+                DispatchQueue.main.async {
+                    groupTotal = gTotal; groupPageCount = gPageCount; page = p; groups = gs
+                    selectAllOnPage = false
+                }
+                return
             }
-        }()
-        total = repo.dbCountFiles(runId: runId, title: titleFilter, author: authorFilter,
-                                  progress: progressFilter, source: sourceFilter, search: search,
-                                  checkedFilter: cf, markedFilter: mf)
-        pageCount = LibraryLogic.computePageCount(total: max(total, 1), pageSize: pageSize)
-        if page >= pageCount { page = pageCount - 1 }
-        if page < 0 { page = 0 }
-        files = repo.dbPageFiles(runId: runId, page: page, pageSize: pageSize, sortBy: sortBy,
-                                 ascending: ascending, title: titleFilter, author: authorFilter,
-                                 progress: progressFilter, source: sourceFilter, search: search,
-                                 checkedFilter: cf, markedFilter: mf)
-        selectAllOnPage = false
+            let (cf, mf): (Int, Int) = {
+                switch curFilter {
+                case "checked":   return (1, -1)
+                case "unchecked": return (0, -1)
+                case "marked":    return (-1, 1)
+                case "unmarked":  return (-1, 0)
+                default:          return (-1, -1)
+                }
+            }()
+            let t = repo.dbCountFiles(runId: runId, title: curTitle, author: curAuthor,
+                                      progress: curProgress, source: curSource, search: curSearch,
+                                      checkedFilter: cf, markedFilter: mf)
+            let pc = LibraryLogic.computePageCount(total: max(t, 1), pageSize: currentPageSize)
+            let p = min(max(currentPage, 0), max(pc - 1, 0))
+            let fs = repo.dbPageFiles(runId: runId, page: p, pageSize: currentPageSize, sortBy: sortBy,
+                                      ascending: ascending, title: curTitle, author: curAuthor,
+                                      progress: curProgress, source: curSource, search: curSearch,
+                                      checkedFilter: cf, markedFilter: mf)
+            DispatchQueue.main.async {
+                total = t; pageCount = pc; page = p; files = fs
+                selectAllOnPage = false
+            }
+        }
     }
 }
 
@@ -607,7 +619,13 @@ struct GroupFilesView: View {
             }
         }
         .listStyle(.plain)
-        .onAppear { files = DatabaseManager.shared.getGroupFiles(runId: runId, title: title, author: author) }
+        .onAppear {
+            let rid = runId, t = title, a = author
+            DispatchQueue.global(qos: .userInitiated).async {
+                let data = DatabaseManager.shared.getGroupFiles(runId: rid, title: t, author: a)
+                DispatchQueue.main.async { files = data }
+            }
+        }
     }
 
     private func updateFile(_ id: Int64, mutate: (inout ScannedFile) -> Void) {
@@ -871,8 +889,10 @@ struct FilePreviewView: View {
         guard let run = FileRepository.shared.getScanRun(f.scanRunId),
               let url = URL(string: f.path),
               let folderURL = resolveBookmarkURL(run.folderUri) else { return nil }
-        guard folderURL.startAccessingSecurityScopedResource() else { return nil }
-        defer { folderURL.stopAccessingSecurityScopedResource() }
+        // startAccessing/stopAccessingSecurityScopedResource 必须在主线程调用
+        let accessed = MainActor.assumeIsolated { folderURL.startAccessingSecurityScopedResource() }
+        guard accessed else { return nil }
+        defer { MainActor.assumeIsolated { folderURL.stopAccessingSecurityScopedResource() } }
         let enc = f.encoding.isEmpty ? "UTF-8" : f.encoding
         let encoding = EncodingUtil.stringEncoding(named: enc)
         // 预览仅读取前/后 200KB，避免大文件（数十 MB）整篇载入导致内存暴涨与界面卡死。
