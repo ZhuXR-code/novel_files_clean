@@ -29,9 +29,13 @@ workflows:
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" 2>/dev/null || echo "(目录不存在)"
 
           echo "=== 2.5) 环境变量状态检查 ==="
-          echo "DIST_P12_B64: ${DIST_P12_B64:+已设置 (长度 ${#DIST_P12_B64})}${DIST_P12_B64:-未设置}"
-          echo "ADHOC_PROFILE_B64: ${ADHOC_PROFILE_B64:+已设置 (长度 ${#ADHOC_PROFILE_B64})}${ADHOC_PROFILE_B64:-未设置}"
-          echo "DIST_P12_PASSWORD: ${DIST_P12_PASSWORD:+已设置}${DIST_P12_PASSWORD:-未设置}"
+          for v in DIST_P12_B64 ADHOC_PROFILE_B64 DIST_P12_PASSWORD; do
+            if [ -n "${!v:-}" ]; then
+              echo "$v: 已设置"
+            else
+              echo "$v: 未设置"
+            fi
+          done
 
           # 兜底：用 base64 环境变量还原 p12 / profile 并手动安装
           if [ -n "${DIST_P12_B64:-}" ]; then
