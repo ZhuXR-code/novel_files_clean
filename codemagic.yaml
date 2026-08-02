@@ -18,6 +18,36 @@ workflows:
         script: |
           xcodebuild -version
           swift --version
+      - name: 安装签名证书与描述文件
+        script: |
+          set -e
+          echo "=== 1) 当前 keychain 中的签名身份 ==="
+          security find-identity -v -p codesigning || true
+          echo "=== 2) 当前已安装的 Provisioning Profiles ==="
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" 2>/dev/null || echo "(目录不存在)"
+
+          # 兜底：若 Codemagic Code signing 页面未自动安装，则用 File 型环境变量手动安装
+          if [ -n "${DIST_P12_FILE:-}" ] && [ -f "$DIST_P12_FILE" ]; then
+            echo "=== 3) 手动导入 p12 ==="
+            KEYCHAIN="$HOME/Library/Keychains/ci-signing.keychain-db"
+            security create-keychain -p ci "$KEYCHAIN" 2>/dev/null || true
+            security default-keychain -s "$KEYCHAIN"
+            security unlock-keychain -p ci "$KEYCHAIN"
+            security import "$DIST_P12_FILE" -k "$KEYCHAIN" -P "$DIST_P12_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KEYCHAIN" 2>/dev/null || true
+            echo "p12 导入完成"
+          fi
+          if [ -n "${ADHOC_PROFILE_FILE:-}" ] && [ -f "$ADHOC_PROFILE_FILE" ]; then
+            echo "=== 4) 手动安装 Ad Hoc profile ==="
+            mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+            cp "$ADHOC_PROFILE_FILE" "$HOME/Library/MobileDevice/Provisioning Profiles/booksclean-adhoc.mobileprovision"
+            echo "profile 安装完成"
+          fi
+
+          echo "=== 5) 安装后签名身份 ==="
+          security find-identity -v -p codesigning || true
+          echo "=== 6) 安装后 Profiles 目录 ==="
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" 2>/dev/null || true
       - name: Clean
         script: |
           cd ios_app
