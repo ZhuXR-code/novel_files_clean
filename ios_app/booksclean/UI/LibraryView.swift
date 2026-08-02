@@ -1084,8 +1084,7 @@ struct FilePreviewView: View {
                 ScrollableText(text: text, fontPt: fontPt,
                                mode: prefs.previewScrollbarMode == "horizontal" ? .horizontal : .vertical,
                                allLines: nil,
-                               state: scrollState,
-                               onLineCount: { totalLines = $0 })
+                               state: scrollState)
                 MiniScrollBar(state: scrollState,
                               axis: prefs.previewScrollbarMode == "horizontal" ? .horizontal : .vertical)
             }
@@ -1114,6 +1113,7 @@ struct FilePreviewView: View {
         let content = await readFileContent(f, mode: modeState)
         await MainActor.run {
             text = content ?? "无法读取文件内容（可能缺少文件夹访问权限，请重新扫描以刷新授权）"
+            totalLines = text.split(separator: "\n", omittingEmptySubsequences: false).count
         }
     }
 
@@ -1125,6 +1125,7 @@ struct FilePreviewView: View {
         // 在主线程开启安全作用域访问
         let accessed = await MainActor.run { folderURL.startAccessingSecurityScopedResource() }
         guard accessed else { return nil }
+        // 读取已在后台线程完成，此处切回主线程（瞬间操作）关闭安全作用域，避免异步 defer 与视图生命周期竞态。
         defer { Task { @MainActor in folderURL.stopAccessingSecurityScopedResource() } }
 
         let enc = f.encoding.isEmpty ? "UTF-8" : f.encoding
@@ -1190,7 +1191,6 @@ struct ScrollableText: UIViewRepresentable {
     let mode: ScrollMode
     let allLines: Set<Int>?
     let state: PreviewScrollState
-    let onLineCount: (Int) -> Void
 
     func makeUIView(context: Context) -> UIScrollView {
         let scroll = UIScrollView()
@@ -1221,22 +1221,26 @@ struct ScrollableText: UIViewRepresentable {
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
         guard let tv = scroll.subviews.first(where: { $0 is UITextView }) as? UITextView else { return }
-        let font = UIFont.systemFont(ofSize: fontPt)
-        let attributed = NSAttributedString(string: text, attributes: [
-            .font: font,
-            .foregroundColor: UIColor.label
-        ])
-        tv.attributedText = attributed
-        tv.textContainerInset = .zero
-        tv.layoutIfNeeded()
-        if mode == .horizontal {
-            // 横向：高度固定为视口，宽度随内容展开
-            tv.frame.size.height = scroll.bounds.height - 24
-            tv.sizeToFit()
-            scroll.contentSize = CGSize(width: max(tv.frame.width, scroll.bounds.width),
-                                       height: scroll.bounds.height - 24)
+        // 文本或字号未变化时跳过重设富文本与布局，避免每次 body 重算都同步重建大段 NSAttributedString 阻塞主线程。
+        if context.coordinator.lastText != text || context.coordinator.lastFontPt != fontPt {
+            context.coordinator.lastText = text
+            context.coordinator.lastFontPt = fontPt
+            let font = UIFont.systemFont(ofSize: fontPt)
+            let attributed = NSAttributedString(string: text, attributes: [
+                .font: font,
+                .foregroundColor: UIColor.label
+            ])
+            tv.attributedText = attributed
+            tv.textContainerInset = .zero
+            tv.layoutIfNeeded()
+            if mode == .horizontal {
+                // 横向：高度固定为视口，宽度随内容展开
+                tv.frame.size.height = scroll.bounds.height - 24
+                tv.sizeToFit()
+                scroll.contentSize = CGSize(width: max(tv.frame.width, scroll.bounds.width),
+                                           height: scroll.bounds.height - 24)
+            }
         }
-        onLineCount(text.split(separator: "\n", omittingEmptySubsequences: false).count)
         context.coordinator.publish(scroll)
     }
 
@@ -1246,6 +1250,8 @@ struct ScrollableText: UIViewRepresentable {
         weak var state: PreviewScrollState?
         weak var scroll: UIScrollView?
         weak var textView: UITextView?
+        var lastText: String?
+        var lastFontPt: CGFloat = 0
 
         func publish(_ scroll: UIScrollView) {
             state?.contentSize = scroll.contentSize
