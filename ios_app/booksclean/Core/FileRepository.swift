@@ -84,8 +84,8 @@ final class FileRepository {
         }
         let sample = sampleLines.prefix(10).joined(separator: "；")
         LogUtil.i("Repo", "勾选重复 完成 run=\(runId) 规则=\(enabled) 子组=\(detailCount) 勾选=\(result.count)" + (sample.isEmpty ? "" : " 样例：\(sample)"))
-        // 先清空本文库全部勾选，再标记本次命中的待删项，保证「重新计算」幂等、不留陈旧勾选。
-        db.resetChecked(runId: runId)
+        // 仅把本次命中的待删项标记为勾选，不清空其它已勾选项（对齐安卓 setCheckedForIds 的「合并勾选」语义：
+        // 用户手动勾选的文件保留，重复规则命中的文件在此基础上增量叠加，避免一键清理清掉用户已有勾选）。
         if !result.isEmpty { db.updateChecked(ids: Array(result), checked: 1) }
         return result
     }
