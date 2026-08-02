@@ -356,7 +356,13 @@
 
                     <!-- 扫描阶段 -->
                     <section class="panel">
-                        <h2 class="panel-title">扫描阶段 · 文件名替换</h2>
+                        <h2 class="panel-title" style="display:flex;justify-content:space-between;align-items:center">
+                            <span>扫描阶段 · 文件名替换</span>
+                            <button class="btn btn-sm" id="scanKwSearchToggle" onclick="toggleKeywordSearch('scan')" style="border:1px solid var(--border);color:var(--text-secondary);background:transparent">🔍 搜索</button>
+                        </h2>
+                        <div id="scanKwSearchBox" style="display:none;margin-bottom:10px">
+                            <input type="text" id="scanKwSearchInput" placeholder="按 查找 / 替换 内容过滤规则…" style="width:100%;padding:6px 10px;border:1px solid var(--border);font-size:12px;outline:none" oninput="renderKeywordRules()">
+                        </div>
                         <div id="scanRuleList" class="config-list"></div>
                         <div class="kw-form" style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
                             <label style="display:flex;flex-direction:column;font-size:11px;gap:4px">查找
@@ -378,7 +384,13 @@
 
                     <!-- 解析阶段 -->
                     <section class="panel" style="margin-top:20px">
-                        <h2 class="panel-title">解析阶段 · 书名/作者/进度/来源替换</h2>
+                        <h2 class="panel-title" style="display:flex;justify-content:space-between;align-items:center">
+                            <span>解析阶段 · 书名/作者/进度/来源替换</span>
+                            <button class="btn btn-sm" id="parseKwSearchToggle" onclick="toggleKeywordSearch('parse')" style="border:1px solid var(--border);color:var(--text-secondary);background:transparent">🔍 搜索</button>
+                        </h2>
+                        <div id="parseKwSearchBox" style="display:none;margin-bottom:10px">
+                            <input type="text" id="parseKwSearchInput" placeholder="按 查找 / 替换 内容过滤规则…" style="width:100%;padding:6px 10px;border:1px solid var(--border);font-size:12px;outline:none" oninput="renderKeywordRules()">
+                        </div>
                         <div id="parseRuleList" class="config-list"></div>
                         <div class="kw-form" style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">
                             <label style="display:flex;flex-direction:column;font-size:11px;gap:4px">查找
@@ -604,6 +616,6 @@
         <button class="back-nav-btn" id="backToBottomBtn" title="回到底部" onclick="scrollToBottom()">↓</button>
     </div>
 
-    <script src="/static/js/app.js?v=20260802b"></script>
+    <script src="/static/js/app.js?v=20260802c"></script>
 </body>
 </html>

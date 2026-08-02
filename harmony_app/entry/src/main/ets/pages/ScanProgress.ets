@@ -77,7 +77,7 @@ struct ScanProgress {
     this.found = 0;
     this.current = '';
     this.done = false;
-    try {
+      try {
       const res = await ScanService.runScan(cfg, (p: ScanProgressData) => {
         this.processed = p.processed;
         this.found = p.found;
@@ -85,6 +85,13 @@ struct ScanProgress {
       });
       this.resultRunId = res.runId;
       this.stopped = res.stopped;
+      // 关键修复：runScan 的进度回调按 PROGRESS_INTERVAL=16 节流，
+      // 总数 < 16（如用户的 10 个文件）时回调从未触发，this.found / this.processed
+      // 仍停留在初始值 0，导致完成页显示"共扫描到 0 个文件"（数据库 file_count
+      // 已被 updateFileCount 正确更新为 10，故文库显示 10 个文件）。
+      // 这里用 runScan 返回的最终值兜底刷新 UI。
+      this.found = res.total;
+      this.processed = res.processed ?? this.processed;
       this.done = true;
       // 推送全局刷新信号，让首页/文库列表在扫描完成后立即显示新文库
       AppStorage.setOrCreate('libraryRefreshTick', Date.now());

@@ -7,51 +7,28 @@
     "deviceTypes": ["phone", "tablet"],
     "requestPermissions": [
       {
-        "name": "ohos.permission.READ_WRITE_DOCUMENTS",
-        "reason": "$string:perm_read_write_docs",
-        "usedScene": {
-          "abilities": ["EntryAbility"],
-          "when": "inuse"
-        }
-      },
-      {
-        "name": "ohos.permission.CLOUDDRIVE_DOCUMENTS",
-        "reason": "$string:perm_read_write_docs",
-        "usedScene": {
-          "abilities": ["EntryAbility"],
-          "when": "inuse"
-        }
-      },
-      {
         "name": "ohos.permission.FILE_ACCESS_PERSIST",
         "reason": "$string:perm_file_access_persist",
         "usedScene": {
           "abilities": ["EntryAbility"],
           "when": "inuse"
         }
-      }
-    ],
-    "definePermissions": [
-      {
-        "name": "ohos.permission.READ_WRITE_DOCUMENTS",
-        "grantMode": "system_grant",
-        "availableLevel": "normal",
-        "label": "$string:perm_read_write_docs",
-        "description": "$string:perm_read_write_docs"
       },
       {
-        "name": "ohos.permission.CLOUDDRIVE_DOCUMENTS",
-        "grantMode": "system_grant",
-        "availableLevel": "normal",
-        "label": "$string:perm_read_write_docs",
-        "description": "$string:perm_read_write_docs"
+        "name": "ohos.permission.READ_WRITE_DOCUMENTS_DIRECTORY",
+        "reason": "$string:perm_read_write_docs",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
       },
       {
-        "name": "ohos.permission.FILE_ACCESS_PERSIST",
-        "grantMode": "system_grant",
-        "availableLevel": "normal",
-        "label": "$string:perm_file_access_persist",
-        "description": "$string:perm_file_access_persist"
+        "name": "ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY",
+        "reason": "$string:perm_read_write_docs",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
       }
     ],
     "deliveryWithInstall": true,

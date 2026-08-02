@@ -3238,21 +3238,44 @@ async function editUserRule(id) {
 }
 
 // ===================== 关键词替换设置 =====================
+let keywordRulesCache = [];
+
 async function loadKeywordRules() {
     try {
         const resp = await apiGet('/keyword-replaces');
-        renderKeywordRules(resp.rules || []);
+        keywordRulesCache = resp.rules || [];
+        renderKeywordRules();
     } catch (e) {
         toast('加载关键词规则失败: ' + (e.message || e), 'error');
     }
 }
 
-function renderKeywordRules(rules) {
+// 展开 / 折叠关键词搜索栏（scope: 'scan' | 'parse'）
+function toggleKeywordSearch(scope) {
+    const box = document.getElementById(scope + 'KwSearchBox');
+    const btn = document.getElementById(scope + 'KwSearchToggle');
+    if (!box) return;
+    const hidden = box.style.display === 'none';
+    box.style.display = hidden ? '' : 'none';
+    if (btn) btn.textContent = hidden ? '✕ 收起' : '🔍 搜索';
+    if (hidden) {
+        const input = document.getElementById(scope + 'KwSearchInput');
+        if (input) { input.value = ''; input.focus(); }
+    }
+    renderKeywordRules();
+}
+
+function renderKeywordRules() {
     const scanList = document.getElementById('scanRuleList');
     const parseList = document.getElementById('parseRuleList');
     if (!scanList || !parseList) return;
-    const scanRules = rules.filter(r => r.scope === 'scan');
-    const parseRules = rules.filter(r => r.scope === 'parse');
+    const scanKw = (document.getElementById('scanKwSearchInput')?.value || '').trim().toLowerCase();
+    const parseKw = (document.getElementById('parseKwSearchInput')?.value || '').trim().toLowerCase();
+    const matchKw = (r, kw) => !kw
+        || (r.pattern || '').toLowerCase().includes(kw)
+        || (r.replacement || '').toLowerCase().includes(kw);
+    const scanRules = keywordRulesCache.filter(r => r.scope === 'scan' && matchKw(r, scanKw));
+    const parseRules = keywordRulesCache.filter(r => r.scope === 'parse' && matchKw(r, parseKw));
 
     const renderOne = (r) => `
         <div class="config-item" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--border-radius);margin-bottom:8px;font-size:12px">
@@ -3267,10 +3290,10 @@ function renderKeywordRules(rules) {
 
     scanList.innerHTML = scanRules.length
         ? scanRules.map(renderOne).join('')
-        : '<div class="empty-state" style="padding:12px;font-size:12px;color:var(--text-secondary)">暂无规则</div>';
+        : '<div class="empty-state" style="padding:12px;font-size:12px;color:var(--text-secondary)">' + (scanKw ? '无匹配规则' : '暂无规则') + '</div>';
     parseList.innerHTML = parseRules.length
         ? parseRules.map(renderOne).join('')
-        : '<div class="empty-state" style="padding:12px;font-size:12px;color:var(--text-secondary)">暂无规则</div>';
+        : '<div class="empty-state" style="padding:12px;font-size:12px;color:var(--text-secondary)">' + (parseKw ? '无匹配规则' : '暂无规则') + '</div>';
 }
 
 async function addKeywordRule(scope) {

@@ -95,6 +95,18 @@ struct HomeView: View {
         }
         .navigationTitle("文包整理清理助手")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                HStack(spacing: 14) {
+                    Button { router.navigate(.help) } label: {
+                        Image(systemName: "questionmark.circle").foregroundColor(.fsPrimary)
+                    }
+                    Button { router.navigate(.settings) } label: {
+                        Image(systemName: "gearshape.fill").foregroundColor(.fsPrimary)
+                    }
+                }
+            }
+        }
         .onAppear { reload() }
         .sheet(isPresented: $showingFolderPicker) {
             FolderPicker { url in

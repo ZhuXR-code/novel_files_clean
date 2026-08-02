@@ -175,7 +175,7 @@ export class ScanService {
   public static async runScan(
     config: ScanConfig,
     onProgress: (p: ScanProgress) => void
-  ): Promise<{ runId: number; total: number; stopped: boolean }> {
+  ): Promise<{ runId: number; total: number; processed: number; stopped: boolean }> {
     ScanService.stopped = false;
     const run: ScanRun = new ScanRun();
     run.name = config.name;
@@ -307,7 +307,7 @@ export class ScanService {
     await ScanRunDao.updateFileCount(runId, found);
     const status: string = ScanService.stopped ? '已停止' : '完成';
     LogUtil.operation('扫描', `文库=${config.name} 目录=${config.folderName} 命中=${found} 状态=${status} 文库ID=${runId}`);
-    return { runId: runId, total: found, stopped: ScanService.stopped };
+    return { runId: runId, total: found, processed: processed, stopped: ScanService.stopped };
   }
 
   private static isExcluded(name: string, excluded: string): boolean {

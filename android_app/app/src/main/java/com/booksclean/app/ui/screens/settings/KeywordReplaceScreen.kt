@@ -22,6 +22,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -82,7 +85,19 @@ fun KeywordReplaceScreen(
     var toDelete by remember { mutableStateOf<KeywordReplaceRuleEntity?>(null) }
     var fabMenu by remember { mutableStateOf(false) }
     var batchOpen by remember { mutableStateOf(false) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    val filteredRules = if (searchQuery.isBlank()) {
+        rules
+    } else {
+        val q = searchQuery.trim()
+        rules.filter {
+            it.pattern.contains(q, ignoreCase = true) ||
+                it.replacement.contains(q, ignoreCase = true)
+        }
+    }
 
     val openEdit = { rule: KeywordReplaceRuleEntity? ->
         if (rule == null) {
@@ -134,10 +149,56 @@ fun KeywordReplaceScreen(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
 
-            if (rules.isEmpty()) {
+            // 可展开 / 折叠的搜索栏
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        searchOpen = !searchOpen
+                        if (!searchOpen) searchQuery = ""
+                    }
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.Search,
+                    contentDescription = stringResource(R.string.search_rules),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    stringResource(R.string.search_rules),
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 6.dp)
+                )
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    if (searchOpen) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            if (searchOpen) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    placeholder = { Text(stringResource(R.string.search_rules_hint)) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    singleLine = true
+                )
+            }
+
+            if (filteredRules.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        stringResource(R.string.no_rules),
+                        if (searchQuery.isBlank()) stringResource(R.string.no_rules)
+                        else stringResource(R.string.no_match_rules),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 14.sp
                     )
@@ -148,7 +209,7 @@ fun KeywordReplaceScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(rules, key = { it.id }) { rule ->
+                    items(filteredRules, key = { it.id }) { rule ->
                         RuleCard(
                             rule = rule,
                             onToggle = { viewModel.setEnabled(rule.id, it) },

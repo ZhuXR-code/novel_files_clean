@@ -23,6 +23,8 @@ struct KeywordReplace {
   @State batchMode: string = 'remove'; // remove | replace
   @State batchText: string = '';
   @State batchEnabled: boolean = true;
+  @State searchOpen: boolean = false;
+  @State searchQuery: string = '';
 
   aboutToAppear(): void {
     this.load();
@@ -59,6 +61,32 @@ struct KeywordReplace {
     this.scope = s;
     this.editing = null;
     await this.load();
+  }
+
+  private filteredBuiltin(): KeywordReplaceRule[] {
+    return this.filterByQuery(this.builtinRules);
+  }
+
+  private filteredCustom(): KeywordReplaceRule[] {
+    return this.filterByQuery(this.customRules);
+  }
+
+  private filterByQuery(list: KeywordReplaceRule[]): KeywordReplaceRule[] {
+    const kw: string = this.searchQuery.trim().toLowerCase();
+    if (kw.length === 0) {
+      return list;
+    }
+    return list.filter((r: KeywordReplaceRule): boolean => {
+      return r.pattern.toLowerCase().indexOf(kw) >= 0 ||
+        r.replacement.toLowerCase().indexOf(kw) >= 0;
+    });
+  }
+
+  private toggleSearch(): void {
+    this.searchOpen = !this.searchOpen;
+    if (!this.searchOpen) {
+      this.searchQuery = '';
+    }
   }
 
   private newRule(): void {
@@ -316,6 +344,29 @@ struct KeywordReplace {
         .width('100%')
         .padding({ left: 12, right: 12 })
 
+        // 可展开 / 折叠的搜索栏
+        Row({ space: 8 }) {
+          Text('🔍')
+            .fontSize(13)
+          Text(this.searchOpen ? '收起搜索' : '搜索规则')
+            .fontSize(13)
+            .fontColor($r('app.color.text_secondary'))
+            .layoutWeight(1)
+          Text(this.searchOpen ? '▲' : '▼')
+            .fontSize(10)
+            .fontColor($r('app.color.text_hint'))
+        }
+        .width('100%')
+        .padding({ left: 12, right: 12, top: 2, bottom: 2 })
+        .onClick(() => this.toggleSearch())
+
+        if (this.searchOpen) {
+          TextInput({ text: this.searchQuery, placeholder: '按 查找 / 替换 内容过滤规则…' })
+            .onChange((v: string) => (this.searchQuery = v))
+            .width('100%')
+            .padding({ left: 12, right: 12 })
+        }
+
         Scroll() {
           Column({ space: 8 }) {
             // 编辑区
@@ -344,7 +395,7 @@ struct KeywordReplace {
             }
 
             // 内置规则区
-            Text(`内置规则（${this.builtinRules.length} 条，不可删除）`)
+            Text(`内置规则（${this.filteredBuiltin().length} 条，不可删除）`)
               .fontSize(13)
               .fontWeight(FontWeight.Bold)
               .fontColor($r('app.color.text_secondary'))
@@ -352,7 +403,7 @@ struct KeywordReplace {
               .padding({ left: 4, top: 4, bottom: 2 })
 
             ForEach(
-              this.builtinRules,
+              this.filteredBuiltin(),
               (r: KeywordReplaceRule) => {
                 this.builtinRuleCard(r)
               },
@@ -439,15 +490,15 @@ struct KeywordReplace {
               .borderRadius(10)
             }
 
-            if (this.customRules.length === 0) {
-              Text('暂无自定义规则，点击右上角「新增」创建')
+            if (this.filteredCustom().length === 0) {
+              Text(this.searchQuery.trim().length > 0 ? '无匹配规则' : '暂无自定义规则，点击右上角「新增」创建')
                 .fontSize(12)
                 .fontColor($r('app.color.text_hint'))
                 .padding(8)
             }
 
             ForEach(
-              this.customRules,
+              this.filteredCustom(),
               (r: KeywordReplaceRule) => {
                 this.customRuleCard(r)
               },

@@ -265,6 +265,9 @@
     <string name="rule_enabled">启用</string>
     <string name="replace_to">→ %1$s</string>
     <string name="delete_text">删除</string>
+    <string name="search_rules">搜索规则</string>
+    <string name="search_rules_hint">按 查找 / 替换 内容过滤规则…</string>
+    <string name="no_match_rules">无匹配规则</string>
     <string name="batch_add_rule">批量新增</string>
     <string name="batch_add_rule_title">批量新增关键词替换规则</string>
     <string name="batch_mode_remove">去掉关键词</string>

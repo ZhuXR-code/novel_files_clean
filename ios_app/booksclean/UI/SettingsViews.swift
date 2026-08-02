@@ -422,9 +422,21 @@ struct KeywordReplaceView: View {
     @State private var batchText = ""
     @State private var batchEnabled = true
     @State private var testText = ""
+    @State private var searchOpen = false
+    @State private var searchText = ""
 
     private var scoped: [KeywordReplaceRule] {
         rules.filter { $0.scope == scope }.sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    /// 按搜索词过滤后的规则（匹配查找 / 替换内容，忽略大小写）
+    private var filtered: [KeywordReplaceRule] {
+        let kw = searchText.trimmingCharacters(in: .whitespaces)
+        guard !kw.isEmpty else { return scoped }
+        return scoped.filter {
+            $0.pattern.localizedCaseInsensitiveContains(kw) ||
+            $0.replacement.localizedCaseInsensitiveContains(kw)
+        }
     }
 
     /// 实时预览：按当前作用域的启用规则依次替换。
@@ -452,11 +464,35 @@ struct KeywordReplaceView: View {
                         .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
                 }
 
-                Section("规则（\(scoped.count) 条）") {
-                    if scoped.isEmpty {
-                        Text("当前作用域暂无规则").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                Section {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            searchOpen.toggle()
+                            if !searchOpen { searchText = "" }
+                        }
+                    } label: {
+                        HStack {
+                            Label(searchOpen ? "收起搜索" : "搜索规则", systemImage: "magnifyingglass")
+                                .fsFont(.subheadline).foregroundColor(.fsSecondaryLabel)
+                            Spacer()
+                            Image(systemName: searchOpen ? "chevron.up" : "chevron.down")
+                                .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                        }
                     }
-                    ForEach(scoped) { r in
+                    if searchOpen {
+                        TextField("按 查找 / 替换 内容过滤规则…", text: $searchText)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                    }
+                }
+
+                Section("规则（\(filtered.count) 条）") {
+                    if filtered.isEmpty {
+                        Text(searchText.trimmingCharacters(in: .whitespaces).isEmpty
+                             ? "当前作用域暂无规则" : "无匹配规则")
+                            .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                    }
+                    ForEach(filtered) { r in
                         HStack(alignment: .top) {
                             Text("\(r.sortOrder)")
                                 .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
