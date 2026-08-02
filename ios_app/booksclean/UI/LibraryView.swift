@@ -583,7 +583,7 @@ struct LibraryView: View {
             ("name", "文件名"), ("title", "书名"), ("author", "作者"), ("size", "大小"),
             ("path", "路径"), ("date", "日期"), ("extra", "其他"), ("checked", "勾选状态"), ("marked", "标记状态")
         ]
-        NavigationStack {
+        return NavigationStack {
             Form {
                 Section("导出范围") {
                     Picker("范围", selection: $exportAll) {

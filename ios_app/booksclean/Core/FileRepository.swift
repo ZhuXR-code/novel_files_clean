@@ -273,7 +273,7 @@ final class FileRepository {
                 case "author": parts.append(f.author.isEmpty ? "" : f.author)
                 case "size":   parts.append(FormatUtil.formatFileSize(f.fileSize))
                 case "path":   parts.append(f.path.isEmpty ? "" : FormatUtil.toHumanReadablePath(f.path))
-                case "date":   parts.append(f.fileDate > 0 ? df.string(from: Date(timeIntervalSince1970: TimeInterval(f.fileDate) / 1000)) : "")
+                case "date":   parts.append(f.fileDate.map { df.string(from: Date(timeIntervalSince1970: TimeInterval($0) / 1000)) } ?? "")
                 case "extra":  parts.append("\(f.progress.isEmpty ? "" : "进度:\(f.progress) ")\(f.source.isEmpty ? "" : "来源:\(f.source)")")
                 case "checked":parts.append(f.checked == 1 ? "已勾选" : "")
                 case "marked": parts.append(f.marked == 1 ? "已标记" : "")
