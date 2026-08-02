@@ -26,21 +26,24 @@ workflows:
           echo "=== 2) 当前已安装的 Provisioning Profiles ==="
           ls -la "$HOME/Library/MobileDevice/Provisioning Profiles" 2>/dev/null || echo "(目录不存在)"
 
-          # 兜底：若 Codemagic Code signing 页面未自动安装，则用 File 型环境变量手动安装
-          if [ -n "${DIST_P12_FILE:-}" ] && [ -f "$DIST_P12_FILE" ]; then
+          # 兜底：用 base64 环境变量还原 p12 / profile 并手动安装
+          if [ -n "${DIST_P12_B64:-}" ]; then
             echo "=== 3) 手动导入 p12 ==="
+            echo "$DIST_P12_B64" | base64 --decode > /tmp/dist.p12
+            ls -la /tmp/dist.p12
             KEYCHAIN="$HOME/Library/Keychains/ci-signing.keychain-db"
             security create-keychain -p ci "$KEYCHAIN" 2>/dev/null || true
             security default-keychain -s "$KEYCHAIN"
             security unlock-keychain -p ci "$KEYCHAIN"
-            security import "$DIST_P12_FILE" -k "$KEYCHAIN" -P "$DIST_P12_PASSWORD" -T /usr/bin/codesign
+            security import /tmp/dist.p12 -k "$KEYCHAIN" -P "$DIST_P12_PASSWORD" -T /usr/bin/codesign
             security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KEYCHAIN" 2>/dev/null || true
+            rm -f /tmp/dist.p12
             echo "p12 导入完成"
           fi
-          if [ -n "${ADHOC_PROFILE_FILE:-}" ] && [ -f "$ADHOC_PROFILE_FILE" ]; then
+          if [ -n "${ADHOC_PROFILE_B64:-}" ]; then
             echo "=== 4) 手动安装 Ad Hoc profile ==="
             mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-            cp "$ADHOC_PROFILE_FILE" "$HOME/Library/MobileDevice/Provisioning Profiles/booksclean-adhoc.mobileprovision"
+            echo "$ADHOC_PROFILE_B64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/booksclean-adhoc.mobileprovision"
             echo "profile 安装完成"
           fi
 
