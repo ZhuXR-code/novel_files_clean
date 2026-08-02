@@ -40,13 +40,15 @@ struct FileRow: View {
                 Text(FormatUtil.formatSize(file.fileSize) + " · " + FormatUtil.formatFileDate(file.fileDate))
                     .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
             }
+            .contentShape(Rectangle())
+            .onTapGesture { onTap() }   // 仅文字区域点击进入详情，复选框/星星各自独立
             Spacer(minLength: 4)
             Button { onToggleMark() } label: {
                 Image(systemName: file.marked == 1 ? "star.fill" : "star")
                     .foregroundColor(file.marked == 1 ? .yellow : .fsSecondaryLabel)
             }
+            .buttonStyle(.plain)
         }
-        .contentShape(Rectangle()).onTapGesture { onTap() }
     }
 }
 
@@ -145,10 +147,21 @@ struct PageNavBar: View {
 private let LIB_STEPS = ["扫描", "合集", "勾选重复", "确认", "删除"]
 struct LibraryStepBar: View {
     let current: Int
+    let canGroup: Bool
+    let canDup: Bool
+    let canDelete: Bool
+    let onStep: (Int) -> Void   // 点击可操作节点：1=合集 2=勾选重复 4=删除
+
+    private func clickable(_ i: Int) -> Bool {
+        (i == 1 && canGroup) || (i == 2 && canDup) || (i == 4 && canDelete)
+    }
+
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(LIB_STEPS.indices, id: \.self) { i in
+        HStack(spacing: 6) {
+            ForEach(LIB_STEPS.indices, id: \.self) { i in
+                Button {
+                    if clickable(i) { onStep(i) }
+                } label: {
                     HStack(spacing: 4) {
                         Circle()
                             .fill(i <= current ? Color.fsPrimary : Color.fsTertiaryBg)
@@ -163,10 +176,14 @@ struct LibraryStepBar: View {
                             Text(LIB_STEPS[i]).fsFont(.caption2).foregroundColor(i < current ? .fsPrimary : .fsSecondaryLabel)
                         }
                     }
+                    .opacity(clickable(i) ? 1 : (i <= current ? 1 : 0.45))
                 }
+                .buttonStyle(.plain)
+                .disabled(!clickable(i))
             }
-            .padding(.horizontal, 4)
         }
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity)   // 整体在顶部栏内居中
     }
 }
 
@@ -175,7 +192,7 @@ struct LibraryView: View {
     @EnvironmentObject var prefs: Preferences
     let runId: Int64
 
-    @State private var mode = "list"
+    @State private var mode = UserDefaults.standard.string(forKey: "lib_mode") ?? "list" // "list" | "group"
     @State private var files: [ScannedFile] = []
     @State private var groups: [NovelGroup] = []
     @State private var total = 0
@@ -195,22 +212,62 @@ struct LibraryView: View {
     @State private var selectAllOnPage = false
     @State private var selectedGroup: NovelGroup?
     @State private var selectedFilter = "all"     // all/checked/unchecked/marked/unmarked
-    @State private var currentStep = 0            // 步骤指示器当前步
     @State private var autoCollapse = false
     @State private var showGroupSettings = false
     @State private var showDeleteConfirm = false
     @State private var toastText: String? = nil
+    @State private var showCheckPrompt = false
+    @State private var showExportSheet = false
+    @State private var running = false
+    @State private var exportAll = false
+    @State private var exportColumns: Set<String> = ["name", "title", "author", "size", "path", "date", "extra", "checked", "marked"]
+
+    // 派生统计：顶部步骤条与汇总文案使用
+    @State private var checkedCount = 0
+    @State private var totalCount = 0
+    @State private var groupChecked: [String: Int] = [:]   // "title\u{0}author" -> 已勾选数
+    @State private var runFileCount = 0                     // 文库总文件数
+
+    /// 当前步骤节点：0 扫描 / 1 合集 / 2 勾选重复 / 3 确认 / 4 删除。
+    /// 随用户操作前进而点亮、退回而熄灭。
+    private var currentStep: Int {
+        var s = 0
+        if mode == "group" { s = max(s, 1) }
+        if checkedCount > 0 { s = max(s, 3) }
+        return s
+    }
+    private var canStepGroup: Bool { mode != "group" }
+    private var canStepDup: Bool { mode == "group" && !running }
+    private var canStepDelete: Bool { checkedCount > 0 }
+
 
     var body: some View {
         VStack(spacing: 0) {
-            // 步骤指示器（对齐安卓文库顶部步骤条）
-            LibraryStepBar(current: currentStep).padding(.vertical, 6)
+            // 步骤指示器（对齐安卓文库顶部步骤条，节点可点击）
+            LibraryStepBar(
+                current: currentStep,
+                canGroup: canStepGroup,
+                canDup: canStepDup,
+                canDelete: canStepDelete,
+                onStep: handleStep
+            )
+            .padding(.vertical, 6)
+
+            // 汇总文案（对齐安卓 run_summary / group_summary / selected_count）
+            summaryBar
+                .padding(.horizontal)
+                .padding(.bottom, 4)
 
             Picker("模式", selection: $mode) {
                 Text("列表").tag("list")
                 Text("合集").tag("group")
             }
             .pickerStyle(.segmented).padding(.horizontal).padding(.bottom, 6)
+            .onChange(of: mode) { newMode in
+                UserDefaults.standard.set(newMode, forKey: "lib_mode")
+                page = 0
+                reload()
+            }
 
             // 筛选 chips（对齐安卓文库筛选行）
             ScrollView(.horizontal, showsIndicators: false) {
@@ -255,7 +312,6 @@ struct LibraryView: View {
         .toolbar { toolbarItems }
         .searchable(text: $search, prompt: "搜索文件名/书名/作者")
         .onSubmit(of: .search) { reload() }
-        .onChange(of: mode) { _ in reload() }
         .onChange(of: sortBy) { _ in reload() }
         .onChange(of: ascending) { _ in reload() }
         .onChange(of: search) { v in if v.isEmpty { reload() } }
@@ -263,6 +319,7 @@ struct LibraryView: View {
         .onAppear { reload() }
         .sheet(isPresented: $showFilter) { filterSheet }
         .sheet(isPresented: $showGroupSettings) { groupSettingsSheet }
+        .sheet(isPresented: $showExportSheet) { exportSheet }
         .sheet(item: $selectedGroup) { g in
             NavigationStack {
                 GroupFilesView(runId: runId, title: g.title == "(无书名)" ? "" : g.title, author: g.author)
@@ -278,7 +335,6 @@ struct LibraryView: View {
                 guard !ids.isEmpty else { return }
                 FileRepository.shared.deleteFiles(ids: ids)
                 reload()
-                currentStep = max(currentStep, 4)
             }
         } message: {
             Text("将删除所有已勾选的文件，且无法恢复。确定继续？")
@@ -348,6 +404,19 @@ struct LibraryView: View {
                 List {
                     ForEach(groups) { g in
                         HStack {
+                            // 三态复选框：空白=未勾选 / √=全部勾选 / -=部分勾选
+                            let key = "\(g.title)\u{0000}\(g.author)"
+                            let checked = groupChecked[key] ?? 0
+                            let allChecked = checked >= g.fileCount && g.fileCount > 0
+                            let someChecked = checked > 0 && !allChecked
+                            Button {
+                                toggleGroupChecked(title: g.title, author: g.author, allChecked: allChecked)
+                            } label: {
+                                Image(systemName: allChecked ? "checkmark.square.fill" : (someChecked ? "minus.square.fill" : "square"))
+                                    .foregroundColor(allChecked || someChecked ? .fsPrimary : .fsSecondaryLabel)
+                                    .font(.system(size: 18))
+                            }
+                            .buttonStyle(.plain)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(g.title).fsFont(.subheadline).fontWeight(.medium)
                                 Text("作者: \(g.author) · \(g.fileCount) 本 · \(FormatUtil.formatSize(g.totalSize))")
@@ -373,9 +442,7 @@ struct LibraryView: View {
             // 常驻操作（对齐安卓文库顶部图标栏：勾选重复 / 删除选中 / 更多）
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    FileRepository.shared.selectDuplicateIds(runId: runId)
-                    reload()
-                    currentStep = max(currentStep, 2)
+                    selectDuplicates()
                 } label: { Image(systemName: "checkmark.circle") }
                 .help("一键勾选重复")
             }
@@ -452,13 +519,7 @@ struct LibraryView: View {
                     Divider()
                     Button("一键清理") { router.navigate(.oneClick(runId: runId)) }
                     Divider()
-                    Button { 
-                        if let p = FileRepository.shared.exportLibrary(runId: runId) {
-                            toast("已导出文库清单：\(p)")
-                        } else {
-                            toast("当前文库没有可导出的文件")
-                        }
-                    } label: { Label("导出列表", systemImage: "square.and.arrow.up") }
+                    Button { showExportSheet = true } label: { Label("导出列表", systemImage: "square.and.arrow.up") }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
             ToolbarItem(placement: .navigationBarLeading) {
@@ -516,6 +577,56 @@ struct LibraryView: View {
         }
     }
 
+    // MARK: - 导出列表弹框（对齐安卓 ListExportUtil：列选择 + 本页/全部）
+    private var exportSheet: some View {
+        let allColumns = [
+            ("name", "文件名"), ("title", "书名"), ("author", "作者"), ("size", "大小"),
+            ("path", "路径"), ("date", "日期"), ("extra", "其他"), ("checked", "勾选状态"), ("marked", "标记状态")
+        ]
+        NavigationStack {
+            Form {
+                Section("导出范围") {
+                    Picker("范围", selection: $exportAll) {
+                        Text("当前页（\(files.count) 条）").tag(false)
+                        Text("全部文件（\(runFileCount) 条）").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                Section("导出列") {
+                    ForEach(allColumns, id: \.0) { col, label in
+                        Toggle(label, isOn: Binding(
+                            get: { exportColumns.contains(col) },
+                            set: { on in
+                                if on { exportColumns.insert(col) } else { exportColumns.remove(col) }
+                            }
+                        ))
+                    }
+                }
+            }
+            .navigationTitle("导出列表").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("取消") { showExportSheet = false }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("导出") {
+                        var cols = exportColumns
+                        if cols.isEmpty { cols = Set(allColumns.map { $0.0 }) }
+                        let path = FileRepository.shared.exportLibraryText(
+                            runId: runId, columns: cols, all: exportAll,
+                            offset: page * pageSize, limit: pageSize)
+                        showExportSheet = false
+                        if let p = path {
+                            toast("已导出列表清单：\(p)")
+                        } else {
+                            toast("没有可导出的文件")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - 操作
     /// 轻提示（对齐安卓 Toast），2 秒后自动消失。
     private func toast(_ msg: String) {
@@ -552,6 +663,69 @@ struct LibraryView: View {
         FileRepository.shared.updateChecked(ids: ids, checked: selectAllOnPage)
     }
 
+    // MARK: - 顶部汇总文案（对齐安卓 run_summary / group_summary / selected_count）
+    private var summaryBar: some View {
+        HStack(spacing: 6) {
+            if mode == "group" {
+                if checkedCount > 0 {
+                    Text("共 \(groups.count) 个合集 · 已勾选 \(checkedCount)/\(totalCount) 个文件")
+                        .fsFont(.caption).foregroundColor(.fsPrimary)
+                } else {
+                    Text("共 \(groups.count) 个合集 · \(totalCount) 个文件")
+                        .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                }
+            } else {
+                if checkedCount > 0 {
+                    Text("已勾选 \(checkedCount)/\(totalCount) 个文件")
+                        .fsFont(.caption).foregroundColor(.fsPrimary)
+                } else {
+                    Text("共 \(totalCount) 个文件")
+                        .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: - 步骤条点击处理
+    private func handleStep(_ idx: Int) {
+        switch idx {
+        case 1:  // 合集
+            if mode != "group" {
+                mode = "group"
+                UserDefaults.standard.set("group", forKey: "lib_mode")
+                reload()
+            }
+        case 2:  // 勾选重复
+            selectDuplicates()
+        case 4:  // 删除
+            if checkedCount > 0 { showDeleteConfirm = true }
+        default:
+            break
+        }
+    }
+
+    // 合集三态复选框：全部已勾选则取消该合集所有子文件，否则全选该合集所有子文件。
+    private func toggleGroupChecked(title: String, author: String, allChecked: Bool) {
+        let ids = DatabaseManager.shared.getGroupFiles(runId: runId, title: title, author: author).map { $0.id }
+        guard !ids.isEmpty else { return }
+        FileRepository.shared.updateChecked(ids: ids, checked: !allChecked)
+        reload()
+    }
+
+    // 一键勾选重复：后台执行，避免大文库主线程阻塞；完成后刷新统计使步骤条前移到「确认/删除」。
+    private func selectDuplicates() {
+        running = true
+        let rid = runId
+        DispatchQueue.global(qos: .userInitiated).async {
+            FileRepository.shared.selectDuplicateIds(runId: rid)
+            DispatchQueue.main.async {
+                running = false
+                reload()
+            }
+        }
+    }
+
     private func reload() {
         // 后台线程执行 DB 查询，避免大文库（十万级文件）在主线程 GROUP BY/COUNT 导致卡顿。
         let currentMode = mode
@@ -575,6 +749,11 @@ struct LibraryView: View {
                                            groupSort: curGroupSort, checkedSortToFront: curCheckedFront)
                 DispatchQueue.main.async {
                     groupTotal = gTotal; groupPageCount = gPageCount; page = p; groups = gs
+                    let gc = repo.getGroupCheckedCounts(runId: runId)
+                    groupChecked = gc
+                    checkedCount = gc.values.reduce(0, +)
+                    runFileCount = repo.dbCountFiles(runId: runId, title: "", author: "", progress: "", source: "", search: "", checkedFilter: -1, markedFilter: -1)
+                    totalCount = runFileCount
                     selectAllOnPage = false
                 }
                 return
@@ -600,6 +779,9 @@ struct LibraryView: View {
                                       checkedSortToFront: curCheckedFront)
             DispatchQueue.main.async {
                 total = t; pageCount = pc; page = p; files = fs
+                checkedCount = repo.getCheckedCount(runId: runId)
+                runFileCount = repo.dbCountFiles(runId: runId, title: "", author: "", progress: "", source: "", search: "", checkedFilter: -1, markedFilter: -1)
+                totalCount = runFileCount
                 selectAllOnPage = false
             }
         }
@@ -690,8 +872,6 @@ struct FileDetailView: View {
     @EnvironmentObject var router: Router
     let fileId: Int64
     @State private var file: ScannedFile?
-    @State private var showRename = false
-    @State private var newName = ""
     @State private var fileToDelete: ScannedFile? = nil
     @State private var toastText: String? = nil
 
@@ -736,18 +916,28 @@ struct FileDetailView: View {
                         DetailRow("内容哈希", f.contentHash.isEmpty ? "—" : f.contentHash, isMono: true)
                         DetailRow("路径", f.path.isEmpty ? "—" : FormatUtil.toHumanReadablePath(f.path), isPath: true)
 
-                        // 操作按钮（对齐安卓：预览 / 用其他应用打开 / 重命名 / 删除）
+                        // 操作按钮（对齐安卓：预览 / 用其他应用打开 / 标记 / 删除）
                         VStack(spacing: 12) {
                             PrimaryButton(title: "预览内容") {
                                 router.navigate(.filePreview(id: f.id, mode: "head"))
                             }
                             Button {
-                                guard let url = URL(string: f.path),
-                                      FileManager.default.fileExists(atPath: url.path) else {
-                                    toast("无法打开：文件不存在或路径无效")
-                                    return
+                                guard !f.path.isEmpty else {
+                                    toast("无法打开：文件路径为空"); return
+                                }
+                                guard let run = FileRepository.shared.getScanRun(f.scanRunId),
+                                      let folderURL = resolveBookmarkURL(run.folderUri) else {
+                                    toast("无法打开：文件夹访问授权已失效，请重新扫描以刷新授权"); return
+                                }
+                                // 安全作用域访问必须在主线程开启，文件 URL 用 fileURLWithPath 构造
+                                let accessed = folderURL.startAccessingSecurityScopedResource()
+                                let url = URL(fileURLWithPath: f.path)
+                                guard accessed, FileManager.default.fileExists(atPath: f.path) else {
+                                    if accessed { folderURL.stopAccessingSecurityScopedResource() }
+                                    toast("无法打开：文件不存在或路径无效"); return
                                 }
                                 UIApplication.shared.open(url) { success in
+                                    if accessed { folderURL.stopAccessingSecurityScopedResource() }
                                     if !success { toast("没有可打开该文件的应用") }
                                 }
                             } label: {
@@ -758,19 +948,10 @@ struct FileDetailView: View {
                                     .cornerRadius(10)
                             }
                             Button {
-                                newName = f.fileName; showRename = true
-                            } label: {
-                                Text("重命名").frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(Color.fsTertiaryBg)
-                                    .foregroundColor(.fsPrimary)
-                                    .cornerRadius(10)
-                            }
-                            Button {
                                 FileRepository.shared.setMarked(id: f.id, marked: f.marked != 1)
                                 file = FileRepository.shared.getById(f.id)
                             } label: {
-                                Text(f.marked == 1 ? "取消标记" : "标记为已标记").frame(maxWidth: .infinity)
+                                Text(f.marked == 1 ? "取消标记" : "标记").frame(maxWidth: .infinity)
                                     .padding(.vertical, 10)
                                     .background(Color.fsTertiaryBg)
                                     .foregroundColor(.fsPrimary)
@@ -808,21 +989,6 @@ struct FileDetailView: View {
             }
         }
         .onAppear { file = FileRepository.shared.getById(fileId) }
-        .sheet(isPresented: $showRename) {
-            NavigationStack {
-                Form { TextField("新文件名", text: $newName) }
-                .navigationTitle("重命名").navigationBarTitleDisplayMode(.inline).toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) { Button("取消") { showRename = false } }
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("保存") {
-                            FileRepository.shared.updateFileName(id: fileId, newName: newName)
-                            file = FileRepository.shared.getById(fileId)
-                            showRename = false
-                        }
-                    }
-                }
-            }
-        }
         .alert("删除文件", isPresented: Binding(
             get: { fileToDelete != nil },
             set: { if !$0 { fileToDelete = nil } }
@@ -940,24 +1106,30 @@ struct FilePreviewView: View {
     }
 
     private func load() async {
-        guard let f = FileRepository.shared.getById(fileId) else { text = "文件不存在"; return }
-        file = f
-        let content = readFileContent(f, mode: modeState)
-        await MainActor.run { text = content ?? "无法读取文件内容（可能缺少文件夹访问权限，请重新扫描以刷新授权）" }
+        guard let f = FileRepository.shared.getById(fileId) else {
+            await MainActor.run { text = "文件不存在" }
+            return
+        }
+        await MainActor.run { file = f }
+        let content = await readFileContent(f, mode: modeState)
+        await MainActor.run {
+            text = content ?? "无法读取文件内容（可能缺少文件夹访问权限，请重新扫描以刷新授权）"
+        }
     }
 
-    private func readFileContent(_ f: ScannedFile, mode: String) -> String? {
+    // 安全作用域访问必须在主线程；读取文件本身放到后台，避免大文件阻塞 UI。
+    private func readFileContent(_ f: ScannedFile, mode: String) async -> String? {
         guard let run = FileRepository.shared.getScanRun(f.scanRunId),
-              let url = URL(string: f.path),
               let folderURL = resolveBookmarkURL(run.folderUri) else { return nil }
-        // startAccessing/stopAccessingSecurityScopedResource 必须在主线程调用
-        let accessed = MainActor.assumeIsolated { folderURL.startAccessingSecurityScopedResource() }
+        let url = URL(fileURLWithPath: f.path)
+        // 在主线程开启安全作用域访问
+        let accessed = await MainActor.run { folderURL.startAccessingSecurityScopedResource() }
         guard accessed else { return nil }
-        defer { MainActor.assumeIsolated { folderURL.stopAccessingSecurityScopedResource() } }
+        defer { Task { @MainActor in folderURL.stopAccessingSecurityScopedResource() } }
+
         let enc = f.encoding.isEmpty ? "UTF-8" : f.encoding
         let encoding = EncodingUtil.stringEncoding(named: enc)
-        // 预览仅读取前/后 200KB，避免大文件（数十 MB）整篇载入导致内存暴涨与界面卡死。
-        // all 模式读取完整文件（小文件可读全，大文件受 200KB 上限保护）。
+        // 预览仅读取前/后 200KB，避免大文件整篇载入导致内存暴涨与界面卡死。
         let maxBytes = 200 * 1024
         guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? fh.close() }
@@ -965,7 +1137,6 @@ struct FilePreviewView: View {
         var data: Data
         var truncatedSuffix: String
         if mode == "tail" {
-            // 后 100 行：从文件末尾前 200KB 处开始读取
             let total = (try? fh.seekToEnd()) ?? 0
             let offset = max(0, Int64(total) - Int64(maxBytes))
             fh.seek(toFileOffset: UInt64(offset))
@@ -973,13 +1144,11 @@ struct FilePreviewView: View {
             let truncated = offset > 0
             truncatedSuffix = truncated ? "\n\n…（预览仅显示末尾 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
         } else if mode == "all" {
-            // 全部内容：读取完整文件（受 200KB 上限保护，超大文件仅显示开头部分）
             fh.seek(toFileOffset: 0)
             data = fh.readData(ofLength: maxBytes)
             let truncated = data.count >= maxBytes
             truncatedSuffix = truncated ? "\n\n…（预览仅显示前 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
         } else {
-            // 前 50 行（默认）：读取文件开头 200KB
             fh.seek(toFileOffset: 0)
             data = fh.readData(ofLength: maxBytes)
             let truncated = data.count >= maxBytes

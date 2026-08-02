@@ -512,6 +512,20 @@ final class DatabaseManager {
         fetchAll("SELECT \(SF_COLS) FROM scanned_file WHERE scan_run_id=? AND title=? AND author=? ORDER BY created_at DESC, id DESC", [runId, title, author]).map(mapScannedFile)
     }
 
+    /// 一次性取出文库内每个 (title,author) 子组的「已勾选文件数」，供合集列表的三态复选框与勾选计数使用。
+    /// 返回字典以 "title\u{0000}author" 为键，避免合集数量多时逐组合查。
+    func getGroupCheckedCounts(runId: Int64) -> [String: Int] {
+        let rows = fetchAll("SELECT title, author, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k FROM scanned_file WHERE scan_run_id=? GROUP BY title, author", [runId])
+        var dict: [String: Int] = [:]
+        for r in rows {
+            let title = (r[0] as? String) ?? ""
+            let author = (r[1] as? String) ?? ""
+            let checked = (r[2] as? Int64).map(Int.init) ?? 0
+            dict["\(title)\u{0000}\(author)"] = checked
+        }
+        return dict
+    }
+
     func getDuplicateRows(runId: Int64) -> [DuplicateRow] {
         fetchAll("SELECT id,file_name,title,author,progress,source,file_size,created_at,COALESCE(file_date,0) FROM scanned_file WHERE scan_run_id=?", [runId]).map { r in
             DuplicateRow(id: (r[0] as? Int64) ?? 0, fileName: (r[1] as? String) ?? "", title: (r[2] as? String) ?? "",

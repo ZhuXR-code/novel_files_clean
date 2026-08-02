@@ -225,4 +225,88 @@ final class FileRepository {
             return nil
         }
     }
+
+    // MARK: - 合集勾选计数（三态复选框）
+    func getGroupCheckedCounts(runId: Int64) -> [String: Int] {
+        db.getGroupCheckedCounts(runId: runId)
+    }
+
+    // MARK: - 导出列表清单（对齐安卓 ListExportUtil 的列选择 / 本页·全部）
+    /// columns: 要导出的列集合，可选值：
+    /// "name"(文件名) "title"(书名) "author"(作者) "size"(大小) "path"(路径)
+    /// "date"(日期) "extra"(其他) "checked"(勾选状态) "marked"(标记状态)
+    /// all: true 导出全部文件；false 仅导出当前页（由 offset/limit 限定）。
+    func exportLibraryText(runId: Int64, columns: Set<String>, all: Bool,
+                           offset: Int = 0, limit: Int = Int.max) -> String? {
+        let files: [ScannedFile]
+        if all {
+            files = db.getScannedFilesPaged(runId: runId, offset: 0, limit: Int.max,
+                                            sortBy: "created_at", ascending: true,
+                                            titleFilter: nil, authorFilter: nil,
+                                            progressFilter: nil, sourceFilter: nil, search: nil)
+        } else {
+            files = db.getScannedFilesPaged(runId: runId, offset: offset, limit: limit,
+                                            sortBy: "created_at", ascending: true,
+                                            titleFilter: nil, authorFilter: nil,
+                                            progressFilter: nil, sourceFilter: nil, search: nil)
+        }
+        guard !files.isEmpty else { return nil }
+
+        // 列顺序固定，保证与安卓一致
+        let ordered = ["name", "title", "author", "size", "path", "date", "extra", "checked", "marked"]
+        let chosen = ordered.filter { columns.contains($0) }
+        let headers = chosen.map { Self.columnLabel($0) }
+
+        var text = "文库文件清单（共 \(files.count) 个"
+        text += (columns.isEmpty ? "，默认全字段" : "，导出列：\(headers.joined(separator: " | "))")
+        text += "）\n"
+        text += "生成时间：\(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .medium))\n"
+        text += String(repeating: "=", count: 40) + "\n"
+
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        for f in files {
+            var parts: [String] = []
+            for col in chosen {
+                switch col {
+                case "name":   parts.append(f.fileName)
+                case "title":  parts.append(f.title.isEmpty ? "" : f.title)
+                case "author": parts.append(f.author.isEmpty ? "" : f.author)
+                case "size":   parts.append(FormatUtil.formatFileSize(f.fileSize))
+                case "path":   parts.append(f.path.isEmpty ? "" : FormatUtil.toHumanReadablePath(f.path))
+                case "date":   parts.append(f.fileDate > 0 ? df.string(from: Date(timeIntervalSince1970: TimeInterval(f.fileDate) / 1000)) : "")
+                case "extra":  parts.append("\(f.progress.isEmpty ? "" : "进度:\(f.progress) ")\(f.source.isEmpty ? "" : "来源:\(f.source)")")
+                case "checked":parts.append(f.checked == 1 ? "已勾选" : "")
+                case "marked": parts.append(f.marked == 1 ? "已标记" : "")
+                default: break
+                }
+            }
+            text += parts.joined(separator: " | ") + "\n"
+        }
+        let name = "library_export_\(runId)_"
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("\(name).txt")
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            LogUtil.i("Repo", "导出列表 \(files.count) 个 -> \(url.path)")
+            return url.path
+        } catch {
+            LogUtil.e("Repo", "导出列表失败：\(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private static func columnLabel(_ col: String) -> String {
+        switch col {
+        case "name":   return "文件名"
+        case "title":  return "书名"
+        case "author": return "作者"
+        case "size":   return "大小"
+        case "path":   return "路径"
+        case "date":   return "日期"
+        case "extra":  return "其他"
+        case "checked":return "勾选状态"
+        case "marked": return "标记状态"
+        default:       return col
+        }
+    }
 }
