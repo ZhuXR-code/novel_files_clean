@@ -22,8 +22,8 @@ workflows:
         script: |
           cd ios_app
           xcodebuild clean \
-            -project FileScanner.xcodeproj \
-            -scheme FileScanner \
+            -project booksclean.xcodeproj \
+            -scheme booksclean \
             -configuration Release \
             -sdk iphoneos
       - name: Archive
@@ -31,12 +31,12 @@ workflows:
           cd ios_app
           mkdir -p $CM_BUILD_DIR/build
           xcodebuild archive \
-            -project FileScanner.xcodeproj \
-            -scheme FileScanner \
+            -project booksclean.xcodeproj \
+            -scheme booksclean \
             -configuration Release \
             -sdk iphoneos \
             -destination generic/platform=iOS \
-            -archivePath $CM_BUILD_DIR/build/FileScanner.xcarchive \
+            -archivePath $CM_BUILD_DIR/build/booksclean.xcarchive \
             DEVELOPMENT_TEAM="$APP_DEVELOPMENT_TEAM"
       - name: Export IPA
         script: |
