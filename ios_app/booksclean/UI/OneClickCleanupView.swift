@@ -315,7 +315,8 @@ struct OneClickCleanupView: View {
         guard checkedCount > 0 else { return }
         let ids = FileRepository.shared.getCheckedIds(runId: runId)
         phase = .deleting
-        router.navigate(.deleteConfirm(runId: runId, ids: Array(ids), physical: true))
+        // 默认 physical=false（仅删除记录），更安全；用户在 DeleteConfirmView 内可主动开启 Toggle 切换为同步删除磁盘文件
+        router.navigate(.deleteConfirm(runId: runId, ids: Array(ids), physical: false))
     }
 }
 

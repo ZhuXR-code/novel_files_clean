@@ -45,7 +45,21 @@ struct DeleteConfirmView: View {
                     }
                 }
 
-                Toggle("同时删除磁盘上的文件（取消则仅移除记录）", isOn: $physical)
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: $physical) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(physical ? "同时删除磁盘上的文件" : "仅删除记录（不删磁盘文件）")
+                                .fsFont(.subheadline).fontWeight(.medium)
+                            Text(physical ? "将尝试从磁盘永久删除源文件，操作不可恢复" : "仅移除数据库记录，源文件保留在原位置")
+                                .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                        }
+                    }
+                    .tint(.red)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.fsSecondaryBg)
+                .cornerRadius(10)
 
                 PrimaryButton(title: "开始删除") {
                     router.navigate(.deleteProgress(runId: runId, ids: ids, physical: physical))

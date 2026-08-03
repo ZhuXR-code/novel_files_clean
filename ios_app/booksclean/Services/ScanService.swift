@@ -51,7 +51,8 @@ final class ScanService {
 
         await MainActor.run { sm.phase = "scanning" }
 
-        let processBatch = { (batch: [(url: URL, name: String, size: Int64, date: Int64)]) in
+        let processBatch = { (batch: [(url: URL, name: String, size: Int64, date: Int64)], runningTotal: Int) in
+            total = runningTotal
             for item in batch {
                 if sm.shouldStop() { return }
                 let entity = self.parseItem(url: item.url, name: item.name, size: item.size, date: item.date,
@@ -104,8 +105,9 @@ final class ScanService {
     // MARK: - 枚举
     /// 流式枚举：边遍历边把文件按 batchSize 聚合成批，通过 onBatch 回调就地处理（解析+落库），
     /// 随后该批内存即被释放，避免一次性把 20w+ 文件 URL/元信息全量驻留内存。
-    /// 返回累计收集到的匹配文件总数（供进度分母使用）。
-    private func collect(in dir: URL, recursive: Bool, types: Set<String>, minSize: Int64, excluded: Set<String>, batchSize: Int, onBatch: ([(url: URL, name: String, size: Int64, date: Int64)]) -> Void) -> Int {
+    /// onBatch 第二个参数是当前已发现的匹配文件总数（用于驱动扫描进度条分母）。
+    /// 返回累计收集到的匹配文件总数。
+    private func collect(in dir: URL, recursive: Bool, types: Set<String>, minSize: Int64, excluded: Set<String>, batchSize: Int, onBatch: ([(url: URL, name: String, size: Int64, date: Int64)], Int) -> Void) -> Int {
         let fm = FileManager.default
         guard let enumerator = fm.enumerator(at: dir, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles]) else { return 0 }
         var batch: [(url: URL, name: String, size: Int64, date: Int64)] = []
@@ -131,11 +133,11 @@ final class ScanService {
             batch.append((url: url, name: url.lastPathComponent, size: size, date: Int64(date * 1000)))
             count += 1
             if batch.count >= batchSize {
-                onBatch(batch)
+                onBatch(batch, count)
                 batch.removeAll(keepingCapacity: true)
             }
         }
-        if !batch.isEmpty { onBatch(batch) }
+        if !batch.isEmpty { onBatch(batch, count) }
         return count
     }
 
