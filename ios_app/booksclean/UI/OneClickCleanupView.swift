@@ -72,7 +72,15 @@ struct OneClickCleanupView: View {
         .navigationTitle("一键清理重复文件")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showReview) {
-            OneClickReviewSheet(runId: runId) { recompute() }
+            OneClickReviewSheet(
+                runId: runId,
+                onClose: { recompute() },
+                onCountChanged: { newChecked, newTotal, newDup in
+                    checkedCount = newChecked
+                    totalCount = newTotal
+                    dupGroups = newDup
+                }
+            )
         }
         .alert("出错了", isPresented: $showError) {
             Button("确定", role: .cancel) {}
@@ -373,10 +381,24 @@ struct OneClickCleanupView: View {
 struct OneClickReviewSheet: View {
     let runId: Int64
     var onClose: (() -> Void)? = nil
+    /// 移除单条后回调（剩余勾选数, 剩余涉及文件总数, 剩余重复组数），用于父级同步顶部统计。
+    var onCountChanged: ((Int, Int, Int) -> Void)? = nil
     @Environment(\.dismiss) var dismiss
 
     @State private var files: [ScannedFile] = []
     @State private var loading = true
+    @State private var searchText = ""
+
+    /// 模糊搜索过滤后的清单（匹配 文件名/书名/作者）
+    private var filteredFiles: [ScannedFile] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return files }
+        return files.filter {
+            $0.fileName.lowercased().contains(q)
+                || $0.title.lowercased().contains(q)
+                || $0.author.lowercased().contains(q)
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -384,21 +406,45 @@ struct OneClickReviewSheet: View {
                 if loading {
                     ProgressView()
                 } else if files.isEmpty {
-                    Text("暂无待删除文件").foregroundColor(.fsSecondaryLabel).padding()
+                    VStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle").fsFontSize(40).foregroundColor(.green)
+                        Text("清单已清空，无需删除。").foregroundColor(.fsSecondaryLabel)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(files) { f in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(f.fileName).fsFont(.subheadline).fontWeight(.medium)
-                            HStack {
-                                Text(f.title.isEmpty ? "未解析" : f.title)
-                                    .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
-                                if !f.author.isEmpty {
-                                    Text("· \(f.author)").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                    VStack(spacing: 0) {
+                        TextField("搜索文件名 / 书名 / 作者", text: $searchText)
+                            .textFieldStyle(.roundedBorder)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            .padding(.horizontal, 12).padding(.top, 8)
+                        HStack(spacing: 6) {
+                            Image(systemName: "hand.point.up.left.fill").foregroundColor(.fsPrimary)
+                            Text("不需要删除的文件：点击行右侧红色").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                            Text("移除").fsFont(.caption2).foregroundColor(.red).fontWeight(.semibold)
+                            Text("按钮，或左滑该行。").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12).padding(.top, 4).padding(.bottom, 6)
+
+                        if filteredFiles.isEmpty {
+                            Text("未找到匹配的文件").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                                .frame(maxWidth: .infinity).padding(.vertical, 24)
+                        } else {
+                            List {
+                                ForEach(filteredFiles) { f in
+                                    OneClickReviewRow(file: f) {
+                                        removeFromList(f)
+                                    }
+                                    .listRowSeparator(.hidden)
+                                    .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                        Button(role: .destructive) { removeFromList(f) } label: {
+                                            Label("移除", systemImage: "xmark.circle")
+                                        }
+                                    }
                                 }
-                                Spacer()
-                                Text(FormatUtil.formatSize(f.fileSize)).fsFont(.caption)
-                                    .foregroundColor(.fsSecondaryLabel)
                             }
+                            .listStyle(.plain)
                         }
                     }
                 }
@@ -407,11 +453,27 @@ struct OneClickReviewSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button("关闭") {
+                        onClose?()
+                        dismiss()
+                    }
                 }
             }
             .task { load() }
         }
+    }
+
+    /// 将文件从本次待删除清单中移除（数据库 checked=0，下次 confirmDelete 不会取到）。
+    private func removeFromList(_ f: ScannedFile) {
+        // 1) 数据库：取消勾选
+        FileRepository.shared.setChecked(id: f.id, checked: false)
+        // 2) 本地数组移除
+        files.removeAll { $0.id == f.id }
+        // 3) 重新拉统计，通知父级同步顶部数字
+        let newChecked = FileRepository.shared.getCheckedIds(runId: runId).count
+        let newTotal = FileRepository.shared.countFiles(runId: runId)
+        let newDup = FileRepository.shared.getDuplicateGroups(runId: runId)
+        onCountChanged?(newChecked, newTotal, newDup)
     }
 
     private func load() {
@@ -422,6 +484,47 @@ struct OneClickReviewSheet: View {
                 files = rows
                 loading = false
             }
+        }
+    }
+}
+
+/// 一键清理查看清单的单行：文件名 + 书名/作者 + 大小 + 红色"移除"按钮。
+private struct OneClickReviewRow: View {
+    let file: ScannedFile
+    /// 从清单中移除该文件（本次不删除）
+    var onRemove: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(file.fileName).fsFont(.subheadline).fontWeight(.medium)
+                    .foregroundColor(.fsPrimary).lineLimit(1)
+                HStack {
+                    Text(file.title.isEmpty ? "未解析" : file.title)
+                        .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                        .lineLimit(1)
+                    if !file.author.isEmpty {
+                        Text("· \(file.author)").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 6)
+                    Text(FormatUtil.formatSize(file.fileSize)).fsFont(.caption)
+                        .foregroundColor(.fsSecondaryLabel)
+                }
+            }
+            Spacer(minLength: 0)
+            Button(action: onRemove) {
+                HStack(spacing: 4) {
+                    Image(systemName: "xmark.circle.fill").fsFontSize(20)
+                    Text("移除").fsFont(.caption2)
+                }
+                .foregroundColor(.red)
+                .padding(.vertical, 4).padding(.leading, 6)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("从清单移除")
+            .help("从清单移除")
         }
     }
 }
