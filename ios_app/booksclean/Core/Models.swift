@@ -23,7 +23,7 @@ struct ScannedFile: Identifiable {
 }
 
 /// 扫描配置（对应 Android `ScanConfigEntity`）。
-struct ScanConfig: Identifiable {
+struct ScanConfig: Identifiable, Hashable {
     var id: Int64 = 0
     var name: String = ""
     var folderUri: String = ""          // iOS 下保存安全作用域书签 Data 的 base64
