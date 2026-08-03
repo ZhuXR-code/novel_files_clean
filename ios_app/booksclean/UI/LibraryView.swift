@@ -214,7 +214,6 @@ struct LibraryView: View {
     @State private var selectedFilter = "all"     // all/checked/unchecked/marked/unmarked
     @State private var autoCollapse = false
     @State private var showGroupSettings = false
-    @State private var showDeleteConfirm = false
     @State private var toastText: String? = nil
     @State private var showCheckPrompt = false
     @State private var showExportSheet = false
@@ -315,7 +314,12 @@ struct LibraryView: View {
         .onChange(of: sortBy) { _ in reload() }
         .onChange(of: ascending) { _ in reload() }
         .onChange(of: search) { v in if v.isEmpty { reload() } }
-        .onChange(of: selectedFilter) { _ in reload() }
+        .onChange(of: selectedFilter) { _ in
+            // 切换筛选时回到第 1 页，否则停留在旧页码时新筛选结果可能更少，
+            // 会显示空白页，让人误以为「筛选没生效」。
+            page = 0
+            reload()
+        }
         .onAppear { reload() }
         .sheet(isPresented: $showFilter) { filterSheet }
         .sheet(isPresented: $showGroupSettings) { groupSettingsSheet }
@@ -327,17 +331,6 @@ struct LibraryView: View {
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { selectedGroup = nil } } }
             }
-        }
-        .alert("删除勾选文件", isPresented: $showDeleteConfirm) {
-            Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) {
-                let ids = FileRepository.shared.getCheckedIds(runId: runId)
-                guard !ids.isEmpty else { return }
-                FileRepository.shared.deleteFiles(ids: ids)
-                reload()
-            }
-        } message: {
-            Text("将删除所有已勾选的文件，且无法恢复。确定继续？")
         }
     }
 
@@ -450,7 +443,8 @@ struct LibraryView: View {
                 Button {
                     let ids = FileRepository.shared.getCheckedIds(runId: runId)
                     guard !ids.isEmpty else { return }
-                    showDeleteConfirm = true
+                    // 跳转删除确认页，让用户选择「仅删除记录」或「记录与源文件一起删除」
+                    router.navigate(.deleteConfirm(runId: runId, ids: ids, physical: false))
                 } label: { Image(systemName: "trash") }
                 .help("删除勾选文件")
             }
@@ -614,7 +608,8 @@ struct LibraryView: View {
                         if cols.isEmpty { cols = Set(allColumns.map { $0.0 }) }
                         let path = FileRepository.shared.exportLibraryText(
                             runId: runId, columns: cols, all: exportAll,
-                            offset: page * pageSize, limit: pageSize)
+                            offset: page * pageSize, limit: pageSize,
+                            currentPage: exportAll ? nil : files)
                         showExportSheet = false
                         if let p = path {
                             toast("已导出列表清单：\(p)")
@@ -699,7 +694,11 @@ struct LibraryView: View {
         case 2:  // 勾选重复
             selectDuplicates()
         case 4:  // 删除
-            if checkedCount > 0 { showDeleteConfirm = true }
+            if checkedCount > 0 {
+                let ids = FileRepository.shared.getCheckedIds(runId: runId)
+                guard !ids.isEmpty else { return }
+                router.navigate(.deleteConfirm(runId: runId, ids: ids, physical: false))
+            }
         default:
             break
         }
@@ -741,12 +740,14 @@ struct LibraryView: View {
 
         DispatchQueue.global(qos: .userInitiated).async {
             if currentMode == "group" {
-                let gTotal = repo.dbCountGroups(runId: runId, min: curMin, max: curMax, exclude: curExclude)
+                let gTotal = repo.dbCountGroups(runId: runId, min: curMin, max: curMax, exclude: curExclude,
+                                                checkedFilter: cf, markedFilter: mf)
                 let gPageCount = LibraryLogic.computePageCount(total: max(gTotal, 1), pageSize: currentPageSize)
                 let p = min(max(currentPage, 0), max(gPageCount - 1, 0))
                 let gs = repo.dbPageGroups(runId: runId, min: curMin, max: curMax,
                                            exclude: curExclude, page: p, pageSize: currentPageSize,
-                                           groupSort: curGroupSort, checkedSortToFront: curCheckedFront)
+                                           groupSort: curGroupSort, checkedSortToFront: curCheckedFront,
+                                           checkedFilter: cf, markedFilter: mf)
                 DispatchQueue.main.async {
                     groupTotal = gTotal; groupPageCount = gPageCount; page = p; groups = gs
                     let gc = repo.getGroupCheckedCounts(runId: runId)
@@ -809,14 +810,18 @@ extension FileRepository {
     func dbGroupFiles(runId: Int64, min: Int, max: Int, exclude: [String]) -> [NovelGroup] {
         DatabaseManager.shared.getNovelGroups(runId: runId, minCount: min, maxCount: max, excludeNames: exclude)
     }
-    func dbCountGroups(runId: Int64, min: Int, max: Int, exclude: [String]) -> Int {
-        DatabaseManager.shared.countNovelGroups(runId: runId, minCount: min, maxCount: max, excludeNames: exclude)
+    func dbCountGroups(runId: Int64, min: Int, max: Int, exclude: [String],
+                        checkedFilter: Int = -1, markedFilter: Int = -1) -> Int {
+        DatabaseManager.shared.countNovelGroups(runId: runId, minCount: min, maxCount: max, excludeNames: exclude,
+                                                 checkedFilter: checkedFilter, markedFilter: markedFilter)
     }
     func dbPageGroups(runId: Int64, min: Int, max: Int, exclude: [String], page: Int, pageSize: Int,
-                      groupSort: String = "count_desc", checkedSortToFront: Bool = false) -> [NovelGroup] {
+                      groupSort: String = "count_desc", checkedSortToFront: Bool = false,
+                      checkedFilter: Int = -1, markedFilter: Int = -1) -> [NovelGroup] {
         DatabaseManager.shared.getNovelGroupsPaged(runId: runId, minCount: min, maxCount: max,
                                                     excludeNames: exclude, offset: page * pageSize, limit: pageSize,
-                                                    groupSort: groupSort, checkedSortToFront: checkedSortToFront)
+                                                    groupSort: groupSort, checkedSortToFront: checkedSortToFront,
+                                                    checkedFilter: checkedFilter, markedFilter: markedFilter)
     }
 }
 
@@ -872,7 +877,6 @@ struct FileDetailView: View {
     @EnvironmentObject var router: Router
     let fileId: Int64
     @State private var file: ScannedFile?
-    @State private var fileToDelete: ScannedFile? = nil
     @State private var toastText: String? = nil
 
     /// 轻提示（本视图独立持有，LibraryView 的 toast 是其私有成员，此处访问不到）
@@ -888,8 +892,8 @@ struct FileDetailView: View {
         Group {
             if let f = file {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        // 单列行（标签在上 / 值在下 / 分隔线）
+                    VStack(alignment: .leading, spacing: 12) {
+                        // 单列行（标签在上 / 值在下）
                         DetailRow("书名", f.title.isEmpty ? "—" : "《\(f.title)》")
                         DetailRow("作者", f.author.isEmpty ? "—" : f.author)
                         DetailRow("原文件名", f.fileName)
@@ -906,17 +910,53 @@ struct FileDetailView: View {
                             ("来源", f.source.isEmpty ? "—" : f.source),
                             ("日期", FormatUtil.formatFileDate(f.fileDate))
                         ])
-                        // 一行多列：已标记 | 已勾选
-                        DetailRowColumns([
-                            ("已标记", f.marked == 1 ? "已标记" : "未标记"),
-                            ("已勾选", f.checked == 1 ? "已勾选" : "未勾选")
-                        ])
+
+                        // 标记状态行（星标图标 + 可切换，对齐安卓/鸿蒙）
+                        HStack(spacing: 10) {
+                            Image(systemName: f.marked == 1 ? "star.fill" : "star")
+                                .foregroundColor(f.marked == 1 ? .orange : .fsSecondaryLabel)
+                            Text(f.marked == 1 ? "已标记" : "未标记")
+                                .fsFont(.subheadline).fontWeight(.medium)
+                            Spacer()
+                            Button {
+                                FileRepository.shared.setMarked(id: f.id, marked: f.marked != 1)
+                                file = FileRepository.shared.getById(f.id)
+                            } label: {
+                                Text(f.marked == 1 ? "取消标记" : "标记")
+                                    .fsFont(.subheadline, weight: .semibold)
+                                    .foregroundColor(.fsPrimary)
+                            }
+                        }
+                        .padding(12)
+                        .background(Color.fsSecondaryBg)
+                        .cornerRadius(10)
+
+                        // 勾选删除开关（对齐鸿蒙"勾选删除" Toggle，详情页可直接纳入清理清单）
+                        HStack(spacing: 10) {
+                            Image(systemName: f.checked == 1 ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(f.checked == 1 ? .fsPrimary : .fsSecondaryLabel)
+                            Text(f.checked == 1 ? "已勾选（将纳入清理清单）" : "未勾选")
+                                .fsFont(.subheadline).fontWeight(.medium)
+                            Spacer()
+                            Toggle("勾选删除", isOn: Binding(
+                                get: { f.checked == 1 },
+                                set: { nv in
+                                    FileRepository.shared.setChecked(id: f.id, checked: nv)
+                                    file = FileRepository.shared.getById(f.id)
+                                }
+                            ))
+                            .labelsHidden()
+                            .tint(.fsPrimary)
+                        }
+                        .padding(12)
+                        .background(Color.fsSecondaryBg)
+                        .cornerRadius(10)
 
                         // 单列行：内容哈希 / 路径
                         DetailRow("内容哈希", f.contentHash.isEmpty ? "—" : f.contentHash, isMono: true)
                         DetailRow("路径", f.path.isEmpty ? "—" : FormatUtil.toHumanReadablePath(f.path), isPath: true)
 
-                        // 操作按钮（对齐安卓：预览 / 用其他应用打开 / 标记 / 删除）
+                        // 操作按钮（对齐安卓：预览 / 用其他应用打开 / 删除）
                         VStack(spacing: 12) {
                             PrimaryButton(title: "预览内容") {
                                 router.navigate(.filePreview(id: f.id, mode: "head"))
@@ -929,14 +969,18 @@ struct FileDetailView: View {
                                       let folderURL = resolveBookmarkURL(run.folderUri) else {
                                     toast("无法打开：文件夹访问授权已失效，请重新扫描以刷新授权"); return
                                 }
-                                // 安全作用域访问必须在主线程开启，文件 URL 用 fileURLWithPath 构造
+                                // f.path 存的是 file:// 形式的绝对 URL 字符串，必须用 URL(string:) 解析，
+                                // 不能用 URL(fileURLWithPath:)（会把 "file:///..." 当成字面路径导致找不到文件）。
+                                guard let fileURL = URL(string: f.path) else {
+                                    toast("无法打开：文件路径无效"); return
+                                }
+                                // 安全作用域访问必须在主线程开启（针对扫描时授权的文件夹）
                                 let accessed = folderURL.startAccessingSecurityScopedResource()
-                                let url = URL(fileURLWithPath: f.path)
-                                guard accessed, FileManager.default.fileExists(atPath: f.path) else {
+                                guard accessed, FileManager.default.fileExists(atPath: fileURL.path) else {
                                     if accessed { folderURL.stopAccessingSecurityScopedResource() }
                                     toast("无法打开：文件不存在或路径无效"); return
                                 }
-                                UIApplication.shared.open(url) { success in
+                                UIApplication.shared.open(fileURL) { success in
                                     if accessed { folderURL.stopAccessingSecurityScopedResource() }
                                     if !success { toast("没有可打开该文件的应用") }
                                 }
@@ -947,18 +991,9 @@ struct FileDetailView: View {
                                     .foregroundColor(.fsPrimary)
                                     .cornerRadius(10)
                             }
-                            Button {
-                                FileRepository.shared.setMarked(id: f.id, marked: f.marked != 1)
-                                file = FileRepository.shared.getById(f.id)
-                            } label: {
-                                Text(f.marked == 1 ? "取消标记" : "标记").frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(Color.fsTertiaryBg)
-                                    .foregroundColor(.fsPrimary)
-                                    .cornerRadius(10)
-                            }
                             Button(role: .destructive) {
-                                fileToDelete = f
+                                // 跳转删除确认页，让用户选择「仅删除记录」或「记录与源文件一起删除」
+                                router.navigate(.deleteConfirm(runId: f.scanRunId, ids: [f.id], physical: false))
                             } label: {
                                 Text("删除该文件").frame(maxWidth: .infinity)
                                     .padding(.vertical, 10)
@@ -966,7 +1001,7 @@ struct FileDetailView: View {
                                     .cornerRadius(10)
                             }
                         }
-                        .padding(.top, 20)
+                        .padding(.top, 8)
                     }
                     .padding(16)
                 }
@@ -989,59 +1024,45 @@ struct FileDetailView: View {
             }
         }
         .onAppear { file = FileRepository.shared.getById(fileId) }
-        .alert("删除文件", isPresented: Binding(
-            get: { fileToDelete != nil },
-            set: { if !$0 { fileToDelete = nil } }
-        )) {
-            Button("取消", role: .cancel) { fileToDelete = nil }
-            Button("删除", role: .destructive) {
-                if let f = fileToDelete {
-                    FileRepository.shared.deleteFiles(ids: [f.id])
-                    router.pop()
-                }
-                fileToDelete = nil
-            }
-        } message: {
-            if let f = fileToDelete {
-                Text("确定要删除文件「\(f.fileName)」吗？该操作不可撤销。")
-            }
-        }
     }
 }
 
-// MARK: - 文件详情排布（对齐安卓：单行单列 + 一行多列混合）
+// MARK: - 文件详情排布（对齐安卓/鸿蒙：卡片式信息行，标签在上 / 值在下）
 private func DetailRow(_ label: String, _ value: String, isPath: Bool = false, isMono: Bool = false) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
+    VStack(alignment: .leading, spacing: 4) {
         Text(label).fsFont(.caption).foregroundColor(.fsSecondaryLabel)
         Text(value)
             .fsFont(.subheadline, design: isMono ? .monospaced : .default)
             .fontWeight(.medium)
             .fixedSize(horizontal: false, vertical: true)
             .lineLimit(isPath ? 4 : nil)
-        Divider().padding(.top, 8)
+            .textSelection(.enabled)
     }
-    .padding(.vertical, 8)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(12)
+    .background(Color.fsSecondaryBg)
+    .cornerRadius(10)
 }
 
 private func DetailRowColumns(_ items: [(String, String)]) -> some View {
-    VStack(spacing: 0) {
-        HStack(spacing: 0) {
-            ForEach(items.indices, id: \.self) { i in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(items[i].0).fsFont(.caption).foregroundColor(.fsSecondaryLabel)
-                    Text(items[i].1).fsFont(.subheadline).fontWeight(.medium)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                if i < items.count - 1 {
-                    Divider().frame(height: 36).padding(.horizontal, 8)
-                }
+    HStack(spacing: 0) {
+        ForEach(items.indices, id: \.self) { i in
+            VStack(alignment: .leading, spacing: 4) {
+                Text(items[i].0).fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                Text(items[i].1).fsFont(.subheadline).fontWeight(.medium)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if i < items.count - 1 {
+                Divider().frame(height: 36).padding(.horizontal, 8)
             }
         }
-        .padding(.vertical, 8)
-        Divider()
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(12)
+    .background(Color.fsSecondaryBg)
+    .cornerRadius(10)
 }
 
 // MARK: - 文件预览（阅读，对齐安卓）
@@ -1092,7 +1113,7 @@ struct FilePreviewView: View {
                               axis: prefs.previewScrollbarMode == "horizontal" ? .horizontal : .vertical)
             }
         }
-        .navigationTitle("预览")
+        .navigationTitle(file?.fileName ?? "预览")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -1123,7 +1144,8 @@ struct FilePreviewView: View {
     private func readFileContent(_ f: ScannedFile, mode: String) async -> String? {
         guard let run = FileRepository.shared.getScanRun(f.scanRunId),
               let folderURL = resolveBookmarkURL(run.folderUri) else { return nil }
-        let url = URL(fileURLWithPath: f.path)
+        // f.path 是 file:// 形式的绝对 URL 字符串，必须用 URL(string:) 解析
+        guard let url = URL(string: f.path) else { return nil }
         // 在主线程开启安全作用域访问
         let accessed = await MainActor.run { folderURL.startAccessingSecurityScopedResource() }
         guard accessed else { return nil }

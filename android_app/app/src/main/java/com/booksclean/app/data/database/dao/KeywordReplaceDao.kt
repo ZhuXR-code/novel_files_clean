@@ -27,6 +27,13 @@ interface KeywordReplaceDao {
     @Query("UPDATE keyword_replace_rules SET enabled = :enabled WHERE id = :id")
     suspend fun setEnabled(id: Long, enabled: Boolean)
 
+    /**
+     * 批量启用 / 停用：一次 UPDATE 写库，供「批量启用 / 批量不启用」按当前搜索结果操作。
+     * 写入数据库后返回上一页再进来状态依旧保留。
+     */
+    @Query("UPDATE keyword_replace_rules SET enabled = :enabled WHERE id IN (:ids)")
+    suspend fun setEnabledBatch(ids: List<Long>, enabled: Boolean)
+
     /** 规则总数（跨作用域），用于判断是否需要写入预置默认规则。 */
     @Query("SELECT COUNT(*) FROM keyword_replace_rules")
     suspend fun countAll(): Int

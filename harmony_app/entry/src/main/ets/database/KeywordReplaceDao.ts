@@ -201,6 +201,25 @@ export class KeywordReplaceDao {
   }
 
   /**
+   * 批量启用 / 不启用：ids 由页面传入（当前搜索命中的规则）。
+   * 分批 900 条执行，规避 SQLite 变量数上限；写库后返回上一页再进入依旧保留。
+   */
+  public static async setEnabledBatch(ids: number[], enabled: boolean): Promise<number> {
+    if (!ids || ids.length === 0) {
+      return 0;
+    }
+    const values: relationalStore.ValuesBucket = { enabled: enabled ? 1 : 0 };
+    let total: number = 0;
+    for (let i = 0; i < ids.length; i += 900) {
+      const chunk: number[] = ids.slice(i, i + 900);
+      const predicates = new relationalStore.RdbPredicates('keyword_replace_rules');
+      predicates.in('id', chunk);
+      total += await KeywordReplaceDao.store.update(values, predicates);
+    }
+    return total;
+  }
+
+  /**
    * 确保内置预设规则已写入数据库（幂等）。
    * 在 EntryAbility.onCreate 和页面 load() 时双重保障调用，防止因初始化时序问题导致页面为空。
    */

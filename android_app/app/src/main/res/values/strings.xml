@@ -278,6 +278,12 @@
     <string name="batch_placeholder_replace">每行一条，如 AAA||B</string>
     <string name="batch_empty">请至少填写一条</string>
     <string name="batch_format_error">替换模式每行需包含“||”分隔符，且被替换词不可为空</string>
+    <string name="batch_enable_all">批量启用</string>
+    <string name="batch_disable_all">批量不启用</string>
+    <string name="batch_enable_summary">当前 %1$d 条（已启用 %2$d / 未启用 %3$d）</string>
+    <string name="batch_confirm_all">确定将当前 %1$d 条规则设为「%2$s」？</string>
+    <string name="batch_confirm_search">确定将搜索结果中的 %1$d 条规则设为「%2$s」？</string>
+    <string name="batch_done">已%1$s %2$d 条规则</string>
     <string name="detail_delete_hint">将删除该文件，请选择删除方式：</string>
     <string name="delete_next_step">下一步</string>
     <string name="detail_delete_confirm_record">确定要删除该文件的数据库记录吗？（手机/存储中的源文件将保留）</string>

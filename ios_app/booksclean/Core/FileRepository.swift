@@ -159,6 +159,11 @@ final class FileRepository {
     @discardableResult
     func saveKeywordReplaceRule(_ r: KeywordReplaceRule) -> Int64 { db.saveKeywordReplaceRule(r) }
     func updateKeywordReplaceRule(_ r: KeywordReplaceRule) { db.updateKeywordReplaceRule(r) }
+    /// 批量启用 / 不启用关键词替换规则，返回实际处理条数。
+    @discardableResult
+    func setKeywordRulesEnabled(ids: [Int64], enabled: Bool) -> Int {
+        db.setKeywordRulesEnabled(ids: ids, enabled: enabled)
+    }
     func deleteKeywordReplaceRule(_ id: Int64) { db.deleteKeywordReplaceRule(id) }
 
     func getDupRuleConfigs() -> [DupRuleConfig] { db.getDupRuleConfigs() }

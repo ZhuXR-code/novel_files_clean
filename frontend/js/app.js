@@ -3277,6 +3277,26 @@ function renderKeywordRules() {
     const scanRules = keywordRulesCache.filter(r => r.scope === 'scan' && matchKw(r, scanKw));
     const parseRules = keywordRulesCache.filter(r => r.scope === 'parse' && matchKw(r, parseKw));
 
+    // 批量操作栏：仅对「当前列表中可见（即搜索命中）」的规则生效
+    const renderBatchBar = (scope, list, kw) => {
+        const bar = document.getElementById(scope + 'KwBatchBar');
+        if (!bar) return;
+        if (!list.length) { bar.style.display = 'none'; return; }
+        bar.style.display = '';
+        const on = list.filter(r => r.enabled).length;
+        bar.innerHTML = `
+            <span style="font-size:12px;color:var(--text-secondary)">
+                ${kw ? '搜索结果' : '当前列表'} <strong>${list.length}</strong> 条（已启用 ${on} / 未启用 ${list.length - on}）
+            </span>
+            <span style="flex:1"></span>
+            <button class="btn btn-sm" onclick="batchSetKeywordEnabled('${scope}', true)"
+                style="border:1px solid var(--accent);color:var(--accent);background:transparent">批量启用</button>
+            <button class="btn btn-sm" onclick="batchSetKeywordEnabled('${scope}', false)"
+                style="border:1px solid var(--border);color:var(--text-secondary);background:transparent">批量不启用</button>`;
+    };
+    renderBatchBar('scan', scanRules, scanKw);
+    renderBatchBar('parse', parseRules, parseKw);
+
     const renderOne = (r) => `
         <div class="config-item" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--border-radius);margin-bottom:8px;font-size:12px">
             <span style="min-width:20px;color:var(--text-secondary)">${r.sort_order}</span>
@@ -3328,6 +3348,32 @@ async function toggleKeywordRule(id, enabled) {
         toast('已更新', 'success');
     } catch (e) {
         toast('更新失败: ' + (e.message || e), 'error');
+        loadKeywordRules();
+    }
+}
+
+/**
+ * 批量启用 / 不启用：只作用于当前 scope 下、被搜索关键词过滤后仍可见的规则。
+ * 状态写入数据库，页面回退 / 重新进入后依旧有效。
+ */
+async function batchSetKeywordEnabled(scope, enabled) {
+    const kw = (document.getElementById(scope + 'KwSearchInput')?.value || '').trim().toLowerCase();
+    const matchKw = (r) => !kw
+        || (r.pattern || '').toLowerCase().includes(kw)
+        || (r.replacement || '').toLowerCase().includes(kw);
+    const targets = keywordRulesCache.filter(r => r.scope === scope && matchKw(r));
+    if (!targets.length) { toast('当前没有可操作的规则', 'warning'); return; }
+    const action = enabled ? '启用' : '不启用';
+    const range = kw ? `搜索结果中的 ${targets.length} 条` : `当前 ${targets.length} 条`;
+    if (!confirm(`确定将${range}规则设为「${action}」？`)) return;
+    try {
+        const resp = await apiPost('/keyword-replaces/batch-enabled', {
+            ids: targets.map(r => r.id), enabled,
+        });
+        toast(resp.message || `已${action} ${targets.length} 条`, 'success');
+        loadKeywordRules();
+    } catch (e) {
+        toast('批量操作失败: ' + (e.message || e), 'error');
         loadKeywordRules();
     }
 }

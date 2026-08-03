@@ -32,6 +32,16 @@ class KeywordReplaceViewModel(application: Application) : AndroidViewModel(appli
     fun setEnabled(id: Long, enabled: Boolean) =
         viewModelScope.launch(Dispatchers.IO) { repo.setRuleEnabled(id, enabled) }
 
+    /**
+     * 批量启用 / 不启用：ids 由页面传入（当前搜索过滤后可见的规则）。
+     * 直接写数据库，返回上一页再进入状态依旧保留。
+     */
+    fun setEnabledBatch(ids: List<Long>, enabled: Boolean, onDone: (Int) -> Unit = {}) =
+        viewModelScope.launch(Dispatchers.IO) {
+            repo.setRulesEnabled(ids, enabled)
+            launch(Dispatchers.Main) { onDone(ids.size) }
+        }
+
     /** 新规则默认追加到该作用域末尾（sort_order = 当前最大 + 1）。 */
     suspend fun nextSortOrder(scope: String): Int = repo.maxRuleSortOrder(scope) + 1
 

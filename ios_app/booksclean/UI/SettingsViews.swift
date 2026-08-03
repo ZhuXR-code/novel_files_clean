@@ -424,6 +424,8 @@ struct KeywordReplaceView: View {
     @State private var testText = ""
     @State private var searchOpen = false
     @State private var searchText = ""
+    /// nil=无待确认操作；true=批量启用；false=批量不启用
+    @State private var batchEnableTarget: Bool? = nil
 
     private var scoped: [KeywordReplaceRule] {
         rules.filter { $0.scope == scope }.sorted { $0.sortOrder < $1.sortOrder }
@@ -491,6 +493,18 @@ struct KeywordReplaceView: View {
                         Text(searchText.trimmingCharacters(in: .whitespaces).isEmpty
                              ? "当前作用域暂无规则" : "无匹配规则")
                             .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                    } else {
+                        // 批量启用 / 不启用：仅作用于当前列表（搜索命中）的规则，直接写库
+                        HStack(spacing: 8) {
+                            Text("已启用 \(filtered.filter { $0.enabled }.count) / 未启用 \(filtered.filter { !$0.enabled }.count)")
+                                .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                            Spacer()
+                            Button("批量启用") { batchEnableTarget = true }
+                                .buttonStyle(.borderless).fsFont(.caption)
+                            Button("批量不启用") { batchEnableTarget = false }
+                                .buttonStyle(.borderless).fsFont(.caption)
+                                .foregroundColor(.fsSecondaryLabel)
+                        }
                     }
                     ForEach(filtered) { r in
                         HStack(alignment: .top) {
@@ -572,6 +586,32 @@ struct KeywordReplaceView: View {
         } message: {
             Text("将删除「扫描阶段」现有全部规则并写回内置默认规则，此操作不可撤销。")
         }
+        .alert(batchEnableTarget == true ? "批量启用" : "批量不启用",
+               isPresented: Binding(get: { batchEnableTarget != nil },
+                                    set: { if !$0 { batchEnableTarget = nil } })) {
+            Button("取消", role: .cancel) { batchEnableTarget = nil }
+            Button("确定") {
+                if let target = batchEnableTarget { applyBatchEnabled(target) }
+                batchEnableTarget = nil
+            }
+        } message: {
+            let searching = !searchText.trimmingCharacters(in: .whitespaces).isEmpty
+            let action = batchEnableTarget == true ? "启用" : "不启用"
+            Text(searching
+                 ? "确定将搜索结果中的 \(filtered.count) 条规则设为「\(action)」？"
+                 : "确定将当前 \(filtered.count) 条规则设为「\(action)」？")
+        }
+    }
+
+    /// 批量启用 / 不启用：仅对当前列表（搜索命中）的规则生效，写库后返回上一页再进入依旧保留。
+    private func applyBatchEnabled(_ enabled: Bool) {
+        let ids = filtered.map { $0.id }
+        guard !ids.isEmpty else { return }
+        FileRepository.shared.setKeywordRulesEnabled(ids: ids, enabled: enabled)
+        FileRepository.shared.logOperation(
+            level: "INFO", tag: "关键词替换",
+            message: "批量\(enabled ? "启用" : "不启用") \(ids.count) 条 scope=\(scope)")
+        reload()
     }
 
     private func move(_ r: KeywordReplaceRule, up: Bool) {

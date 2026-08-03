@@ -197,6 +197,53 @@ struct KeywordReplace {
     }
   }
 
+  /** 当前搜索命中的全部规则（内置 + 自定义），批量操作的作用范围。 */
+  private currentVisible(): KeywordReplaceRule[] {
+    return this.filteredBuiltin().concat(this.filteredCustom());
+  }
+
+  /** 当前列表中已启用的规则数量。 */
+  private enabledVisibleCount(): number {
+    return this.currentVisible().filter((r: KeywordReplaceRule): boolean => r.enabled).length;
+  }
+
+  /**
+   * 批量启用 / 不启用：仅对当前列表（搜索命中）的规则生效，写入数据库，
+   * 返回上一页再进来状态依旧保留。
+   */
+  private batchSetEnabled(enabled: boolean): void {
+    const targets: KeywordReplaceRule[] = this.currentVisible();
+    if (targets.length === 0) {
+      ToastUtil.show('当前没有可操作的规则');
+      return;
+    }
+    const action: string = enabled ? '启用' : '不启用';
+    const searching: boolean = this.searchQuery.trim().length > 0;
+    const range: string = searching ? `搜索结果中的 ${targets.length} 条` : `当前 ${targets.length} 条`;
+    AlertDialog.show({
+      title: `批量${action}`,
+      message: `确定将${range}规则设为「${action}」？`,
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: { value: '取消', action: () => {} },
+      secondaryButton: {
+        value: '确定',
+        action: async () => {
+          try {
+            const ids: number[] = targets.map((r: KeywordReplaceRule): number => r.id);
+            await KeywordReplaceDao.setEnabledBatch(ids, enabled);
+            LogUtil.operation('关键词替换', `批量${action} ${ids.length} 条 scope=${this.scope}`);
+            ToastUtil.show(`已${action} ${ids.length} 条规则`);
+            await this.load();
+          } catch (e) {
+            LogUtil.e('KeywordReplace', `批量操作失败: ${(e as Error).message}`);
+            ToastUtil.show(`操作失败: ${(e as Error).message}`);
+          }
+        }
+      }
+    });
+  }
+
   private deleteRule(r: KeywordReplaceRule): void {
     AlertDialog.show({
       title: '确认删除规则？',
@@ -365,6 +412,32 @@ struct KeywordReplace {
             .onChange((v: string) => (this.searchQuery = v))
             .width('100%')
             .padding({ left: 12, right: 12 })
+        }
+
+        // 批量启用 / 不启用：仅作用于当前列表（搜索命中）的规则
+        if (this.currentVisible().length > 0) {
+          Row({ space: 8 }) {
+            Text(`当前 ${this.currentVisible().length} 条（已启用 ${this.enabledVisibleCount()} / 未启用 ${this.currentVisible().length - this.enabledVisibleCount()}）`)
+              .fontSize(11)
+              .fontColor($r('app.color.text_secondary'))
+              .layoutWeight(1)
+            Button('批量启用')
+              .fontSize(12)
+              .height(28)
+              .padding({ left: 10, right: 10 })
+              .backgroundColor($r('app.color.bg_card'))
+              .fontColor($r('app.color.primary'))
+              .onClick(() => this.batchSetEnabled(true))
+            Button('批量不启用')
+              .fontSize(12)
+              .height(28)
+              .padding({ left: 10, right: 10 })
+              .backgroundColor($r('app.color.bg_card'))
+              .fontColor($r('app.color.text_secondary'))
+              .onClick(() => this.batchSetEnabled(false))
+          }
+          .width('100%')
+          .padding({ left: 12, right: 12, top: 4, bottom: 4 })
         }
 
         Scroll() {

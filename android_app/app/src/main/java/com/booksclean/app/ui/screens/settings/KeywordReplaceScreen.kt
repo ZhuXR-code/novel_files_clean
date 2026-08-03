@@ -52,10 +52,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -87,7 +90,11 @@ fun KeywordReplaceScreen(
     var batchOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    // null=无待确认操作；true=批量启用；false=批量不启用
+    var batchTarget by remember { mutableStateOf<Boolean?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     val filteredRules = if (searchQuery.isBlank()) {
         rules
@@ -194,6 +201,41 @@ fun KeywordReplaceScreen(
                 )
             }
 
+            // 批量启用 / 不启用：仅作用于当前列表（搜索命中）的规则，直接写库
+            if (filteredRules.isNotEmpty()) {
+                val enabledCount = filteredRules.count { it.enabled }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        stringResource(
+                            R.string.batch_enable_summary,
+                            filteredRules.size, enabledCount, filteredRules.size - enabledCount
+                        ),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.weight(1f))
+                    AppOutlinedButton(
+                        onClick = { batchTarget = true },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            horizontal = 12.dp, vertical = 4.dp
+                        )
+                    ) { Text(stringResource(R.string.batch_enable_all), fontSize = 12.sp) }
+                    Spacer(Modifier.width(8.dp))
+                    AppOutlinedButton(
+                        onClick = { batchTarget = false },
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            horizontal = 12.dp, vertical = 4.dp
+                        )
+                    ) { Text(stringResource(R.string.batch_disable_all), fontSize = 12.sp) }
+                }
+            }
+
             if (filteredRules.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
@@ -256,6 +298,46 @@ fun KeywordReplaceScreen(
                     )
                 )
                 editing = null
+            }
+        )
+    }
+
+    // 批量启用 / 不启用 确认弹窗
+    if (batchTarget != null) {
+        val target = batchTarget!!
+        val count = filteredRules.size
+        val actionText = stringResource(
+            if (target) R.string.batch_enable_all else R.string.batch_disable_all
+        )
+        AlertDialog(
+            onDismissRequest = { batchTarget = null },
+            title = { Text(actionText) },
+            text = {
+                Text(
+                    stringResource(
+                        if (searchQuery.isBlank()) R.string.batch_confirm_all
+                        else R.string.batch_confirm_search,
+                        count, actionText
+                    )
+                )
+            },
+            confirmButton = {
+                AppButton(onClick = {
+                    val ids = filteredRules.map { it.id }
+                    viewModel.setEnabledBatch(ids, target) { n ->
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar(
+                                context.getString(R.string.batch_done, actionText, n)
+                            )
+                        }
+                    }
+                    batchTarget = null
+                }) { Text(stringResource(R.string.confirm)) }
+            },
+            dismissButton = {
+                AppOutlinedButton(onClick = { batchTarget = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
             }
         )
     }

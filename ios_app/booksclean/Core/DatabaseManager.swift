@@ -452,9 +452,14 @@ final class DatabaseManager {
     }
 
     /// 合集（按 书名+作者 分组）总数，支持与分页一致的筛选条件，用于分页栏「共 N 项」。
-    func countNovelGroups(runId: Int64, minCount: Int, maxCount: Int, excludeNames: [String]) -> Int {
-        var sql = "SELECT COUNT(*) FROM (SELECT title FROM scanned_file WHERE scan_run_id=? GROUP BY title, author HAVING COUNT(*) >= ?"
-        var binds: [Any?] = [runId, minCount.coerceAtLeast(0)]
+    func countNovelGroups(runId: Int64, minCount: Int, maxCount: Int, excludeNames: [String],
+                          checkedFilter: Int = -1, markedFilter: Int = -1) -> Int {
+        var sql = "SELECT COUNT(*) FROM (SELECT title FROM scanned_file WHERE scan_run_id=?"
+        var binds: [Any?] = [runId]
+        if checkedFilter >= 0 { sql += " AND checked=?"; binds.append(checkedFilter) }
+        if markedFilter >= 0 { sql += " AND marked=?"; binds.append(markedFilter) }
+        sql += " GROUP BY title, author HAVING COUNT(*) >= ?"
+        binds.append(minCount.coerceAtLeast(0))
         if maxCount >= 0 { sql += " AND COUNT(*) <= ?"; binds.append(maxCount) }
         for n in excludeNames where !n.isEmpty { sql += " AND title NOT LIKE ?"; binds.append("%\(n)%") }
         sql += ") t"
@@ -486,11 +491,16 @@ final class DatabaseManager {
 
     /// 合集分页查询（对齐安卓 groupsPageFlow），排序由 groupSort + checkedSortToFront 控制。
     func getNovelGroupsPaged(runId: Int64, minCount: Int, maxCount: Int, excludeNames: [String], offset: Int, limit: Int,
-                             groupSort: String = "count_desc", checkedSortToFront: Bool = false) -> [NovelGroup] {
+                             groupSort: String = "count_desc", checkedSortToFront: Bool = false,
+                             checkedFilter: Int = -1, markedFilter: Int = -1) -> [NovelGroup] {
         // date_* 排序依赖 newest_date 派生列，必须一并 SELECT，否则 ORDER BY 找不到该列
         let selectExtra = groupSort.hasPrefix("date_") ? ", MAX(created_at) AS newest_date" : ""
-        var sql = "SELECT title, author, COUNT(*) AS c, SUM(file_size) AS s, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k\(selectExtra) FROM scanned_file WHERE scan_run_id=? GROUP BY title, author HAVING c >= ?"
-        var binds: [Any?] = [runId, minCount.coerceAtLeast(0)]
+        var sql = "SELECT title, author, COUNT(*) AS c, SUM(file_size) AS s, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k\(selectExtra) FROM scanned_file WHERE scan_run_id=?"
+        var binds: [Any?] = [runId]
+        if checkedFilter >= 0 { sql += " AND checked=?"; binds.append(checkedFilter) }
+        if markedFilter >= 0 { sql += " AND marked=?"; binds.append(markedFilter) }
+        sql += " GROUP BY title, author HAVING c >= ?"
+        binds.append(minCount.coerceAtLeast(0))
         if maxCount >= 0 { sql += " AND c <= ?"; binds.append(maxCount) }
         for n in excludeNames where !n.isEmpty { sql += " AND title NOT LIKE ?"; binds.append("%\(n)%") }
         sql += " ORDER BY \(Self.buildGroupOrderBy(groupSort, checkedSortToFront: checkedSortToFront)) LIMIT ? OFFSET ?"
@@ -729,6 +739,25 @@ final class DatabaseManager {
     }
 
     func deleteKeywordReplaceRule(_ id: Int64) { execute("DELETE FROM keyword_replace_rules WHERE id=?", [id]) }
+
+    /// 批量启用 / 停用关键词替换规则（供「批量启用 / 批量不启用」按当前搜索结果操作）。
+    /// 分批 900 条执行，规避 SQLite 变量数上限；写库后返回上一页再进入状态依旧保留。
+    @discardableResult
+    func setKeywordRulesEnabled(ids: [Int64], enabled: Bool) -> Int {
+        guard !ids.isEmpty else { return 0 }
+        var done = 0
+        var idx = 0
+        while idx < ids.count {
+            let chunk = Array(ids[idx..<min(idx + 900, ids.count)])
+            let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+            var args: [Any?] = [enabled ? 1 : 0]
+            args.append(contentsOf: chunk.map { $0 as Any? })
+            execute("UPDATE keyword_replace_rules SET enabled=? WHERE id IN (\(placeholders))", args)
+            done += chunk.count
+            idx += 900
+        }
+        return done
+    }
 
     // MARK: - dup_rule_configs
     func getDupRuleConfigs() -> [DupRuleConfig] {

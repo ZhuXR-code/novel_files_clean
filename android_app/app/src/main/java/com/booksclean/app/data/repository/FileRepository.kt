@@ -136,6 +136,12 @@ class FileRepository(
     suspend fun deleteRule(rule: KeywordReplaceRuleEntity) = keywordDao.deleteById(rule.id)
     suspend fun setRuleEnabled(id: Long, enabled: Boolean) = keywordDao.setEnabled(id, enabled)
 
+    /** 批量启用 / 停用规则（分批 900 条，规避 SQLite 变量数上限）。 */
+    suspend fun setRulesEnabled(ids: List<Long>, enabled: Boolean) {
+        if (ids.isEmpty()) return
+        ids.chunked(900).forEach { keywordDao.setEnabledBatch(it, enabled) }
+    }
+
     /**
      * 补齐缺失的预置关键词替换规则（幂等）：按 pattern 判断，仅插入库中尚不存在的默认项。
      * 首次为空时整批写入；后续新增预置项也会自动补进已安装实例，无需清数据。

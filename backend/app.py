@@ -3243,6 +3243,25 @@ def update_keyword_rule(rule_id: int, rule: KeywordReplaceRuleIn, db: Session = 
     return {'message': '已更新规则'}
 
 
+class KeywordBatchEnabledIn(BaseModel):
+    ids: List[int]                   # 需要变更的规则 ID 列表（一般是当前搜索结果）
+    enabled: bool                    # True=批量启用；False=批量停用
+
+
+@app.post('/api/keyword-replaces/batch-enabled')
+def batch_set_keyword_enabled(data: KeywordBatchEnabledIn, db: Session = Depends(get_db)):
+    """批量启用 / 停用关键词替换规则（一次 UPDATE，持久化到库，回退后依旧生效）"""
+    ids = [int(i) for i in (data.ids or [])]
+    if not ids:
+        return {'updated': 0, 'message': '没有需要更新的规则'}
+    updated = db.query(KeywordReplaceRule).filter(
+        KeywordReplaceRule.id.in_(ids)
+    ).update({KeywordReplaceRule.enabled: bool(data.enabled)}, synchronize_session=False)
+    db.commit()
+    logger.info(f'批量{"启用" if data.enabled else "停用"}关键词替换规则: {updated} 条')
+    return {'updated': updated, 'message': f'已{"启用" if data.enabled else "停用"} {updated} 条规则'}
+
+
 @app.delete('/api/keyword-replaces/{rule_id}')
 def delete_keyword_rule(rule_id: int, db: Session = Depends(get_db)):
     obj = db.query(KeywordReplaceRule).filter(KeywordReplaceRule.id == rule_id).first()
