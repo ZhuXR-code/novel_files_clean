@@ -1301,16 +1301,29 @@ struct FilePreviewView: View {
         }
 
         let enc = f.encoding.isEmpty ? "UTF-8" : f.encoding
-        let encoding = EncodingUtil.stringEncoding(named: enc)
+        let primaryEncoding = EncodingUtil.stringEncoding(named: enc)
         let maxBytes = 200 * 1024
+
+        // 编码尝试链：存储编码 → UTF-8 → GB18030 兜底。
+        // 覆盖早期扫描误判为 UTF-8 的 GB18030/GBK/GB2312 文件（典型场景：样本 8KB 是 ASCII 序章，
+        // Chinese 内容出现在样本外，导致 EncodingUtil.detectEncodingAndBom 返回 UTF-8，
+        // 但全文件 UTF-8 解码失败）。GB18030 是中文环境最稳的兜底。
+        let fallbackNames = ["UTF-8", "GB18030"]
+        var attempted: [String] = [enc]
 
         // 先尝试 FileHandle（可控偏移，支持 tail 模式）；失败则回退到 Data(contentsOf:)。
         if let data = await readFileData(url: url, mode: mode, maxBytes: maxBytes, tag: tag) {
             let truncatedSuffix = makeTruncatedSuffix(mode: mode, dataCount: data.count, maxBytes: maxBytes)
-            if let s = String(data: data, encoding: encoding) { return (s + truncatedSuffix, nil) }
-            if let s = String(data: data, encoding: .utf8) { return (s + truncatedSuffix, nil) }
-            LogUtil.e(tag, "string decoding failed for \(url.lastPathComponent)")
-            return ("", "文件编码解析失败（检测为 \(enc)，但解码失败）")
+            // 1) 存储编码
+            if let s = String(data: data, encoding: primaryEncoding) { return (s + truncatedSuffix, nil) }
+            // 2) 兜底链
+            for name in fallbackNames where !attempted.contains(name) {
+                attempted.append(name)
+                let encObj = EncodingUtil.stringEncoding(named: name)
+                if let s = String(data: data, encoding: encObj) { return (s + truncatedSuffix, nil) }
+            }
+            LogUtil.e(tag, "string decoding failed for \(url.lastPathComponent), tried=\(attempted.joined(separator: ","))")
+            return ("", "文件编码解析失败（已尝试 \(attempted.joined(separator: "/"))，均解码失败）")
         }
         return ("", "无法读取文件数据（可能缺少文件夹访问权限，请重新扫描以刷新授权）")
     }
