@@ -1080,15 +1080,17 @@ struct FilePreviewView: View {
             .background(Color.fsSecondaryBg)
 
             // 文本 + 自定义滑条（横/竖由设置 previewScrollbarMode 控制，对齐安卓）
-            ZStack {
+            ZStack(alignment: .topTrailing) {
                 ScrollableText(text: text, fontPt: fontPt,
                                mode: prefs.previewScrollbarMode == "horizontal" ? .horizontal : .vertical,
                                allLines: nil,
                                state: scrollState)
+                // UIScrollView 作为 SwiftUI 子视图没有固有高度，必须显式撑满父级剩余空间，
+                // 否则 scroll.bounds.height=0，updateUIView 拿不到可视区域，文本永远无法渲染（屏幕全黑）。
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 MiniScrollBar(state: scrollState,
                               axis: prefs.previewScrollbarMode == "horizontal" ? .horizontal : .vertical)
             }
-            .edgesIgnoringSafeArea(.bottom)
         }
         .navigationTitle("预览")
         .navigationBarTitleDisplayMode(.inline)
@@ -1198,20 +1200,18 @@ struct ScrollableText: UIViewRepresentable {
         scroll.showsVerticalScrollIndicator = false
         scroll.showsHorizontalScrollIndicator = false
         scroll.isDirectionalLockEnabled = (mode == .horizontal)
+        scroll.delegate = context.coordinator
         let tv = UITextView()
         tv.isEditable = false
         tv.isSelectable = true
+        // 关键：关闭内层 UITextView 自滚动，由外层 UIScrollView 完全控制滚动并测量 contentSize。
+        // 同时采用手动 frame 布局（保持 translatesAutoresizingMaskIntoConstraints=默认 true），
+        // 避免 SwiftUI 首次 layout 时 scroll.bounds=0 导致 AutoLayout 解析异常、tv 宽度/高度为 0、文本完全不可见。
+        tv.isScrollEnabled = false
         tv.backgroundColor = .clear
-        tv.translatesAutoresizingMaskIntoConstraints = false
+        tv.textContainerInset = .zero
+        tv.textContainer.lineFragmentPadding = 0
         scroll.addSubview(tv)
-        NSLayoutConstraint.activate([
-            tv.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 12),
-            tv.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
-            tv.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 12),
-            tv.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -12),
-            tv.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -24)
-        ])
-        scroll.delegate = context.coordinator
         context.coordinator.state = state
         context.coordinator.scroll = scroll
         context.coordinator.textView = tv
@@ -1220,25 +1220,43 @@ struct ScrollableText: UIViewRepresentable {
     }
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
-        guard let tv = scroll.subviews.first(where: { $0 is UITextView }) as? UITextView else { return }
+        guard let tv = context.coordinator.textView else { return }
+        // SwiftUI 首次 layout 时 scroll.bounds 可能仍为 0，延迟到下一帧再渲染，避免首帧 tv 宽度为 0 文本不可见。
+        if scroll.bounds.width <= 0 || scroll.bounds.height <= 0 {
+            // 文本待渲染但 scroll 尚未 layout：调度到下一个 runloop，等 SwiftUI 完成 layout 后重试。
+            if context.coordinator.lastText != text {
+                DispatchQueue.main.async { [weak scroll] in
+                    guard let scroll = scroll else { return }
+                    self.updateUIView(scroll, context: context)
+                }
+            }
+            return
+        }
         // 文本或字号未变化时跳过重设富文本与布局，避免每次 body 重算都同步重建大段 NSAttributedString 阻塞主线程。
         if context.coordinator.lastText != text || context.coordinator.lastFontPt != fontPt {
             context.coordinator.lastText = text
             context.coordinator.lastFontPt = fontPt
             let font = UIFont.systemFont(ofSize: fontPt)
-            let attributed = NSAttributedString(string: text, attributes: [
+            tv.font = font
+            tv.textColor = .label
+            tv.attributedText = NSAttributedString(string: text, attributes: [
                 .font: font,
                 .foregroundColor: UIColor.label
             ])
-            tv.attributedText = attributed
-            tv.textContainerInset = .zero
-            tv.layoutIfNeeded()
+            let inset: CGFloat = 12
+            let viewportW = scroll.bounds.width - inset * 2
+            let viewportH = scroll.bounds.height - inset * 2
             if mode == .horizontal {
-                // 横向：高度固定为视口，宽度随内容展开
-                tv.frame.size.height = scroll.bounds.height - 24
+                // 横向：高度固定为视口高度，宽度随内容自然展开
+                tv.frame = CGRect(x: inset, y: inset, width: viewportW, height: viewportH)
                 tv.sizeToFit()
-                scroll.contentSize = CGSize(width: max(tv.frame.width, scroll.bounds.width),
-                                           height: scroll.bounds.height - 24)
+                tv.frame = CGRect(x: inset, y: inset, width: max(tv.frame.width, viewportW), height: viewportH)
+                scroll.contentSize = CGSize(width: tv.frame.width + inset * 2, height: scroll.bounds.height)
+            } else {
+                // 纵向：宽度固定为视口宽度，高度由 sizeToFit 算出
+                tv.frame = CGRect(x: inset, y: inset, width: viewportW, height: viewportH)
+                tv.sizeToFit()
+                scroll.contentSize = CGSize(width: scroll.bounds.width, height: tv.frame.height + inset * 2)
             }
         }
         context.coordinator.publish(scroll)

@@ -256,15 +256,20 @@ final class FileRepository {
     /// columns: 要导出的列集合，可选值：
     /// "name"(文件名) "title"(书名) "author"(作者) "size"(大小) "path"(路径)
     /// "date"(日期) "extra"(其他) "checked"(勾选状态) "marked"(标记状态)
-    /// all: true 导出全部文件；false 仅导出当前页（由 offset/limit 限定）。
+    /// all: true 导出全部文件；false 仅导出当前页。
+    /// currentPage: 当前页已在内存中的文件列表（屏幕上正在显示的内容）。
+    /// 优先用它来导出「当前页」，避免翻页后 currentOffset 与屏幕状态不一致导致当前页导出为 0 条。
     func exportLibraryText(runId: Int64, columns: Set<String>, all: Bool,
-                           offset: Int = 0, limit: Int = Int.max) -> String? {
+                           offset: Int = 0, limit: Int = Int.max,
+                           currentPage: [ScannedFile]? = nil) -> String? {
         let files: [ScannedFile]
         if all {
             files = db.getScannedFilesPaged(runId: runId, offset: 0, limit: Int.max,
                                             sortBy: "created_at", ascending: true,
                                             titleFilter: nil, authorFilter: nil,
                                             progressFilter: nil, sourceFilter: nil, search: nil)
+        } else if let currentPage = currentPage, !currentPage.isEmpty {
+            files = currentPage
         } else {
             files = db.getScannedFilesPaged(runId: runId, offset: offset, limit: limit,
                                             sortBy: "created_at", ascending: true,
