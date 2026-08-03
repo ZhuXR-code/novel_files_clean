@@ -894,115 +894,13 @@ struct FileDetailView: View {
             if let f = file {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        // 单列行（标签在上 / 值在下）
-                        DetailRow("书名", f.title.isEmpty ? "—" : "《\(f.title)》")
-                        DetailRow("作者", f.author.isEmpty ? "—" : f.author)
-                        DetailRow("原文件名", f.fileName)
-
-                        // 一行多列：扩展名 | 大小 | 编码
-                        DetailRowColumns([
-                            ("扩展名", f.ext.isEmpty ? "—" : f.ext),
-                            ("大小", FormatUtil.formatSize(f.fileSize)),
-                            ("编码", f.encoding.isEmpty ? "—" : f.encoding)
-                        ])
-                        // 一行多列：进度 | 来源 | 日期
-                        DetailRowColumns([
-                            ("进度", f.progress.isEmpty ? "—" : f.progress),
-                            ("来源", f.source.isEmpty ? "—" : f.source),
-                            ("日期", FormatUtil.formatFileDate(f.fileDate))
-                        ])
-
-                        // 标记状态行（星标图标 + 可切换，对齐安卓/鸿蒙）
-                        HStack(spacing: 10) {
-                            Image(systemName: f.marked == 1 ? "star.fill" : "star")
-                                .foregroundColor(f.marked == 1 ? .orange : .fsSecondaryLabel)
-                            Text(f.marked == 1 ? "已标记" : "未标记")
-                                .fsFont(.subheadline).fontWeight(.medium)
-                            Spacer()
-                            Button {
-                                FileRepository.shared.setMarked(id: f.id, marked: f.marked != 1)
-                                file = FileRepository.shared.getById(f.id)
-                            } label: {
-                                Text(f.marked == 1 ? "取消标记" : "标记")
-                                    .fsFont(.subheadline, weight: .semibold)
-                                    .foregroundColor(.fsPrimary)
-                            }
-                        }
-                        .padding(12)
-                        .background(Color.fsSecondaryBg)
-                        .cornerRadius(10)
-
-                        // 勾选删除开关（对齐鸿蒙"勾选删除" Toggle，详情页可直接纳入清理清单）
-                        HStack(spacing: 10) {
-                            Image(systemName: f.checked == 1 ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(f.checked == 1 ? .fsPrimary : .fsSecondaryLabel)
-                            Text(f.checked == 1 ? "已勾选（将纳入清理清单）" : "未勾选")
-                                .fsFont(.subheadline).fontWeight(.medium)
-                            Spacer()
-                            Toggle("勾选删除", isOn: Binding(
-                                get: { f.checked == 1 },
-                                set: { nv in
-                                    FileRepository.shared.setChecked(id: f.id, checked: nv)
-                                    file = FileRepository.shared.getById(f.id)
-                                }
-                            ))
-                            .labelsHidden()
-                            .tint(.fsPrimary)
-                        }
-                        .padding(12)
-                        .background(Color.fsSecondaryBg)
-                        .cornerRadius(10)
-
-                        // 单列行：内容哈希 / 路径
+                        detailInfoSection(f)
+                        markRow(f)
+                        checkRow(f)
                         DetailRow("内容哈希", f.contentHash.isEmpty ? "—" : f.contentHash, isMono: true)
                         DetailRow("路径", f.path.isEmpty ? "—" : FormatUtil.toHumanReadablePath(f.path), isPath: true)
-
-                        // 操作按钮（对齐安卓：预览 / 用其他应用打开 / 删除）
-                        VStack(spacing: 12) {
-                            PrimaryButton(title: "预览内容") {
-                                router.navigate(.filePreview(id: f.id, mode: "head"))
-                            }
-                            Button {
-                                guard !f.path.isEmpty else {
-                                    toast("无法打开：文件路径为空"); return
-                                }
-                                guard let run = FileRepository.shared.getScanRun(f.scanRunId),
-                                      let folderURL = resolveBookmarkURL(run.folderUri) else {
-                                    toast("无法打开：文件夹访问授权已失效，请重新扫描以刷新授权"); return
-                                }
-                                // f.path 存的是 file:// 形式的绝对 URL 字符串，必须用 URL(string:) 解析，
-                                // 不能用 URL(fileURLWithPath:)（会把 "file:///..." 当成字面路径导致找不到文件）。
-                                guard let fileURL = URL(string: f.path) else {
-                                    toast("无法打开：文件路径无效"); return
-                                }
-                                // 安全作用域访问必须在主线程开启（针对扫描时授权的文件夹）
-                                let accessed = folderURL.startAccessingSecurityScopedResource()
-                                guard accessed, FileManager.default.fileExists(atPath: fileURL.path) else {
-                                    if accessed { folderURL.stopAccessingSecurityScopedResource() }
-                                    toast("无法打开：文件不存在或路径无效"); return
-                                }
-                                UIApplication.shared.open(fileURL) { success in
-                                    if accessed { folderURL.stopAccessingSecurityScopedResource() }
-                                    if !success { toast("没有可打开该文件的应用") }
-                                }
-                            } label: {
-                                Text("用其他应用打开").frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .background(Color.fsTertiaryBg)
-                                    .foregroundColor(.fsPrimary)
-                                    .cornerRadius(10)
-                            }
-                            Button(role: .destructive) {
-                                // 跳转删除确认页，让用户选择「仅删除记录」或「记录与源文件一起删除」
-                                router.navigate(.deleteConfirm(runId: f.scanRunId, ids: [f.id], physical: false))
-                            } label: {
-                                Text("删除该文件").frame(maxWidth: .infinity)
-                                    .padding(.vertical, 10)
-                                    .foregroundColor(.red)
-                                    .cornerRadius(10)
-                            }
-                        }
-                        .padding(.top, 8)
+                        actionSection(f)
+                            .padding(.top, 8)
                     }
                     .padding(16)
                 }
@@ -1025,6 +923,116 @@ struct FileDetailView: View {
             }
         }
         .onAppear { file = FileRepository.shared.getById(fileId) }
+    }
+
+    @ViewBuilder
+    private func detailInfoSection(_ f: ScannedFile) -> some View {
+        DetailRow("书名", f.title.isEmpty ? "—" : "《\(f.title)》")
+        DetailRow("作者", f.author.isEmpty ? "—" : f.author)
+        DetailRow("原文件名", f.fileName)
+        DetailRowColumns([
+            ("扩展名", f.ext.isEmpty ? "—" : f.ext),
+            ("大小", FormatUtil.formatSize(f.fileSize)),
+            ("编码", f.encoding.isEmpty ? "—" : f.encoding)
+        ])
+        DetailRowColumns([
+            ("进度", f.progress.isEmpty ? "—" : f.progress),
+            ("来源", f.source.isEmpty ? "—" : f.source),
+            ("日期", FormatUtil.formatFileDate(f.fileDate))
+        ])
+    }
+
+    @ViewBuilder
+    private func markRow(_ f: ScannedFile) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: f.marked == 1 ? "star.fill" : "star")
+                .foregroundColor(f.marked == 1 ? .orange : .fsSecondaryLabel)
+            Text(f.marked == 1 ? "已标记" : "未标记")
+                .fsFont(.subheadline).fontWeight(.medium)
+            Spacer()
+            Button {
+                FileRepository.shared.setMarked(id: f.id, marked: f.marked != 1)
+                file = FileRepository.shared.getById(f.id)
+            } label: {
+                Text(f.marked == 1 ? "取消标记" : "标记")
+                    .fsFont(.subheadline, weight: .semibold)
+                    .foregroundColor(.fsPrimary)
+            }
+        }
+        .padding(12)
+        .background(Color.fsSecondaryBg)
+        .cornerRadius(10)
+    }
+
+    @ViewBuilder
+    private func checkRow(_ f: ScannedFile) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: f.checked == 1 ? "checkmark.circle.fill" : "circle")
+                .foregroundColor(f.checked == 1 ? .fsPrimary : .fsSecondaryLabel)
+            Text(f.checked == 1 ? "已勾选（将纳入清理清单）" : "未勾选")
+                .fsFont(.subheadline).fontWeight(.medium)
+            Spacer()
+            Toggle("勾选删除", isOn: Binding(
+                get: { f.checked == 1 },
+                set: { nv in
+                    FileRepository.shared.setChecked(id: f.id, checked: nv)
+                    file = FileRepository.shared.getById(f.id)
+                }
+            ))
+            .labelsHidden()
+            .tint(.fsPrimary)
+        }
+        .padding(12)
+        .background(Color.fsSecondaryBg)
+        .cornerRadius(10)
+    }
+
+    @ViewBuilder
+    private func actionSection(_ f: ScannedFile) -> some View {
+        VStack(spacing: 12) {
+            PrimaryButton(title: "预览内容") {
+                router.navigate(.filePreview(id: f.id, mode: "head"))
+            }
+            Button {
+                guard !f.path.isEmpty else {
+                    toast("无法打开：文件路径为空"); return
+                }
+                guard let run = FileRepository.shared.getScanRun(f.scanRunId),
+                      let folderURL = resolveBookmarkURL(run.folderUri) else {
+                    toast("无法打开：文件夹访问授权已失效，请重新扫描以刷新授权"); return
+                }
+                // f.path 存的是 file:// 形式的绝对 URL 字符串，必须用 URL(string:) 解析，
+                // 不能用 URL(fileURLWithPath:)（会把 "file:///..." 当成字面路径导致找不到文件）。
+                guard let fileURL = URL(string: f.path) else {
+                    toast("无法打开：文件路径无效"); return
+                }
+                // 安全作用域访问必须在主线程开启（针对扫描时授权的文件夹）
+                let accessed = folderURL.startAccessingSecurityScopedResource()
+                guard accessed, FileManager.default.fileExists(atPath: fileURL.path) else {
+                    if accessed { folderURL.stopAccessingSecurityScopedResource() }
+                    toast("无法打开：文件不存在或路径无效"); return
+                }
+                UIApplication.shared.open(fileURL) { success in
+                    if accessed { folderURL.stopAccessingSecurityScopedResource() }
+                    if !success { toast("没有可打开该文件的应用") }
+                }
+            } label: {
+                Text("用其他应用打开").frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.fsTertiaryBg)
+                    .foregroundColor(.fsPrimary)
+                    .cornerRadius(10)
+            }
+            Button(role: .destructive) {
+                // 跳转删除确认页，让用户选择「仅删除记录」或「记录与源文件一起删除」
+                router.navigate(.deleteConfirm(runId: f.scanRunId, ids: [f.id], physical: false))
+            } label: {
+                Text("删除该文件").frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .foregroundColor(.red)
+                    .cornerRadius(10)
+            }
+        }
     }
 }
 
