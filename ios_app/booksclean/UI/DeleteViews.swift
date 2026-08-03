@@ -114,9 +114,15 @@ struct DeleteConfirmView: View {
                         .textFieldStyle(.roundedBorder)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                    Text("左滑文件行或点击右侧 ✕ 可将其移出清单，本次将跳过该文件。")
-                        .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 6) {
+                        Image(systemName: "hand.point.up.left.fill")
+                            .foregroundColor(.fsPrimary)
+                        Text("不需要删除的文件：点击行右侧红色").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                        Text("移除").fsFont(.caption2).foregroundColor(.red).fontWeight(.semibold)
+                        Text("按钮，或左滑该行。").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     if filteredFiles.isEmpty {
                         Text("未找到匹配的文件").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
@@ -197,11 +203,18 @@ private struct DeleteConfirmRow: View {
             Spacer(minLength: 0)
             if let onRemove = onRemove {
                 Button(action: onRemove) {
-                    Image(systemName: "xmark.circle")
-                        .fsFontSize(18)
-                        .foregroundColor(.fsSecondaryLabel)
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle.fill")
+                            .fsFontSize(22)
+                        Text("移除").fsFont(.caption2)
+                    }
+                    .foregroundColor(.red)
+                    .padding(.vertical, 6)
+                    .padding(.leading, 8)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("从删除清单移除")
                 .help("从清单移除")
             }
         }
