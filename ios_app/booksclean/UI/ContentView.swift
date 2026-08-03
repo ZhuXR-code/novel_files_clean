@@ -16,21 +16,22 @@ struct ContentView: View {
                     case .scanProgress: ScanProgressView()
                     case .oneClick(let config): OneClickCleanupView(config: config)
                     case .oneClickExisting(let runId): OneClickCleanupView(runId: runId)
-                    case .settings: SettingsView()
-                    case .dupRule: DupRuleView()
-                    case .keywordReplace: KeywordReplaceView()
+                    case .settings: MaxWidthContainer { SettingsView() }
+                    case .dupRule: MaxWidthContainer { DupRuleView() }
+                    case .keywordReplace: MaxWidthContainer { KeywordReplaceView() }
                     case .logViewer: LogViewerView()
-                    case .help: HelpView()
-                    case .privacy: PrivacyPolicyView()
-                    case .about: AboutView()
-                    case .fileDetail(let id): FileDetailView(fileId: id)
-                    case .filePreview(let id, let mode): FilePreviewView(fileId: id, mode: mode)
+                    case .help: MaxWidthContainer { HelpView() }
+                    case .privacy: MaxWidthContainer { PrivacyPolicyView() }
+                    case .about: MaxWidthContainer { AboutView() }
+                    case .fileDetail(let id): MaxWidthContainer { FileDetailView(fileId: id) }
+                    case .filePreview(let id, let mode): MaxWidthContainer { FilePreviewView(fileId: id, mode: mode) }
                     case .deleteConfirm(let runId, let ids, let physical): DeleteConfirmView(runId: runId, ids: ids, physical: physical)
                     case .deleteProgress(let runId, let ids, let physical): DeleteProgressView(runId: runId, ids: ids, physical: physical)
                     }
                 }
         }
         .preferredColorScheme(prefs.themeMode == "dark" ? .dark : prefs.themeMode == "light" ? .light : nil)
+        .navigationViewStyle(.stack) // iPad 上保持单列导航，避免默认双列 master-detail
         .onAppear {
             configureNavBarAppearance()
         }

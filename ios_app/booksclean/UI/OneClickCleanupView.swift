@@ -122,7 +122,8 @@ struct OneClickCleanupView: View {
     // MARK: - 阶段1：选择文件夹/类型/排除目录
     private var configView: some View {
         ScrollView {
-            VStack(spacing: 18) {
+            MaxWidthContainer {
+                VStack(spacing: 18) {
                 FSSection("选择文件夹") {
                     Button {
                         showingFolderPicker = true
@@ -161,8 +162,9 @@ struct OneClickCleanupView: View {
                 PrimaryButton(title: "开始扫描") { startScan() }
                     .disabled(folderName.isEmpty)
                     .padding(.horizontal, 4)
+                }
+                .padding()
             }
-            .padding()
         }
         .sheet(isPresented: $showingFolderPicker) {
             FolderPicker { url in
@@ -247,7 +249,8 @@ struct OneClickCleanupView: View {
     // MARK: - 阶段4：确认删除（含查看清单）
     private var confirmView: some View {
         ScrollView {
-            VStack(spacing: 18) {
+            MaxWidthContainer {
+                VStack(spacing: 18) {
                 FSSection("待删除清单") {
                     VStack(alignment: .leading, spacing: 8) {
                         statRow("重复文件数", "\(checkedCount)")
@@ -272,8 +275,9 @@ struct OneClickCleanupView: View {
                     .padding(.horizontal, 4)
                 Text("删除前请务必在清单中核对，操作不可恢复。").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
                     .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .padding()
             }
-            .padding()
         }
     }
 

@@ -13,14 +13,15 @@ struct HomeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                // 统计卡片（对齐安卓顶部统计）
-                HStack(spacing: 12) {
-                    statCard(title: "文库数", value: "\(runs.count)", icon: "books.vertical.fill")
-                    statCard(title: "总文件数", value: "\(totalFiles)", icon: "doc.fill")
-                    statCard(title: "标记文件", value: "\(markedFiles)", icon: "checkmark.seal.fill")
-                }
-                .padding(.top, 4)
+            MaxWidthContainer {
+                VStack(spacing: 16) {
+                    // 统计卡片（对齐安卓顶部统计）
+                    HStack(spacing: 12) {
+                        statCard(title: "文库数", value: "\(runs.count)", icon: "books.vertical.fill")
+                        statCard(title: "总文件数", value: "\(totalFiles)", icon: "doc.fill")
+                        statCard(title: "标记文件", value: "\(markedFiles)", icon: "checkmark.seal.fill")
+                    }
+                    .padding(.top, 4)
 
                 // 一键清理（对齐安卓：引导式流程，从零选择文件夹/类型/排除目录）
                 PrimaryButton(title: "一键清理重复文件") {
@@ -90,6 +91,7 @@ struct HomeView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 4)
+                }
             }
             .padding()
         }
