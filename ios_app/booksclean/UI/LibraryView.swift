@@ -955,7 +955,8 @@ struct FileDetailView: View {
                 file = FileRepository.shared.getById(f.id)
             } label: {
                 Text(f.marked == 1 ? "取消标记" : "标记")
-                    .fsFont(.subheadline, weight: .semibold)
+                    .fsFont(.subheadline)
+                    .fontWeight(.semibold)
                     .foregroundColor(.fsPrimary)
             }
         }
