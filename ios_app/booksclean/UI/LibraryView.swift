@@ -1097,17 +1097,25 @@ struct FilePreviewView: View {
         VStack(spacing: 0) {
             // 信息栏 + 字号调节（对齐安卓底部信息栏：字号 / 编码 / 已加载行数）
             HStack(spacing: 12) {
-                Button { if fontPt > 10 { fontPt -= 1 } } label: { Image(systemName: "textformat.size.smaller") }
+                Button { if fontPt > 10 { fontPt -= 1 } } label: {
+                    Image(systemName: "textformat.size.smaller")
+                        .font(.system(size: 15, weight: .medium))
+                }
                 Text("\(Int(fontPt))")
                     .frame(minWidth: 28).multilineTextAlignment(.center)
-                Button { if fontPt < 30 { fontPt += 1 } } label: { Image(systemName: "textformat.size.larger") }
-                Divider()
+                    .fsFont(.caption)
+                Button { if fontPt < 30 { fontPt += 1 } } label: {
+                    Image(systemName: "textformat.size.larger")
+                        .font(.system(size: 15, weight: .medium))
+                }
+                Divider().frame(height: 20)
                 Text("编码: \(file?.encoding.isEmpty ?? true ? "UTF-8" : (file?.encoding ?? "UTF-8"))")
                     .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
                 Spacer()
                 Text("已加载 \(totalLines) 行").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
             }
-            .padding(.horizontal, 12).padding(.vertical, 8)
+            .frame(height: 44, alignment: .center)
+            .padding(.horizontal, 12)
             .background(Color.fsSecondaryBg)
 
             // 文本 + 自定义滑条（横/竖由设置 previewScrollbarMode 控制，对齐安卓）
@@ -1150,48 +1158,82 @@ struct FilePreviewView: View {
         }
     }
 
-    // 安全作用域访问必须在主线程；读取文件本身放到后台，避免大文件阻塞 UI。
+    /// 读取文件预览内容。优先使用扫描时保存的文件夹安全作用域书签；若书签失效，则尝试直接读取文件 URL（部分场景可访问）。
     private func readFileContent(_ f: ScannedFile, mode: String) async -> String? {
-        guard let run = FileRepository.shared.getScanRun(f.scanRunId),
-              let folderURL = resolveBookmarkURL(run.folderUri) else { return nil }
+        let tag = "FilePreview"
+        guard let run = FileRepository.shared.getScanRun(f.scanRunId) else {
+            LogUtil.e(tag, "scan run not found: \(f.scanRunId)")
+            return nil
+        }
         // f.path 是 file:// 形式的绝对 URL 字符串，必须用 URL(string:) 解析
-        guard let url = URL(string: f.path) else { return nil }
-        // 在主线程开启安全作用域访问
-        let accessed = await MainActor.run { folderURL.startAccessingSecurityScopedResource() }
-        guard accessed else { return nil }
-        // 读取已在后台线程完成，此处切回主线程（瞬间操作）关闭安全作用域，避免异步 defer 与视图生命周期竞态。
-        defer { Task { @MainActor in folderURL.stopAccessingSecurityScopedResource() } }
+        guard let url = URL(string: f.path) else {
+            LogUtil.e(tag, "invalid file path: \(f.path)")
+            return nil
+        }
+
+        let folderURL = resolveBookmarkURL(run.folderUri)
+        var accessed = false
+        if let folderURL = folderURL {
+            accessed = folderURL.startAccessingSecurityScopedResource()
+            if !accessed {
+                LogUtil.d(tag, "failed to start accessing security scoped resource for folder \(folderURL)")
+            }
+        } else {
+            LogUtil.d(tag, "bookmark resolve failed, will try direct read for \(url.lastPathComponent)")
+        }
+        defer {
+            if accessed, let folderURL = folderURL {
+                folderURL.stopAccessingSecurityScopedResource()
+            }
+        }
 
         let enc = f.encoding.isEmpty ? "UTF-8" : f.encoding
         let encoding = EncodingUtil.stringEncoding(named: enc)
-        // 预览仅读取前/后 200KB，避免大文件整篇载入导致内存暴涨与界面卡死。
         let maxBytes = 200 * 1024
-        guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? fh.close() }
 
-        var data: Data
-        var truncatedSuffix: String
-        if mode == "tail" {
-            let total = (try? fh.seekToEnd()) ?? 0
-            let offset = max(0, Int64(total) - Int64(maxBytes))
-            fh.seek(toFileOffset: UInt64(offset))
-            data = fh.readData(ofLength: maxBytes)
-            let truncated = offset > 0
-            truncatedSuffix = truncated ? "\n\n…（预览仅显示末尾 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
-        } else if mode == "all" {
-            fh.seek(toFileOffset: 0)
-            data = fh.readData(ofLength: maxBytes)
-            let truncated = data.count >= maxBytes
-            truncatedSuffix = truncated ? "\n\n…（预览仅显示前 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
-        } else {
-            fh.seek(toFileOffset: 0)
-            data = fh.readData(ofLength: maxBytes)
-            let truncated = data.count >= maxBytes
-            truncatedSuffix = truncated ? "\n\n…（预览仅显示前 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
+        // 先尝试 FileHandle（可控偏移，支持 tail 模式）；失败则回退到 Data(contentsOf:)。
+        if let data = await readFileData(url: url, mode: mode, maxBytes: maxBytes, tag: tag) {
+            let truncatedSuffix = makeTruncatedSuffix(mode: mode, dataCount: data.count, maxBytes: maxBytes)
+            if let s = String(data: data, encoding: encoding) { return s + truncatedSuffix }
+            if let s = String(data: data, encoding: .utf8) { return s + truncatedSuffix }
+            LogUtil.e(tag, "string decoding failed for \(url.lastPathComponent)")
         }
-        if let s = String(data: data, encoding: encoding) { return s + truncatedSuffix }
-        if let s = String(data: data, encoding: .utf8) { return s + truncatedSuffix }
         return nil
+    }
+
+    private func readFileData(url: URL, mode: String, maxBytes: Int, tag: String) async -> Data? {
+        if let fh = try? FileHandle(forReadingFrom: url) {
+            defer { try? fh.close() }
+            if mode == "tail" {
+                let total = (try? fh.seekToEnd()) ?? 0
+                let offset = max(0, Int64(total) - Int64(maxBytes))
+                fh.seek(toFileOffset: UInt64(offset))
+                return fh.readData(ofLength: maxBytes)
+            } else {
+                fh.seek(toFileOffset: 0)
+                return fh.readData(ofLength: maxBytes)
+            }
+        }
+        LogUtil.d(tag, "FileHandle failed for \(url.lastPathComponent), trying Data(contentsOf:)")
+        // 回退：整读（仅用于小文件或沙盒内可直接访问的文件）
+        guard let data = try? Data(contentsOf: url) else {
+            LogUtil.e(tag, "Data(contentsOf:) also failed for \(url.lastPathComponent)")
+            return nil
+        }
+        if mode == "tail" {
+            let offset = max(0, data.count - maxBytes)
+            return data.subdata(in: offset..<data.count)
+        } else {
+            return data.count > maxBytes ? data.subdata(in: 0..<maxBytes) : data
+        }
+    }
+
+    private func makeTruncatedSuffix(mode: String, dataCount: Int, maxBytes: Int) -> String {
+        if mode == "tail" {
+            return dataCount >= maxBytes ? "\n\n…（预览仅显示末尾 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
+        } else {
+            return dataCount >= maxBytes ? "\n\n…（预览仅显示前 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
+        }
     }
 }
 
