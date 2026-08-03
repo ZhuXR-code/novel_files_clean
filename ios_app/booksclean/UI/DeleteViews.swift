@@ -9,6 +9,10 @@ struct DeleteConfirmView: View {
     @State private var files: [ScannedFile] = []
     /// 选中集：默认全选，可逐条取消（对齐安卓/鸿蒙删除确认页）
     @State private var selectedIDs: Set<Int64> = []
+    /// 清单加载完成标记
+    @State private var loading = true
+    /// 清单模糊搜索关键字
+    @State private var searchText = ""
 
     init(runId: Int64, ids: [Int64], physical: Bool = true) {
         self.runId = runId
@@ -23,6 +27,23 @@ struct DeleteConfirmView: View {
     }
     private var totalSize: Int64 {
         selectedFiles.reduce(0) { $0 + $1.fileSize }
+    }
+
+    /// 模糊搜索过滤后的清单（匹配 文件名/书名/作者）
+    private var filteredFiles: [ScannedFile] {
+        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return files }
+        return files.filter {
+            $0.fileName.lowercased().contains(q)
+                || $0.title.lowercased().contains(q)
+                || $0.author.lowercased().contains(q)
+        }
+    }
+
+    /// 将文件从本次待删除清单中移除（不删除磁盘文件与扫描记录）
+    private func removeFromList(_ f: ScannedFile) {
+        files.removeAll { $0.id == f.id }
+        selectedIDs.remove(f.id)
     }
 
     var body: some View {
@@ -44,7 +65,7 @@ struct DeleteConfirmView: View {
                 // 已选 / 共 统计（对齐安卓底部统计条）
                 HStack(spacing: 16) {
                     VStack(spacing: 2) {
-                        Text("已选 \(selectedIDs.count) / 共 \(ids.count)").fsFont(.headline).foregroundColor(.fsPrimary)
+                        Text("已选 \(selectedIDs.count) / 共 \(files.count)").fsFont(.headline).foregroundColor(.fsPrimary)
                         Text("待删除文件").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
                     }
                     Divider().frame(height: 28)
@@ -70,40 +91,63 @@ struct DeleteConfirmView: View {
                 .background(Color.fsSecondaryBg)
                 .cornerRadius(10)
 
-                // 待删除文件清单（可滚动浏览，默认全选，可逐条取消）
-                if files.isEmpty {
+                // 待删除文件清单（可滚动浏览，默认全选，可逐条取消；支持模糊搜索 + 移出清单）
+                if loading {
                     ProgressView("加载清单…").frame(maxWidth: .infinity)
+                } else if files.isEmpty {
+                    Text("清单已清空，无需删除。").fsFont(.subheadline).foregroundColor(.fsSecondaryLabel)
+                        .frame(maxWidth: .infinity).padding(.vertical, 32)
                 } else {
                     HStack {
                         Text("待删除清单").fsFont(.subheadline).fontWeight(.medium).foregroundColor(.fsPrimary)
                         Spacer()
                         // 一键全选 / 取消全选
-                        Button(selectedIDs.count == ids.count ? "取消全选" : "全选") {
-                            selectedIDs = (selectedIDs.count == ids.count) ? [] : Set(ids)
+                        Button(selectedIDs.count == files.count ? "取消全选" : "全选") {
+                            selectedIDs = (selectedIDs.count == files.count) ? [] : Set(files.map(\.id))
                         }
                         .fsFont(.caption)
                         .foregroundColor(.fsPrimary)
                     }
                     .padding(.horizontal, 4)
 
-                    List {
-                        ForEach(files) { f in
-                            DeleteConfirmRow(file: f, isOn: Binding(
-                                get: { selectedIDs.contains(f.id) },
-                                set: { on in
-                                    if on { selectedIDs.insert(f.id) } else { selectedIDs.remove(f.id) }
+                    TextField("搜索文件名 / 书名 / 作者", text: $searchText)
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    Text("左滑文件行或点击右侧 ✕ 可将其移出清单，本次将跳过该文件。")
+                        .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if filteredFiles.isEmpty {
+                        Text("未找到匹配的文件").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                            .frame(maxWidth: .infinity).padding(.vertical, 24)
+                    } else {
+                        List {
+                            ForEach(filteredFiles) { f in
+                                DeleteConfirmRow(file: f, isOn: Binding(
+                                    get: { selectedIDs.contains(f.id) },
+                                    set: { on in
+                                        if on { selectedIDs.insert(f.id) } else { selectedIDs.remove(f.id) }
+                                    }
+                                )) {
+                                    removeFromList(f)
                                 }
-                            ))
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) { removeFromList(f) } label: {
+                                        Label("移出清单", systemImage: "xmark.circle")
+                                    }
+                                }
+                            }
                         }
+                        .listStyle(.plain)
+                        .frame(maxWidth: .infinity)
                     }
-                    .listStyle(.plain)
-                    .frame(maxWidth: .infinity)
                 }
 
-                PrimaryButton(title: "开始删除（\(selectedIDs.count)）", enabled: !selectedIDs.isEmpty) {
-                    let finalIDs = ids.filter { selectedIDs.contains($0) }
+                PrimaryButton(title: "开始删除（\(selectedIDs.count)）", enabled: !selectedIDs.isEmpty && !files.isEmpty) {
+                    let finalIDs = files.filter { selectedIDs.contains($0.id) }.map { $0.id }
                     router.navigate(.deleteProgress(runId: runId, ids: finalIDs, physical: physical))
                 }
                 Spacer()
@@ -117,7 +161,11 @@ struct DeleteConfirmView: View {
 
     private func loadFiles() async {
         let loaded = FileRepository.shared.getByIds(ids)
-        await MainActor.run { files = loaded }
+        await MainActor.run {
+            files = loaded
+            selectedIDs = Set(loaded.map(\.id))
+            loading = false
+        }
     }
 }
 
@@ -125,6 +173,8 @@ struct DeleteConfirmView: View {
 private struct DeleteConfirmRow: View {
     let file: ScannedFile
     @Binding var isOn: Bool
+    /// 从清单中移除该文件（本次不删除）
+    var onRemove: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -145,6 +195,15 @@ private struct DeleteConfirmRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            if let onRemove = onRemove {
+                Button(action: onRemove) {
+                    Image(systemName: "xmark.circle")
+                        .fsFontSize(18)
+                        .foregroundColor(.fsSecondaryLabel)
+                }
+                .buttonStyle(.borderless)
+                .help("从清单移除")
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture {

@@ -150,7 +150,29 @@ struct OneClickCleanupView: View {
                 FSSection("排除文件夹") {
                     TextField("逗号分隔，如 备份,已读", text: $excludedFolders)
                         .textFieldStyle(.roundedBorder)
-                    Text("被排除的子目录将完全跳过扫描（对齐鸿蒙/PC 的排除目录能力）。").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                    Button {
+                        showingExcludePicker = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "folder.badge.plus").foregroundColor(.fsPrimary)
+                            Text("选择排除文件夹").fsFont(.subheadline).foregroundColor(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
+                        }
+                    }
+                    if !excludedList.isEmpty {
+                        ForEach(excludedList, id: \.self) { n in
+                            HStack {
+                                Text(n).fsFont(.subheadline).lineLimit(1)
+                                Spacer()
+                                Button {
+                                    removeExcluded(n)
+                                } label: { Image(systemName: "xmark.circle.fill").foregroundColor(.fsSecondaryLabel) }
+                                    .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+                    Text("被排除的子目录将完全跳过扫描。").fsFont(.caption).foregroundColor(.fsSecondaryLabel)
                 }
 
                 FSSection("扫描选项") {
@@ -173,9 +195,32 @@ struct OneClickCleanupView: View {
                 folderName = url.lastPathComponent
             }
         }
+        .sheet(isPresented: $showingExcludePicker) {
+            FolderPicker { url in
+                showingExcludePicker = false
+                let n = url.lastPathComponent.trimmingCharacters(in: .whitespaces)
+                guard !n.isEmpty else { return }
+                var parts = excludedList
+                if !parts.contains(n) { parts.append(n) }
+                excludedFolders = parts.joined(separator: ",")
+            }
+        }
     }
 
     @State private var showingFolderPicker = false
+    @State private var showingExcludePicker = false
+
+    /// 已配置的排除文件夹（从逗号分隔字符串解析）
+    private var excludedList: [String] {
+        excludedFolders.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    private func removeExcluded(_ n: String) {
+        var parts = excludedList
+        parts.removeAll { $0 == n }
+        excludedFolders = parts.joined(separator: ",")
+    }
 
     private func startScan() {
         guard !folderUri.isEmpty else {
