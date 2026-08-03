@@ -5,15 +5,24 @@ struct DeleteConfirmView: View {
     let runId: Int64
     let ids: [Int64]
     @State private var physical: Bool
+    /// 待删除文件完整对象（供清单展示）
+    @State private var files: [ScannedFile] = []
+    /// 选中集：默认全选，可逐条取消（对齐安卓/鸿蒙删除确认页）
+    @State private var selectedIDs: Set<Int64> = []
 
     init(runId: Int64, ids: [Int64], physical: Bool = true) {
         self.runId = runId
         self.ids = ids
         _physical = State(initialValue: physical)
+        _selectedIDs = State(initialValue: Set(ids))
     }
 
+    /// 当前勾选的文件（用于合计大小）
+    private var selectedFiles: [ScannedFile] {
+        files.filter { selectedIDs.contains($0.id) }
+    }
     private var totalSize: Int64 {
-        DatabaseManager.shared.sumFileSizes(ids: ids)
+        selectedFiles.reduce(0) { $0 + $1.fileSize }
     }
 
     var body: some View {
@@ -28,14 +37,14 @@ struct DeleteConfirmView: View {
             .frame(maxWidth: .infinity)
             .background(Color.red)
 
-            VStack(spacing: 18) {
-                Spacer().frame(height: 16)
-                Image(systemName: "trash").fsFontSize(48).foregroundColor(.red)
-                Text("确认删除").fsFont(.title2).fontWeight(.semibold)
+            VStack(spacing: 12) {
+                Spacer().frame(height: 12)
+                Image(systemName: "trash").fsFontSize(40).foregroundColor(.red)
+                Text("确认删除").fsFont(.title3).fontWeight(.semibold)
                 // 已选 / 共 统计（对齐安卓底部统计条）
                 HStack(spacing: 16) {
                     VStack(spacing: 2) {
-                        Text("已选 \(ids.count)").fsFont(.headline).foregroundColor(.fsPrimary)
+                        Text("已选 \(selectedIDs.count) / 共 \(ids.count)").fsFont(.headline).foregroundColor(.fsPrimary)
                         Text("待删除文件").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
                     }
                     Divider().frame(height: 28)
@@ -61,15 +70,87 @@ struct DeleteConfirmView: View {
                 .background(Color.fsSecondaryBg)
                 .cornerRadius(10)
 
-                PrimaryButton(title: "开始删除") {
-                    router.navigate(.deleteProgress(runId: runId, ids: ids, physical: physical))
+                // 待删除文件清单（可滚动浏览，默认全选，可逐条取消）
+                if files.isEmpty {
+                    ProgressView("加载清单…").frame(maxWidth: .infinity)
+                } else {
+                    HStack {
+                        Text("待删除清单").fsFont(.subheadline).fontWeight(.medium).foregroundColor(.fsPrimary)
+                        Spacer()
+                        // 一键全选 / 取消全选
+                        Button(selectedIDs.count == ids.count ? "取消全选" : "全选") {
+                            selectedIDs = (selectedIDs.count == ids.count) ? [] : Set(ids)
+                        }
+                        .fsFont(.caption)
+                        .foregroundColor(.fsPrimary)
+                    }
+                    .padding(.horizontal, 4)
+
+                    List {
+                        ForEach(files) { f in
+                            DeleteConfirmRow(file: f, isOn: Binding(
+                                get: { selectedIDs.contains(f.id) },
+                                set: { on in
+                                    if on { selectedIDs.insert(f.id) } else { selectedIDs.remove(f.id) }
+                                }
+                            ))
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
+                        }
+                    }
+                    .listStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                }
+
+                PrimaryButton(title: "开始删除（\(selectedIDs.count)）", enabled: !selectedIDs.isEmpty) {
+                    let finalIDs = ids.filter { selectedIDs.contains($0) }
+                    router.navigate(.deleteProgress(runId: runId, ids: finalIDs, physical: physical))
                 }
                 Spacer()
             }
-            .padding()
+            .padding(.horizontal)
         }
         .navigationTitle("删除确认")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await loadFiles() }
+    }
+
+    private func loadFiles() async {
+        let loaded = FileRepository.shared.getByIds(ids)
+        await MainActor.run { files = loaded }
+    }
+}
+
+/// 删除确认页的单个文件行：勾选框 + 书名/文件名 + 大小 + 路径
+private struct DeleteConfirmRow: View {
+    let file: ScannedFile
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .tint(.red)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(file.title.isEmpty ? file.fileName : file.title)
+                    .fsFont(.subheadline).fontWeight(.medium)
+                    .foregroundColor(.fsPrimary)
+                    .lineLimit(1)
+                Text(file.fileName)
+                    .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                    .lineLimit(1)
+                Text("\(FormatUtil.formatSize(file.fileSize)) · \(FormatUtil.toHumanReadablePath(file.path))")
+                    .fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // 点击整行也可切换勾选（对齐安卓逐条点击取消）
+            isOn.toggle()
+        }
     }
 }
 

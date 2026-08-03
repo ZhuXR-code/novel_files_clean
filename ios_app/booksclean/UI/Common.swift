@@ -48,11 +48,15 @@ func beginScan(_ config: ScanConfig) {
 /// 通用加载/进度按钮。
 struct PrimaryButton: View {
     let title: String
+    var enabled: Bool = true
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             Text(title).frame(maxWidth: .infinity).padding(.vertical, 7)
-                .background(Color.fsPrimary).foregroundColor(.white).cornerRadius(8)
+                .background(enabled ? Color.fsPrimary : Color.fsSecondaryBg)
+                .foregroundColor(enabled ? .white : .fsSecondaryLabel)
+                .cornerRadius(8)
         }
+        .disabled(!enabled)
     }
 }
