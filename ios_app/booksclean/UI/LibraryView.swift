@@ -738,6 +738,16 @@ struct LibraryView: View {
         let curCheckedFront = prefs.checkedSortToFront
         let repo = FileRepository.shared
 
+        let (cf, mf): (Int, Int) = {
+            switch curFilter {
+            case "checked":   return (1, -1)
+            case "unchecked": return (0, -1)
+            case "marked":    return (-1, 1)
+            case "unmarked":  return (-1, 0)
+            default:          return (-1, -1)
+            }
+        }()
+
         DispatchQueue.global(qos: .userInitiated).async {
             if currentMode == "group" {
                 let gTotal = repo.dbCountGroups(runId: runId, min: curMin, max: curMax, exclude: curExclude,
@@ -759,15 +769,6 @@ struct LibraryView: View {
                 }
                 return
             }
-            let (cf, mf): (Int, Int) = {
-                switch curFilter {
-                case "checked":   return (1, -1)
-                case "unchecked": return (0, -1)
-                case "marked":    return (-1, 1)
-                case "unmarked":  return (-1, 0)
-                default:          return (-1, -1)
-                }
-            }()
             let t = repo.dbCountFiles(runId: runId, title: curTitle, author: curAuthor,
                                       progress: curProgress, source: curSource, search: curSearch,
                                       checkedFilter: cf, markedFilter: mf)
