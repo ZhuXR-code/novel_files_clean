@@ -186,12 +186,33 @@ export class RdbHelper {
   }
 
   private static async addColumnIfNotExists(store: relationalStore.RdbStore, table: string, column: string, def: string): Promise<void> {
+    // 先查询表结构，列已存在则直接跳过，避免对已有列执行 ALTER 抛 "duplicate column name"。
+    // 注意：鸿蒙 ArkData 在列已存在时报 "SQLite: Generic error..." 而非明确的
+    // "duplicate column name"，故不能仅靠捕获异常文案判断；用 table_info 显式探测最稳妥。
+    try {
+      const info = await store.querySql(`PRAGMA table_info(${table})`);
+      let exists = false;
+      while (info.goToNextRow()) {
+        const name = info.getString(info.getColumnIndex('name'));
+        if (name === column) {
+          exists = true;
+          break;
+        }
+      }
+      info.close();
+      if (exists) {
+        return;
+      }
+    } catch (e) {
+      // 探测失败（如表不存在）时，仍尝试 ALTER，让底层报错暴露真实问题。
+      LogUtil.w('RdbHelper', `探测列 ${table}.${column} 失败，尝试直接 ALTER: ${(e as Error)?.message ?? '未知错误'}`);
+    }
     try {
       await store.executeSql(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
     } catch (e) {
       const msg: string = (e as Error)?.message ?? '';
       if (msg.includes('duplicate column name')) {
-        return; // 列已存在，ALTER 重复执行时的正常情况
+        return; // 列已存在，ALTER 重复执行时的正常情况（兜底，理论上不会再走到）
       }
       // 非预期错误：记录但不中断初始化，避免一条迁移失败导致整个数据库不可用。
       // 真实原因写入日志便于排查（如磁盘满/语法错误等仍需关注）。
