@@ -17,6 +17,8 @@ final class Preferences: ObservableObject {
     @Published var groupSort: String { didSet { ud.set(groupSort, forKey: "group_sort") } }
     /// 勾选过的文件/合集是否自动排到最前面（对齐安卓 auto_sort_checked，默认关闭）
     @Published var checkedSortToFront: Bool { didSet { ud.set(checkedSortToFront, forKey: "checked_sort_to_front") } }
+    /// 已标记「重复文件名」的文件是否自动排到列表最前面（默认开启）
+    @Published var markedSortToFront: Bool { didSet { ud.set(markedSortToFront, forKey: "marked_sort_to_front") } }
     @Published var kwSeedDone: Bool { didSet { ud.set(kwSeedDone, forKey: "kw_seed_done") } }
     @Published var privacyAgreed: Bool { didSet { ud.set(privacyAgreed, forKey: "privacy_agreed") } }
 
@@ -34,6 +36,7 @@ final class Preferences: ObservableObject {
         previewScrollbarMode = ud.string(forKey: "preview_scrollbar_mode") ?? "vertical"
         groupSort = ud.string(forKey: "group_sort") ?? "count_desc"
         checkedSortToFront = ud.bool(forKey: "checked_sort_to_front")
+        markedSortToFront = ud.object(forKey: "marked_sort_to_front") as? Bool ?? true
         kwSeedDone = ud.bool(forKey: "kw_seed_done")
         privacyAgreed = ud.bool(forKey: "privacy_agreed")
     }

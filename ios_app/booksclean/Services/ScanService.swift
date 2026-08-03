@@ -8,7 +8,7 @@ final class ScanService {
 
     /// 由安全作用域书签解析文件夹 URL。
     private func resolveBookmark(_ base64: String) -> URL? {
-        resolveBookmarkURL(base64)
+        resolveBookmarkURL(base64)?.url
     }
 
     /// 执行一次扫描。config.folderUri 为书签 base64。返回新建文库 runId。

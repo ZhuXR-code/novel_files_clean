@@ -143,6 +143,27 @@ final class FileRepository {
         db.countFiles(runId: runId)
     }
 
+    /// 按「书名 + 作者」相同标记重复（保留每组首个，其余标记）。返回新标记的文件数。
+    /// 对齐安卓 LibraryViewModel.markDuplicatesByName。
+    @discardableResult
+    func markDuplicatesByName(runId: Int64) -> Int {
+        let n = db.markDuplicatesByName(runId: runId)
+        LogUtil.i("Repo", "按书名作者相同标记 run=\(runId) 新增标记=\(n)")
+        return n
+    }
+
+    /// 按「文件名」相同标记重复（保留同名首个，其余标记）。返回新标记的文件数。
+    @discardableResult
+    func markDuplicateFileNames(runId: Int64) -> Int {
+        let all = db.findDuplicateIdsByFileName(runId: runId)
+        guard !all.isEmpty else { return 0 }
+        let before = Set(db.getByIds(all).filter { $0.marked == 1 }.map { $0.id })
+        let toMark = all.filter { !before.contains($0) }
+        if !toMark.isEmpty { db.updateMarked(ids: toMark, marked: 1) }
+        LogUtil.i("Repo", "按文件名相同标记 run=\(runId) 新标记=\(toMark.count)")
+        return toMark.count
+    }
+
     /// 重复组数：已勾选文件按 (作者, 书名) 规范化分组后，组内文件数 >= 2 的组数。
     func getDuplicateGroups(runId: Int64) -> Int {
         let files = db.getCheckedFiles(runId: runId)

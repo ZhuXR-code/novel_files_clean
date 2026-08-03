@@ -2,6 +2,43 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
+// MARK: - iPad 适配公共工具
+
+/// 当前设备是否为 iPad（含用 iPad 布局的 Mac Catalyst）。
+/// 用于在大屏上切换多列网格、约束内容最大宽度等布局策略。
+var isPad: Bool {
+    UIDevice.current.userInterfaceIdiom == .pad
+}
+
+/// 根据可用宽度返回自适应的网格列数（用于文库列表 / 合集的 LazyVGrid）。
+/// - Parameter width: 容器可用宽度（points）。
+/// - Parameter minItemWidth: 单列最小宽度，默认 360。
+func adaptiveColumns(for width: CGFloat, minItemWidth: CGFloat = 360) -> Int {
+    guard width > 0 else { return 1 }
+    let cols = Int((width + 12) / (minItemWidth + 12))
+    return max(1, min(cols, 4))
+}
+
+/// 约束内容最大宽度并水平居中，避免大屏（iPad）上文字/卡片被拉伸过宽。
+/// iPhone 上不限制（铺满），iPad 上限制为 contentMaxWidth 并居中。
+struct MaxWidthContainer<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    var maxWidth: CGFloat = 720
+    var applyPad: Bool = true
+
+    var body: some View {
+        if isPad {
+            content()
+                .frame(maxWidth: maxWidth)
+                .padding(.horizontal, applyPad ? 20 : 0)
+                .frame(maxWidth: .infinity, alignment: .center)
+        } else {
+            content()
+        }
+    }
+}
+
+
 /// 文件夹选择器（iOS 文档选择器，用于挑选待扫描目录，等价于 Android 端 SAF 选目录）。
 struct FolderPicker: UIViewControllerRepresentable {
     let onPick: (URL) -> Void
@@ -33,10 +70,12 @@ func makeBookmark(_ url: URL) -> String? {
 }
 
 /// 由 base64 书签还原文件夹 URL（iOS 上 options 必须为空集合）。
-func resolveBookmarkURL(_ base64: String) -> URL? {
+/// 返回 (URL, isStale) 元组；isStale=true 表示书签已过期，该 URL 无法用于 startAccessingSecurityScopedResource。
+func resolveBookmarkURL(_ base64: String) -> (url: URL, isStale: Bool)? {
     guard let data = Data(base64Encoded: base64) else { return nil }
     var isStale = false
-    return try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale)
+    guard let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale) else { return nil }
+    return (url, isStale)
 }
 
 /// 触发一次扫描：先进入扫描进度页，再后台执行扫描。

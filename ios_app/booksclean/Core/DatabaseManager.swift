@@ -399,7 +399,7 @@ final class DatabaseManager {
                               titleFilter: String?, authorFilter: String?, progressFilter: String?,
                               sourceFilter: String?, search: String?,
                               checkedFilter: Int = -1, markedFilter: Int = -1,
-                              checkedSortToFront: Bool = false) -> [ScannedFile] {
+                              checkedSortToFront: Bool = false, markedSortToFront: Bool = false) -> [ScannedFile] {
         var whereClauses = ["scan_run_id=?"]
         var binds: [Any?] = [runId]
         if let t = titleFilter, !t.isEmpty { whereClauses.append("title LIKE ?"); binds.append("\(t)%") }
@@ -411,9 +411,13 @@ final class DatabaseManager {
         if markedFilter >= 0 { whereClauses.append("marked=?"); binds.append(markedFilter) }
         let orderCol = sortBy == "file_name" || sortBy == "title" || sortBy == "author" || sortBy == "progress" || sortBy == "source" || sortBy == "file_size" ? sortBy : "created_at"
         let dir = ascending ? "ASC" : "DESC"
-        // 勾选置顶（对齐安卓 filesPageFlow 的 checkedPrefix）：在原排序前追加 checked DESC
-        let checkedPrefix = checkedSortToFront ? "checked DESC, " : ""
-        let sql = "SELECT \(SF_COLS) FROM scanned_file WHERE \(whereClauses.joined(separator: " AND ")) ORDER BY \(checkedPrefix)\(orderCol) \(dir), id \(dir) LIMIT ? OFFSET ?"
+        // 置顶前缀（对齐安卓 filesPageFlow 的 checkedPrefix / markedPrefix）：
+        // marked DESC 让「已标记重复文件名」的文件排在最前，checked DESC 让已勾选文件紧随其后，
+        // 两者可叠加。仅在用户开启对应偏好时追加。
+        var prefix = ""
+        if markedSortToFront { prefix += "marked DESC, " }
+        if checkedSortToFront { prefix += "checked DESC, " }
+        let sql = "SELECT \(SF_COLS) FROM scanned_file WHERE \(whereClauses.joined(separator: " AND ")) ORDER BY \(prefix)\(orderCol) \(dir), id \(dir) LIMIT ? OFFSET ?"
         binds.append(limit); binds.append(offset)
         return fetchAll(sql, binds).map(mapScannedFile)
     }
@@ -587,6 +591,31 @@ final class DatabaseManager {
     /// 文库文件总数。
     func countFiles(runId: Int64) -> Int {
         Int(count("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id=?", [runId]))
+    }
+
+    // MARK: - 按「书名 + 作者」相同标记重复（对齐安卓 markDuplicatesByNameSql）
+    /// 同 (title, author) 组内文件数 >= 2 时，保留 id 最小的一条，其余 marked 置 1。
+    /// title 为空的文件不参与（避免空书名互相标记）。返回实际标记的文件数。
+    func markDuplicatesByName(runId: Int64) -> Int {
+        let sql = """
+            UPDATE scanned_file SET marked = 1
+            WHERE scan_run_id = ?
+              AND title != ''
+              AND (lower(trim(title)) || '|' || lower(trim(COALESCE(author, '')))) IN (
+                  SELECT lower(trim(title)) || '|' || lower(trim(COALESCE(author, '')))
+                  FROM scanned_file WHERE scan_run_id = ? AND title != ''
+                  GROUP BY lower(trim(title)) || '|' || lower(trim(COALESCE(author, '')))
+                  HAVING COUNT(*) > 1
+              )
+              AND id NOT IN (
+                  SELECT MIN(id) FROM scanned_file WHERE scan_run_id = ? AND title != ''
+                  GROUP BY lower(trim(title)) || '|' || lower(trim(COALESCE(author, '')))
+              )
+        """
+        let before = countMarked(runId: runId)
+        execute(sql, [runId, runId, runId])
+        let after = countMarked(runId: runId)
+        return max(after - before, 0)
     }
 
     // MARK: - 分批按文件名找重复（20w+ 量级防 OOM）

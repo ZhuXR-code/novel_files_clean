@@ -369,6 +369,26 @@ struct LibraryView: View {
         Group {
             if files.isEmpty {
                 emptyStateView(message: "暂无文件\n\n可返回首页选择文件夹扫描，或使用顶部「一键勾选重复」按规则批量勾选。")
+            } else if isPad {
+                // iPad：多列网格，提升大屏利用率（swipeActions 在 Grid 不可用，改点击进入详情后预览）
+                GeometryReader { geo in
+                    let cols = adaptiveColumns(for: geo.size.width, minItemWidth: 380)
+                    ScrollView {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols), spacing: 12) {
+                            ForEach(files) { f in
+                                FileRow(
+                                    file: f,
+                                    onToggleCheck: { toggleCheck(f) },
+                                    onToggleMark: { toggleMark(f) },
+                                    onTap: { router.navigate(.fileDetail(id: f.id)) }
+                                )
+                                .padding(12)
+                                .background(Color.fsSecondaryBg).cornerRadius(12)
+                            }
+                        }
+                        .padding(12)
+                    }
+                }
             } else {
                 List {
                     ForEach(files) { f in
@@ -393,6 +413,26 @@ struct LibraryView: View {
         Group {
             if groups.isEmpty {
                 emptyStateView(message: "暂无合集\n\n合集按「书名 / 作者」自动归并。可先到列表模式扫描并解析文件，或在更多菜单中进入「合集设置」调整分组规则。")
+            } else if isPad {
+                // iPad：多列卡片网格
+                GeometryReader { geo in
+                    let cols = adaptiveColumns(for: geo.size.width, minItemWidth: 320)
+                    ScrollView {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols), spacing: 12) {
+                            ForEach(groups) { g in
+                                GroupCardView(g: g, groupChecked: groupChecked, onToggle: {
+                                    let key = "\(g.title)\u{0000}\(g.author)"
+                                    let checked = groupChecked[key] ?? 0
+                                    let allChecked = checked >= g.fileCount && g.fileCount > 0
+                                    toggleGroupChecked(title: g.title, author: g.author, allChecked: allChecked)
+                                }, onTap: { selectedGroup = g })
+                                .padding(12)
+                                .background(Color.fsSecondaryBg).cornerRadius(12)
+                            }
+                        }
+                        .padding(12)
+                    }
+                }
             } else {
                 List {
                     ForEach(groups) { g in
@@ -430,6 +470,34 @@ struct LibraryView: View {
         }
     }
 
+    // 合集卡片（iPad 网格用）
+    private func GroupCardView(g: NovelGroup, groupChecked: [String: Int], onToggle: @escaping () -> Void, onTap: @escaping () -> Void) -> some View {
+        let key = "\(g.title)\u{0000}\(g.author)"
+        let checked = groupChecked[key] ?? 0
+        let allChecked = checked >= g.fileCount && g.fileCount > 0
+        let someChecked = checked > 0 && !allChecked
+        return HStack(spacing: 10) {
+            Button(action: onToggle) {
+                Image(systemName: allChecked ? "checkmark.square.fill" : (someChecked ? "minus.square.fill" : "square"))
+                    .foregroundColor(allChecked || someChecked ? .fsPrimary : .fsSecondaryLabel)
+                    .font(.system(size: 18))
+            }
+            .buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(g.title).fsFont(.subheadline).fontWeight(.medium)
+                Text("作者: \(g.author) · \(g.fileCount) 本 · \(FormatUtil.formatSize(g.totalSize))")
+                    .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+            }
+            Spacer(minLength: 4)
+            if g.checkedCount > 0 {
+                Text("勾选 \(g.checkedCount)").fsFont(.caption).foregroundColor(.red)
+            }
+            Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+    }
+
     private var toolbarItems: some ToolbarContent {
         Group {
             // 常驻操作（对齐安卓文库顶部图标栏：勾选重复 / 删除选中 / 更多）
@@ -437,7 +505,7 @@ struct LibraryView: View {
                 Button {
                     selectDuplicates()
                 } label: { Image(systemName: "checkmark.circle") }
-                .help("一键勾选重复")
+                .help("一键勾选重复（按内容哈希相同）")
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -482,15 +550,32 @@ struct LibraryView: View {
                     } label: {
                         Label("勾选文件排到前面", systemImage: prefs.checkedSortToFront ? "checkmark" : "")
                     }
+                    // 标记置顶（新增：已标记重复文件名的文件排到列表最前）
+                    Button {
+                        prefs.markedSortToFront.toggle()
+                        page = 0
+                        reload()
+                        toast(prefs.markedSortToFront ? "标记文件已置顶" : "已取消标记置顶")
+                    } label: {
+                        Label("标记文件排到前面", systemImage: prefs.markedSortToFront ? "checkmark" : "")
+                    }
 
                     Divider()
-                    // 批量操作（对齐安卓文库「更多」菜单）
-                    Menu("批量操作") {
-                        Button("标记重复文件名") {
-                            let n = FileRepository.shared.markDuplicatesByFileName(runId: runId)
-                            toast("已标记 \(n) 个同名重复文件")
+                    // 标记重复（独立出来，置顶在更多操作顶层）
+                    Menu("标记重复") {
+                        Button("标记重复文件名（同名）") {
+                            let n = FileRepository.shared.markDuplicateFileNames(runId: runId)
+                            toast(n > 0 ? "已标记 \(n) 个同名重复文件" : "没有同名重复文件")
                             reload()
                         }
+                        Button("标记重复（书名+作者相同）") {
+                            let n = FileRepository.shared.markDuplicatesByName(runId: runId)
+                            toast(n > 0 ? "已标记 \(n) 个书名/作者相同的重复文件" : "没有书名/作者相同的重复文件")
+                            reload()
+                        }
+                    }
+                    // 批量操作（对齐安卓文库「更多」菜单）
+                    Menu("批量操作") {
                         Button("标记已勾选文件") {
                             let ids = FileRepository.shared.getCheckedIds(runId: runId)
                             FileRepository.shared.updateMarked(ids: ids, marked: true)
@@ -527,19 +612,21 @@ struct LibraryView: View {
 
     private var filterSheet: some View {
         NavigationStack {
-            Form {
-                Section("前缀筛选（留空=不筛选）") {
-                    TextField("书名前缀", text: $titleFilter)
-                    TextField("作者前缀", text: $authorFilter)
-                    TextField("进度前缀", text: $progressFilter)
-                    TextField("来源前缀", text: $sourceFilter)
-                }
-                Section("合集数量范围") {
-                    Stepper("最小数量: \(prefs.groupMinCount)", value: $prefs.groupMinCount, in: 0...1000)
-                    TextField("排除书名（逗号分隔）", text: $prefs.groupExcludeNames)
-                }
-                Section {
-                    Toggle("自动置顶合集", isOn: $autoCollapse)
+            MaxWidthContainer {
+                Form {
+                    Section("前缀筛选（留空=不筛选）") {
+                        TextField("书名前缀", text: $titleFilter)
+                        TextField("作者前缀", text: $authorFilter)
+                        TextField("进度前缀", text: $progressFilter)
+                        TextField("来源前缀", text: $sourceFilter)
+                    }
+                    Section("合集数量范围") {
+                        Stepper("最小数量: \(prefs.groupMinCount)", value: $prefs.groupMinCount, in: 0...1000)
+                        TextField("排除书名（逗号分隔）", text: $prefs.groupExcludeNames)
+                    }
+                    Section {
+                        Toggle("自动置顶合集", isOn: $autoCollapse)
+                    }
                 }
             }
             .navigationTitle("筛选").navigationBarTitleDisplayMode(.inline).toolbar {
@@ -553,14 +640,16 @@ struct LibraryView: View {
     // 合集设置（对齐安卓文库「合集设置」：最小/最大数量、排除书名）
     private var groupSettingsSheet: some View {
         NavigationStack {
-            Form {
-                Section("合集数量范围") {
-                    Stepper("最小数量: \(prefs.groupMinCount)", value: $prefs.groupMinCount, in: 0...1000)
-                    Toggle("限制最大数量", isOn: Binding(get: { prefs.groupMaxCount >= 0 }, set: { v in prefs.groupMaxCount = v ? 500 : -1 }))
-                    if prefs.groupMaxCount >= 0 {
-                        Stepper("最大数量: \(prefs.groupMaxCount)", value: $prefs.groupMaxCount, in: 0...100000)
+            MaxWidthContainer {
+                Form {
+                    Section("合集数量范围") {
+                        Stepper("最小数量: \(prefs.groupMinCount)", value: $prefs.groupMinCount, in: 0...1000)
+                        Toggle("限制最大数量", isOn: Binding(get: { prefs.groupMaxCount >= 0 }, set: { v in prefs.groupMaxCount = v ? 500 : -1 }))
+                        if prefs.groupMaxCount >= 0 {
+                            Stepper("最大数量: \(prefs.groupMaxCount)", value: $prefs.groupMaxCount, in: 0...100000)
+                        }
+                        TextField("排除书名（逗号分隔）", text: $prefs.groupExcludeNames)
                     }
-                    TextField("排除书名（逗号分隔）", text: $prefs.groupExcludeNames)
                 }
             }
             .navigationTitle("合集设置").navigationBarTitleDisplayMode(.inline).toolbar {
@@ -717,10 +806,14 @@ struct LibraryView: View {
         running = true
         let rid = runId
         DispatchQueue.global(qos: .userInitiated).async {
-            FileRepository.shared.selectDuplicateIds(runId: rid)
+            let dupIds = FileRepository.shared.selectDuplicateIds(runId: rid)
             DispatchQueue.main.async {
                 running = false
-                reload()
+                if dupIds.isEmpty {
+                    toast("当前筛选下没有重复文件（按内容哈希）")
+                } else {
+                    reload()
+                }
             }
         }
     }
@@ -736,6 +829,7 @@ struct LibraryView: View {
         let curExclude = LibraryLogic.parseExcludeNames(prefs.groupExcludeNames)
         let curGroupSort = prefs.groupSort
         let curCheckedFront = prefs.checkedSortToFront
+        let curMarkedFront = prefs.markedSortToFront
         let repo = FileRepository.shared
 
         let (cf, mf): (Int, Int) = {
@@ -778,7 +872,8 @@ struct LibraryView: View {
                                       ascending: ascending, title: curTitle, author: curAuthor,
                                       progress: curProgress, source: curSource, search: curSearch,
                                       checkedFilter: cf, markedFilter: mf,
-                                      checkedSortToFront: curCheckedFront)
+                                      checkedSortToFront: curCheckedFront,
+                                      markedSortToFront: curMarkedFront)
             DispatchQueue.main.async {
                 total = t; pageCount = pc; page = p; files = fs
                 checkedCount = repo.getCheckedCount(runId: runId)
@@ -794,13 +889,14 @@ extension FileRepository {
     func dbPageFiles(runId: Int64, page: Int, pageSize: Int, sortBy: String, ascending: Bool,
                      title: String, author: String, progress: String, source: String, search: String,
                      checkedFilter: Int = -1, markedFilter: Int = -1,
-                     checkedSortToFront: Bool = false) -> [ScannedFile] {
+                     checkedSortToFront: Bool = false, markedSortToFront: Bool = false) -> [ScannedFile] {
         DatabaseManager.shared.getScannedFilesPaged(runId: runId, offset: page * pageSize, limit: pageSize,
                                                      sortBy: sortBy, ascending: ascending, titleFilter: title,
                                                      authorFilter: author, progressFilter: progress,
                                                      sourceFilter: source, search: search,
                                                      checkedFilter: checkedFilter, markedFilter: markedFilter,
-                                                     checkedSortToFront: checkedSortToFront)
+                                                     checkedSortToFront: checkedSortToFront,
+                                                     markedSortToFront: markedSortToFront)
     }
     func dbCountFiles(runId: Int64, title: String, author: String, progress: String, source: String, search: String,
                       checkedFilter: Int = -1, markedFilter: Int = -1) -> Int {
@@ -999,9 +1095,10 @@ struct FileDetailView: View {
                     toast("无法打开：文件路径为空"); return
                 }
                 guard let run = FileRepository.shared.getScanRun(f.scanRunId),
-                      let folderURL = resolveBookmarkURL(run.folderUri) else {
+                      let resolved = resolveBookmarkURL(run.folderUri) else {
                     toast("无法打开：文件夹访问授权已失效，请重新扫描以刷新授权"); return
                 }
+                let folderURL = resolved.url
                 // f.path 存的是 file:// 形式的绝对 URL 字符串，必须用 URL(string:) 解析，
                 // 不能用 URL(fileURLWithPath:)（会把 "file:///..." 当成字面路径导致找不到文件）。
                 guard let fileURL = URL(string: f.path) else {
@@ -1151,40 +1248,56 @@ struct FilePreviewView: View {
             return
         }
         await MainActor.run { file = f }
-        let content = await readFileContent(f, mode: modeState)
+        let (content, errorHint) = await readFileContent(f, mode: modeState)
         await MainActor.run {
-            text = content ?? "无法读取文件内容（可能缺少文件夹访问权限，请重新扫描以刷新授权）"
+            text = errorHint ?? content
             totalLines = text.split(separator: "\n", omittingEmptySubsequences: false).count
         }
     }
 
     /// 读取文件预览内容。优先使用扫描时保存的文件夹安全作用域书签；若书签失效，则尝试直接读取文件 URL（部分场景可访问）。
-    private func readFileContent(_ f: ScannedFile, mode: String) async -> String? {
+    /// 返回 (content, errorHint) 元组；errorHint 为 nil 表示成功，非 nil 时 content 为 nil 应显示该提示。
+    private func readFileContent(_ f: ScannedFile, mode: String) async -> (String, String?) {
         let tag = "FilePreview"
         guard let run = FileRepository.shared.getScanRun(f.scanRunId) else {
             LogUtil.e(tag, "scan run not found: \(f.scanRunId)")
-            return nil
+            return ("", "扫描记录不存在（可能已被删除），请重新扫描")
         }
         // f.path 是 file:// 形式的绝对 URL 字符串，必须用 URL(string:) 解析
         guard let url = URL(string: f.path) else {
             LogUtil.e(tag, "invalid file path: \(f.path)")
-            return nil
+            return ("", "文件路径无效：\(f.path)")
         }
 
-        let folderURL = resolveBookmarkURL(run.folderUri)
+        let resolved = resolveBookmarkURL(run.folderUri)
         var accessed = false
-        if let folderURL = folderURL {
-            accessed = folderURL.startAccessingSecurityScopedResource()
-            if !accessed {
-                LogUtil.d(tag, "failed to start accessing security scoped resource for folder \(folderURL)")
+        if let resolved = resolved {
+            if resolved.isStale {
+                LogUtil.d(tag, "bookmark is stale for folder \(resolved.url.path)")
+                // 书签过期：仍尝试 startAccessing（部分情况下系统会续期），但大概率失败
+                accessed = resolved.url.startAccessingSecurityScopedResource()
+                if !accessed {
+                    return ("", "文件夹访问授权已过期，请重新扫描以刷新授权")
+                }
+            } else {
+                accessed = resolved.url.startAccessingSecurityScopedResource()
+                if !accessed {
+                    LogUtil.d(tag, "failed to start accessing security scoped resource for folder \(resolved.url)")
+                    return ("", "无法访问文件夹（权限被拒绝），请重新扫描并授权")
+                }
             }
         } else {
             LogUtil.d(tag, "bookmark resolve failed, will try direct read for \(url.lastPathComponent)")
         }
         defer {
-            if accessed, let folderURL = folderURL {
-                folderURL.stopAccessingSecurityScopedResource()
+            if accessed, let resolved = resolved {
+                resolved.url.stopAccessingSecurityScopedResource()
             }
+        }
+
+        // 检查文件是否存在
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return ("", "文件不存在或已被移动：\(url.lastPathComponent)")
         }
 
         let enc = f.encoding.isEmpty ? "UTF-8" : f.encoding
@@ -1194,11 +1307,12 @@ struct FilePreviewView: View {
         // 先尝试 FileHandle（可控偏移，支持 tail 模式）；失败则回退到 Data(contentsOf:)。
         if let data = await readFileData(url: url, mode: mode, maxBytes: maxBytes, tag: tag) {
             let truncatedSuffix = makeTruncatedSuffix(mode: mode, dataCount: data.count, maxBytes: maxBytes)
-            if let s = String(data: data, encoding: encoding) { return s + truncatedSuffix }
-            if let s = String(data: data, encoding: .utf8) { return s + truncatedSuffix }
+            if let s = String(data: data, encoding: encoding) { return (s + truncatedSuffix, nil) }
+            if let s = String(data: data, encoding: .utf8) { return (s + truncatedSuffix, nil) }
             LogUtil.e(tag, "string decoding failed for \(url.lastPathComponent)")
+            return ("", "文件编码解析失败（检测为 \(enc)，但解码失败）")
         }
-        return nil
+        return ("", "无法读取文件数据（可能缺少文件夹访问权限，请重新扫描以刷新授权）")
     }
 
     private func readFileData(url: URL, mode: String, maxBytes: Int, tag: String) async -> Data? {

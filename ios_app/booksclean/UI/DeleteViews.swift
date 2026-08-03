@@ -196,7 +196,7 @@ struct DeleteProgressView: View {
         let files = FileRepository.shared.getByIds(ids)
         var folderURL: URL?
         if physical {
-            folderURL = resolveBookmarkURL(run.folderUri)
+            folderURL = resolveBookmarkURL(run.folderUri)?.url
         }
         let accessing = folderURL?.startAccessingSecurityScopedResource() ?? false
         defer { if accessing { folderURL?.stopAccessingSecurityScopedResource() } }
