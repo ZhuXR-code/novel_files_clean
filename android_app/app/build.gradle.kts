@@ -6,12 +6,21 @@ plugins {
 }
 
 android {
-    namespace = "com.booksclean.app"
+    namespace = "com.bookscleanandroid.app"
     compileSdk = 35
     buildToolsVersion = "36.1.0"
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../keystore/release.keystore")
+            storePassword = "FileCleaner!ReleaseKey2026"
+            keyAlias = "booksclean"
+            keyPassword = "FileCleaner!ReleaseKey2026"
+        }
+    }
+
     defaultConfig {
-        applicationId = "com.booksclean.app"
+        applicationId = "com.bookscleanandroid.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -22,8 +31,8 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            // 本地没有签名文件时回退到 debug 签名，保证可直接构建；正式发布请配置 release 签名
-            signingConfig = signingConfigs.getByName("debug")
+            // 正式发布使用 release 签名，如签名文件不存在会回退到 debug 签名
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -55,7 +64,7 @@ android {
                 configurations.getByName("debugUnitTestRuntimeClasspath"),
             )
             mainClass.set("org.junit.runner.JUnitCore")
-            args("com.booksclean.app.util.ParserTest", "com.booksclean.app.util.LibraryLogicTest", "com.booksclean.app.data.repository.DupRuleLogicTest", "com.booksclean.app.data.repository.DupRuleIntegrationTest")
+            args("com.bookscleanandroid.app.util.ParserTest", "com.bookscleanandroid.app.util.LibraryLogicTest", "com.bookscleanandroid.app.data.repository.DupRuleLogicTest", "com.bookscleanandroid.app.data.repository.DupRuleIntegrationTest")
         }
     }
 
@@ -129,4 +138,44 @@ dependencies {
     testImplementation("androidx.test.ext:junit:1.2.1")
     // JVM 单测需要 org.json 的真实实现（android.jar 中的是 stub）
     testImplementation("org.json:json:20231013")
+}
+
+// 生成签名文件的任务
+tasks.register("createKeystore") {
+    doLast {
+        val keystoreDir = File(projectDir, "../keystore")
+        if (!keystoreDir.exists()) {
+            keystoreDir.mkdirs()
+        }
+
+        val keystoreFile = File(keystoreDir, "release.keystore")
+        if (!keystoreFile.exists()) {
+            try {
+                exec {
+                    commandLine(
+                        "keytool",
+                        "-genkey",
+                        "-v",
+                        "-keystore", keystoreFile.absolutePath,
+                        "-keyalg", "RSA",
+                        "-keysize", "2048",
+                        "-validity", "10000",
+                        "-alias", "booksclean",
+                        "-storepass", "FileCleaner!ReleaseKey2026",
+                        "-keypass", "FileCleaner!ReleaseKey2026",
+                        "-dname", "CN=文包整理清理助手, OU=开发团队, O=BooksClean, L=Beijing, ST=Beijing, C=CN"
+                    )
+                }
+                println("✅ 签名文件已生成: ${keystoreFile.absolutePath}")
+            } catch (e: Exception) {
+                println("❌ 生成签名文件失败: ${e.message}")
+                println("请使用Android Studio生成签名文件：")
+                println("1. Build > Generate Signed Bundle/APK")
+                println("2. 选择Android App Bundle")
+                println("3. 点击Create new创建签名文件")
+            }
+        } else {
+            println("✅ 签名文件已存在: ${keystoreFile.absolutePath}")
+        }
+    }
 }

@@ -1,13 +1,13 @@
 # ===== Room Database =====
--keep class com.booksclean.app.data.database.entity.** { *; }
--keep class com.booksclean.app.data.database.dao.** { *; }
+-keep class com.bookscleanandroid.app.data.database.entity.** { *; }
+-keep class com.bookscleanandroid.app.data.database.dao.** { *; }
 
 # ===== Gson =====
 -keepattributes Signature
 -keepattributes *Annotation*
 -dontwarn sun.misc.**
 -keep class com.google.gson.** { *; }
--keep class com.booksclean.app.data.model.** { *; }
+-keep class com.bookscleanandroid.app.data.model.** { *; }
 
 
 # ===== Compose =====

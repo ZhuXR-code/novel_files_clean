@@ -1,0 +1,48 @@
+package com.bookscleanandroid.app.data.database.dao
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import com.bookscleanandroid.app.data.database.entity.KeywordReplaceRuleEntity
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface KeywordReplaceDao {
+    /** 某作用域全部规则（含禁用），按 sort_order、id 升序，供界面展示与编辑。 */
+    @Query("SELECT * FROM keyword_replace_rules WHERE scope = :scope ORDER BY sort_order ASC, id ASC")
+    fun getByScopeFlow(scope: String): Flow<List<KeywordReplaceRuleEntity>>
+
+    /** 某作用域已启用规则，按 sort_order、id 升序，供扫描/解析时应用（对齐 PC load_rules）。 */
+    @Query("SELECT * FROM keyword_replace_rules WHERE scope = :scope AND enabled = 1 ORDER BY sort_order ASC, id ASC")
+    suspend fun getEnabledByScope(scope: String): List<KeywordReplaceRuleEntity>
+
+    /** REPLACE：新建（id=0）插入，编辑（带原 id）则替换。 */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(rule: KeywordReplaceRuleEntity)
+
+    @Query("DELETE FROM keyword_replace_rules WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query("UPDATE keyword_replace_rules SET enabled = :enabled WHERE id = :id")
+    suspend fun setEnabled(id: Long, enabled: Boolean)
+
+    /**
+     * 批量启用 / 停用：一次 UPDATE 写库，供「批量启用 / 批量不启用」按当前搜索结果操作。
+     * 写入数据库后返回上一页再进来状态依旧保留。
+     */
+    @Query("UPDATE keyword_replace_rules SET enabled = :enabled WHERE id IN (:ids)")
+    suspend fun setEnabledBatch(ids: List<Long>, enabled: Boolean)
+
+    /** 规则总数（跨作用域），用于判断是否需要写入预置默认规则。 */
+    @Query("SELECT COUNT(*) FROM keyword_replace_rules")
+    suspend fun countAll(): Int
+
+    /** 某作用域下某 pattern 是否已存在，用于补齐缺失的预置默认规则（幂等）。 */
+    @Query("SELECT COUNT(*) FROM keyword_replace_rules WHERE scope = :scope AND pattern = :pattern")
+    suspend fun countByScopeAndPattern(scope: String, pattern: String): Int
+
+    /** 某作用域当前最大 sort_order，新规则默认追加到末尾。 */
+    @Query("SELECT COALESCE(MAX(sort_order), 0) FROM keyword_replace_rules WHERE scope = :scope")
+    suspend fun maxSortOrder(scope: String): Int
+}
