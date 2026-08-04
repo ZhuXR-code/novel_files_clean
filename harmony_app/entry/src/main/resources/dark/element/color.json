@@ -6,7 +6,7 @@
     { "name": "primary_light", "value": "#1A3A2E" },
     { "name": "text_primary", "value": "#F3F4F6" },
     { "name": "text_secondary", "value": "#9CA3AF" },
-    { "name": "text_hint", "value": "#6B7280" },
+    { "name": "text_hint", "value": "#9AA3B2" },
     { "name": "bg_page", "value": "#111827" },
     { "name": "bg_card", "value": "#1F2937" },
     { "name": "divider", "value": "#374151" },

@@ -6,6 +6,7 @@ import { ScannedFileDao } from '../database/ScannedFileDao';
 import { FormatUtil } from '../utils/FormatUtil';
 import { LogUtil } from '../utils/LogUtil';
 import { TopBar } from '../components/TopBar';
+import { AppTextInput } from '../components/AppTextInput';
 import { ToastUtil } from '../utils/ToastUtil';
 
 
@@ -389,10 +390,9 @@ export struct LibraryTab {
               .fontSize(this.fs(15))
               .fontWeight(FontWeight.Medium)
               .fontColor($r('app.color.text_primary'))
-            TextInput({ placeholder: '请输入文库名称', text: this.renameInput })
-              .onChange((v: string) => {
-                this.renameInput = v;
-              })
+            AppTextInput({ placeholder: '请输入文库名称', text: this.renameInput, onChangeCallback: (v: string) => {
+              this.renameInput = v;
+            } })
             Row({ space: 12 }) {
               Button('取消')
                 .layoutWeight(1)

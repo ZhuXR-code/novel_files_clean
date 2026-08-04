@@ -9,6 +9,7 @@ import { FormatUtil } from '../utils/FormatUtil';
 import { LogUtil } from '../utils/LogUtil';
 import { AppContext } from '../utils/AppContext';
 import { TopBar } from '../components/TopBar';
+import { AppTextInput } from '../components/AppTextInput';
 import { ToastUtil } from '../utils/ToastUtil';
 
 /** 流水线节点状态（对齐 PC 端 pipeline.py 的节点状态） */
@@ -576,8 +577,7 @@ struct OneClickCleanup {
       Column({ space: 6 }) {
         Text('文件类型(逗号分隔)').fontSize(14).fontColor($r('app.color.text_secondary'))
           .alignSelf(ItemAlign.Start)
-        TextInput({ text: this.fileTypes, placeholder: 'txt' })
-          .onChange((v: string) => (this.fileTypes = v))
+        AppTextInput({ text: this.fileTypes, placeholder: 'txt', onChangeCallback: (v: string) => (this.fileTypes = v) })
       }
       .alignItems(HorizontalAlign.Start)
       .width('100%')
@@ -590,9 +590,7 @@ struct OneClickCleanup {
         Text('排除文件夹(分号分隔)').fontSize(14).fontColor($r('app.color.text_secondary'))
           .alignSelf(ItemAlign.Start)
         Row() {
-          TextInput({ text: this.excludedFolders, placeholder: '如 已读;缓存' })
-            .layoutWeight(1)
-            .onChange((v: string) => (this.excludedFolders = v))
+          AppTextInput({ text: this.excludedFolders, placeholder: '如 已读;缓存', expand: true, onChangeCallback: (v: string) => (this.excludedFolders = v) })
           Button('选择')
             .fontSize(12)
             .height(40)

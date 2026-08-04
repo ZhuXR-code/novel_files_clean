@@ -3,6 +3,7 @@ import { promptAction } from '@kit.ArkUI'
 import { DupRuleConfigDao } from '../database/DupRuleConfigDao'
 import { DupRuleConfig } from '../model/DupRuleConfig'
 import { TopBar } from '../components/TopBar'
+import { AppTextInput } from '../components/AppTextInput'
 import { ToastUtil } from '../utils/ToastUtil';
 
 interface EditCond {
@@ -369,12 +370,10 @@ struct DupRuleSettings {
       Scroll() {
         Column({ space: 10 }) {
           Text('规则名称').fontSize(13).fontColor($r('app.color.text_secondary'))
-          TextInput({ placeholder: '如：屏蔽某站点', text: this.editName })
-            .onChange((v: string) => { this.editName = v })
+          AppTextInput({ placeholder: '如：屏蔽某站点', text: this.editName, onChangeCallback: (v: string) => { this.editName = v } })
 
           Text('说明').fontSize(13).fontColor($r('app.color.text_secondary'))
-          TextInput({ placeholder: '可选', text: this.editDesc })
-            .onChange((v: string) => { this.editDesc = v })
+          AppTextInput({ placeholder: '可选', text: this.editDesc, onChangeCallback: (v: string) => { this.editDesc = v } })
 
           Text('命中后动作').fontSize(13).fontColor($r('app.color.text_secondary'))
           Row({ space: 12 }) {
@@ -402,10 +401,8 @@ struct DupRuleSettings {
             Text('正则测试器').fontSize(13).fontColor($r('app.color.text_secondary'))
             Text('输入正则与测试文本，校验是否匹配（用于 op=正则匹配 的条件）')
               .fontSize(11).fontColor($r('app.color.text_hint'))
-            TextInput({ placeholder: '正则表达式，如 \\d+', text: this.regexPattern })
-              .onChange((v: string) => { this.regexPattern = v })
-            TextInput({ placeholder: '测试文本', text: this.regexTestInput })
-              .onChange((v: string) => { this.regexTestInput = v })
+            AppTextInput({ placeholder: '正则表达式，如 \\d+', text: this.regexPattern, onChangeCallback: (v: string) => { this.regexPattern = v } })
+            AppTextInput({ placeholder: '测试文本', text: this.regexTestInput, onChangeCallback: (v: string) => { this.regexTestInput = v } })
             if (this.regexTestResult.length > 0) {
               Text(this.regexTestResult)
                 .fontSize(12)
@@ -474,12 +471,10 @@ struct DupRuleSettings {
             c.op = OP_CHOICES[i].key
             this.editConds = [...this.editConds]
           })
-        TextInput({ placeholder: '值', text: c.value })
-          .layoutWeight(1)
-          .onChange((v: string) => {
-            c.value = v
-            this.editConds = [...this.editConds]
-          })
+        AppTextInput({ placeholder: '值', text: c.value, expand: true, onChangeCallback: (v: string) => {
+          c.value = v
+          this.editConds = [...this.editConds]
+        } })
       }
       .width('100%')
     }

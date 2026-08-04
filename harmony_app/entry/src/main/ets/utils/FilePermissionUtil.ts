@@ -30,7 +30,15 @@ export class FilePermissionUtil {
 
   /** 将选中文件夹的 URI 持久化授权（读写模式），并记录到本地。 */
   public static async persistFolderPermission(uri: string): Promise<boolean> {
-    if (!uri || uri.length === 0) {
+    return FilePermissionUtil.persistUris([uri]);
+  }
+
+  /**
+   * 批量持久化多个 URI 的访问权限（读写模式），并记录到本地。
+   * 用于 FILE 多选回退模式：每个选中文件都需要单独持久化授权。
+   */
+  public static async persistUris(uris: string[]): Promise<boolean> {
+    if (!uris || uris.length === 0) {
       return false;
     }
     // 设备不支持持久化时优雅降级：当前会话仍可使用临时权限
@@ -39,19 +47,20 @@ export class FilePermissionUtil {
       return false;
     }
     try {
-      const policyInfo: fileShare.PolicyInfo = {
+      const policies: fileShare.PolicyInfo[] = uris.map((uri: string) => ({
         uri: uri,
         operationMode: fileShare.OperationMode.READ_MODE | fileShare.OperationMode.WRITE_MODE
-      };
-      const policies: fileShare.PolicyInfo[] = [policyInfo];
+      }));
       await fileShare.persistPermission(policies);
-      // 持久化成功后，将 URI 保存到本地列表（供下次启动激活）
-      FilePermissionUtil.addPersistedUri(uri);
-      LogUtil.i('FilePermission', `持久化授权成功: ${uri}`);
+      // 持久化成功后，将每个 URI 保存到本地列表（供下次启动激活）
+      for (const uri of uris) {
+        FilePermissionUtil.addPersistedUri(uri);
+      }
+      LogUtil.i('FilePermission', `批量持久化授权成功: ${uris.length} 个 URI`);
       return true;
     } catch (e) {
       const err = e as BusinessError<Array<fileShare.PolicyErrorResult>>;
-      LogUtil.e('FilePermission', `持久化授权失败: code=${err.code} msg=${err.message}`);
+      LogUtil.e('FilePermission', `批量持久化授权失败: code=${err.code} msg=${err.message}`);
       // 持久化失败不阻断主流程，当前会话仍可使用临时权限
       return false;
     }

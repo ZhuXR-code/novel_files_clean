@@ -6,6 +6,7 @@ import { ScanService } from '../service/ScanService';
 import { LogUtil } from '../utils/LogUtil';
 import { FormatUtil } from '../utils/FormatUtil';
 import { TopBar } from '../components/TopBar';
+import { AppTextInput } from '../components/AppTextInput';
 import { ToastUtil } from '../utils/ToastUtil';
 
 @Entry
@@ -196,8 +197,7 @@ struct ConfigEdit {
           Column({ space: 6 }) {
             Text('配置名称').fontSize(14).fontColor($r('app.color.text_secondary'))
               .alignSelf(ItemAlign.Start)
-            TextInput({ text: this.name, placeholder: '请输入配置名称' })
-              .onChange((v: string) => (this.name = v))
+            AppTextInput({ text: this.name, placeholder: '请输入配置名称', onChangeCallback: (v: string) => (this.name = v) })
           }
           .alignItems(HorizontalAlign.Start).width('100%')
           .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)
@@ -224,8 +224,7 @@ struct ConfigEdit {
           Column({ space: 6 }) {
             Text('文件类型(逗号分隔)').fontSize(14).fontColor($r('app.color.text_secondary'))
               .alignSelf(ItemAlign.Start)
-            TextInput({ text: this.fileTypes, placeholder: 'txt' })
-              .onChange((v: string) => (this.fileTypes = v))
+            AppTextInput({ text: this.fileTypes, placeholder: 'txt', onChangeCallback: (v: string) => (this.fileTypes = v) })
             // D组 #10 常用文件类型快捷勾选
             Text('快捷勾选:').fontSize(12).fontColor($r('app.color.text_hint'))
               .margin({ top: 6 }).alignSelf(ItemAlign.Start)
@@ -281,9 +280,7 @@ struct ConfigEdit {
           Column({ space: 6 }) {
             Text('最小体积(KB, 0=不限)').fontSize(14).fontColor($r('app.color.text_secondary'))
               .alignSelf(ItemAlign.Start)
-            TextInput({ text: this.minSizeKb, placeholder: '0' })
-              .type(InputType.Number)
-              .onChange((v: string) => (this.minSizeKb = v))
+            AppTextInput({ text: this.minSizeKb, placeholder: '0', inputType: InputType.Number, onChangeCallback: (v: string) => (this.minSizeKb = v) })
           }
           .alignItems(HorizontalAlign.Start).width('100%')
           .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)
@@ -302,9 +299,7 @@ struct ConfigEdit {
             Text('排除文件夹(分号分隔)').fontSize(14).fontColor($r('app.color.text_secondary'))
               .alignSelf(ItemAlign.Start)
             Row() {
-              TextInput({ text: this.excludedFolders, placeholder: '如 已读;缓存' })
-                .layoutWeight(1)
-                .onChange((v: string) => (this.excludedFolders = v))
+              AppTextInput({ text: this.excludedFolders, placeholder: '如 已读;缓存', expand: true, onChangeCallback: (v: string) => (this.excludedFolders = v) })
               // D组 #12 选择按钮：从文件系统选择要排除的文件夹
               Button('选择')
                 .fontSize(12)

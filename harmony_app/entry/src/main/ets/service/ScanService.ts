@@ -1,6 +1,7 @@
 import { picker, fileIo, fileUri } from '@kit.CoreFileKit';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { common } from '@kit.AbilityKit';
+import { deviceInfo } from '@kit.BasicServicesKit';
 import { promptAction } from '@kit.ArkUI';
 import { ScannedFile } from '../model/ScannedFile';
 import { ChineseConverter } from '../utils/ChineseConverter';
@@ -45,7 +46,13 @@ export interface ScanProgress {
 export class ScanService {
   private static readonly BATCH_SIZE: number = 200;
   private static readonly PROGRESS_INTERVAL: number = 16;
+  private static readonly MAX_FILE_PICK: number = 99999;
   private static stopped: boolean = false;
+  /**
+   * 低版本系统（API < 26）不支持 FOLDER 模式时，selectDirectory 会改为 FILE 多选。
+   * 选中的文件 URI 临时存于此，runScan 检测到非空时直接逐文件扫描，不再 listFile 父目录。
+   */
+  private static selectedFileUris: string[] = [];
 
   /** 请求停止当前正在进行的扫描。runScan 会在下一个检查点退出。 */
   public static stop(): void {
@@ -54,96 +61,143 @@ export class ScanService {
   }
 
   /**
-   * 选择目录，返回用户选中的目录 URI（已获访问授权）。用户取消时返回空字符串。
+   * 当前是否处于「多选文件回退」模式。UI 可据此给出不同提示。
+   */
+  public static useFileFallback(): boolean {
+    return ScanService.selectedFileUris.length > 0;
+  }
+
+  /**
+   * 选择扫描目标，返回用户选中的「目录展示 URI」（已获访问授权）。用户取消时返回空字符串。
    *
-   * 策略：优先使用 FOLDER 模式直接选择文件夹（对齐安卓端体验）。
-   * FOLDER 选择能力仅 API 26.0.0+ 的 Phone 设备支持；低版本（如 API 24 模拟器）
-   * 会出现「对话框可打开但无法完成选中且不抛异常」的问题，因此需通过 canIUse
-   * 前置检测直接降级为「选择文件推导父目录」方案；若支持但实际调用仍抛异常，同样降级。
+   * 策略（三级降级）：
+   *  1. FOLDER 目录选择（API 26+）：选中目录即授权整棵目录树，可持久化并 listFile 递归遍历，
+   *     天然支撑 10w 级文件扫描，为主方案。
+   *  2. 选文件定位目录（保留旧模式）：FOLDER 不可用/未选中时，用户选一个或多个文件，
+   *     若其父目录可访问则扫描整个文件夹（见 pickFiles）。
+   *  3. FILE 多选兜底：父目录不可遍历时，逐文件扫描选中的文件。
    *
    * @param context  Ability 上下文
    * @param defaultUri  可选，上次选择的 URI，用于预设 Picker 打开位置（更好的 UX）
    */
   public static async selectDirectory(context: common.Context, defaultUri?: string): Promise<string> {
+    // 先清空上次的文件缓存，避免旧列表影响新配置。
+    ScanService.selectedFileUris = [];
+    // FOLDER 模式优先：直接选目录，授权整棵树，可递归遍历扫描。
+    if (ScanService.canPickFolder()) {
+      const folderUri: string = await ScanService.tryPickFolder(context, defaultUri);
+      if (folderUri.length > 0) {
+        return folderUri;
+      }
+      LogUtil.w('ScanService', 'FOLDER 模式未选中目录，降级为 FILE 多选');
+    } else {
+      LogUtil.i('ScanService', '当前设备不支持 FOLDER 模式，使用 FILE 多选兜底');
+    }
+    return ScanService.pickFiles(context, defaultUri);
+  }
+
+  /**
+   * 设备是否支持 FOLDER（目录选择）模式。
+   * FOLDER 模式由 Picker 的 documentPickerMode=DIRECTORY 提供，需 API 26+ 手机。
+   */
+  private static canPickFolder(): boolean {
+    try {
+      return deviceInfo.sdkApiVersion >= 26;
+    } catch (e) {
+      // 拿不到 SDK 版本时保守降级为 FILE 多选
+      return false;
+    }
+  }
+
+  /**
+   * FOLDER 模式：让用户在 Picker 中直接选择一个文件夹。
+   * 选中目录即获得整棵目录树的访问授权，持久化后 listFile 可递归遍历。
+   *
+   * @returns 选中的目录 URI；用户取消或失败返回空字符串
+   */
+  private static async tryPickFolder(context: common.Context, defaultUri?: string): Promise<string> {
+    try {
+      const documentPicker = new picker.DocumentViewPicker(context);
+      const options = new picker.DocumentSelectOptions();
+      options.maxSelectNumber = 1;
+      if (defaultUri && defaultUri.startsWith('file://')) {
+        options.defaultFilePathUri = defaultUri;
+      }
+      const uris: string[] = await documentPicker.select(options);
+      if (!uris || uris.length === 0) {
+        return '';
+      }
+      const folderUri: string = uris[0];
+      // 持久化目录授权（读写模式），重启后自动激活
+      try {
+        await FilePermissionUtil.persistFolderPermission(folderUri);
+        LogUtil.i('ScanService', `已持久化目录授权: ${folderUri}`);
+      } catch (e) {
+        LogUtil.w('ScanService', `持久化目录授权失败: ${(e as Error).message}`);
+      }
+      LogUtil.i('ScanService', `FOLDER 模式选择成功: ${folderUri}`);
+      return folderUri;
+    } catch (e) {
+      LogUtil.w('ScanService', `FOLDER 模式选择失败，降级 FILE 多选: ${(e as Error).message}`);
+      return '';
+    }
+  }
+
+  /**
+   * 文件定位模式（FOLDER 不可用时的降级方案，保留旧行为）：
+   * 让用户在 Picker 中选中一个或多个文件，应用先尝试推导其父目录：
+   *  - 父目录可访问（listFile 成功）→ 返回父目录 URI，runScan 扫描整个文件夹；
+   *  - 父目录不可访问（如文档卷未授权父目录）→ 回退逐文件扫描 selectedFileUris。
+   */
+  private static async pickFiles(context: common.Context, defaultUri?: string): Promise<string> {
+    // 首次使用时给出明确指引
+    await promptAction.showDialog({
+      title: '选择文件以定位文件夹',
+      message: '当前设备不支持直接选择文件夹。\n\n请在文件选择器中进入目标文件夹，选中其中的一个或多个文件：\n· 若文件所在文件夹可访问，将扫描整个文件夹；\n· 否则仅扫描您选中的文件。',
+      buttons: [{ text: '我知道了', color: '#2D6A4F' }]
+    });
+
     const documentPicker = new picker.DocumentViewPicker(context);
-
-    // ===== 选择策略说明（重要，经真机验证）=====
-    // canIUse('SystemCapability.FileManagement.UserFileService.FolderSelection') 在
-    // HarmonyOS 6.1.1（API 24）手机上会返回 true，但 FOLDER 模式实际调用时表现为
-    // 「对话框可打开、目录内容为空、无法完成选中且不抛异常」——try/catch 降级因此
-    // 永远不会触发，用户会被卡死在无效的 FOLDER 选择器中。
-    // 同时，官方文档明确 FOLDER 模式仅在 API 26.0.0+ 的 Phone 设备上受支持。
-    // 结论：放弃依赖 FOLDER 模式，统一使用「FILE 模式选文件 → 自动定位所在文件夹」方案，
-    // 这是手机端官方推荐的可靠路径，兼容 API 24 及更高版本。
-    LogUtil.i('ScanService', '使用文件推导方案选择目录（放弃 FOLDER 模式，兼容 API 24 手机）');
-
-    // 首次选择（无历史目录）时给出操作指引，避免用户在 FILE 模式下困惑「如何选文件夹」
-    if (!defaultUri || defaultUri.length === 0) {
-      await promptAction.showDialog({
-        title: '如何选择文件夹',
-        message: '当前系统不支持直接点选文件夹。\n\n请先进入目标文件夹，然后选择其中的任意一个文件，应用会自动把「该文件所在的文件夹」作为扫描目录。',
-        buttons: [
-          { text: '我知道了', color: '#2D6A4F' }
-        ]
-      });
-    }
-
-    // 选择一个文件，自动定位其父目录作为扫描目录
-    const fileOptions = new picker.DocumentSelectOptions();
-    fileOptions.maxSelectNumber = 1;
-    // defaultFilePathUri 必须是 file://docs/... 格式的 URI；若历史记录为裸路径则忽略，
-    // 避免非法默认路径导致选择器打开后内容为空。
+    const options = new picker.DocumentSelectOptions();
+    options.maxSelectNumber = ScanService.MAX_FILE_PICK;
     if (defaultUri && defaultUri.startsWith('file://')) {
-      fileOptions.defaultFilePathUri = defaultUri;
+      options.defaultFilePathUri = defaultUri;
     }
-    const fileUris: string[] = await documentPicker.select(fileOptions);
-    if (fileUris.length === 0) {
+    const uris: string[] = await documentPicker.select(options);
+    if (!uris || uris.length === 0) {
       return '';
     }
 
-    const fileUriStr: string = fileUris[0];
+    // 持久化每个选中文件的授权（每个文件都有独立的 picker 临时授权，可持久化）
     try {
-      const fileUriObj: fileUri.FileUri = new fileUri.FileUri(fileUriStr);
-      const parentDirUri: string = fileUriObj.getFullDirectoryUri();
-
-      // 尝试持久化父目录权限
-      try {
-        await FilePermissionUtil.persistFolderPermission(parentDirUri);
-      } catch (e) {
-        // 持久化失败不影响当前使用
-      }
-
-      // 校验可访问性：先试 URI，再试 path（裸路径）
-      // Picker 只授权了文件本身，父目录的 URI 访问可能失败；
-      // 但 path 方式可能因系统实现差异而可用（部分机型 Picker 会授予更广的文件系统访问）。
-      let uriAccessible: boolean = false;
-      try {
-        await fileIo.listFile(parentDirUri);
-        uriAccessible = true;
-        LogUtil.i('ScanService', `URI 访问成功: ${parentDirUri}`);
-      } catch (e1) {
-        LogUtil.w('ScanService', `URI 访问失败，尝试 path: ${(e1 as Error).message}`);
-      }
-
-      if (uriAccessible) {
-        return parentDirUri;
-      }
-
-      // URI 失败，尝试 path 方式
-      try {
-        const parentPath: string = fileUriObj.path ? new fileUri.FileUri(parentDirUri).path : parentDirUri;
-        await fileIo.listFile(parentPath);
-        LogUtil.i('ScanService', `path 访问成功: ${parentPath}`);
-        return parentPath;
-      } catch (e2) {
-        LogUtil.e('ScanService', `path 访问也失败: ${(e2 as Error).message}`);
-        // 两种方式都失败，仍返回 URI（后续 runScan 会再试一次并给出明确错误提示）
-        return parentDirUri;
-      }
+      await FilePermissionUtil.persistUris(uris);
+      LogUtil.i('ScanService', `已持久化 ${uris.length} 个选中文件的授权`);
     } catch (e) {
-      LogUtil.e('ScanService', `父目录推导失败: ${(e as Error).message}`);
-      throw new Error('无法访问所选文件的父目录，请确保选择了目标文件夹中的文件');
+      LogUtil.w('ScanService', `持久化文件授权失败: ${(e as Error).message}`);
     }
+
+    // 取共同父目录
+    let parentDirUri: string = '';
+    try {
+      const fileUriObj = new fileUri.FileUri(uris[0]);
+      parentDirUri = fileUriObj.getFullDirectoryUri();
+    } catch (e) {
+      LogUtil.w('ScanService', `推导父目录失败: ${(e as Error).message}`);
+      parentDirUri = uris[0];
+    }
+
+    // 优先整目录扫描：父目录可访问（listFile 成功）时，选中文件仅用于定位文件夹，
+    // runScan 对父目录做 BFS 遍历，扫描其下全部文件——保留「选文件→推导父目录→扫文件夹」模式。
+    if (parentDirUri.length > 0 && FilePermissionUtil.checkUriAccessible(parentDirUri)) {
+      ScanService.selectedFileUris = [];
+      LogUtil.i('ScanService', `已定位目录（选中 ${uris.length} 个文件），将扫描整个文件夹: ${parentDirUri}`);
+      return parentDirUri;
+    }
+
+    // 父目录不可访问（如文档卷未授权父目录）：回退为逐文件扫描选中列表。
+    ScanService.selectedFileUris = [...uris];
+    LogUtil.i('ScanService', `FILE 多选：共选 ${uris.length} 个文件，父目录不可遍历，逐文件扫描`);
+    return parentDirUri;
   }
 
   /**
@@ -189,6 +243,13 @@ export class ScanService {
     // 关键词替换规则（已启用、按 scope）
     const scanRules: KeywordReplaceRule[] = await KeywordReplaceDao.getEnabledByScope(KeywordReplace.SCOPE_SCAN);
     const parseRules: KeywordReplaceRule[] = await KeywordReplaceDao.getEnabledByScope(KeywordReplace.SCOPE_PARSE);
+
+    // FILE 多选回退模式（低版本手机不支持 FOLDER 模式）：
+    // selectDirectory 已把用户选中的文件 URI 保存到 selectedFileUris，每个文件都已单独授权。
+    // 直接逐文件处理，不再尝试 listFile 父目录，避免 Operation not permitted。
+    if (ScanService.selectedFileUris.length > 0) {
+      return ScanService.runScanFromFiles(config, onProgress, run, runId, scanRules, parseRules);
+    }
 
     const batch: ScannedFile[] = [];
     let processed: number = 0;
@@ -307,6 +368,111 @@ export class ScanService {
     await ScanRunDao.updateFileCount(runId, found);
     const status: string = ScanService.stopped ? '已停止' : '完成';
     LogUtil.operation('扫描', `文库=${config.name} 目录=${config.folderName} 命中=${found} 状态=${status} 文库ID=${runId}`);
+    return { runId: runId, total: found, processed: processed, stopped: ScanService.stopped };
+  }
+
+  /**
+   * FILE 多选回退模式下的扫描：直接处理 selectDirectory 缓存的已授权文件 URI 列表。
+   * 不递归、不遍历父目录，只处理用户明确选中的文件。扫描结束后清空缓存。
+   */
+  private static async runScanFromFiles(
+    config: ScanConfig,
+    onProgress: (p: ScanProgress) => void,
+    run: ScanRun,
+    runId: number,
+    scanRules: KeywordReplaceRule[],
+    parseRules: KeywordReplaceRule[]
+  ): Promise<{ runId: number; total: number; processed: number; stopped: boolean }> {
+    const fileUris: string[] = [...ScanService.selectedFileUris];
+    ScanService.selectedFileUris = []; // 立即清空，避免重复扫描或旧数据残留
+
+    const batch: ScannedFile[] = [];
+    let processed: number = 0;
+    let found: number = 0;
+    let lastReportProcessed: number = 0;
+
+    const flushBatch = async (): Promise<void> => {
+      if (batch.length > 0) {
+        await ScannedFileDao.insertBatch(batch);
+        batch.length = 0;
+      }
+    };
+
+    const reportProgress = (currentFile: string, force: boolean = false): void => {
+      if (force || processed - lastReportProcessed >= ScanService.PROGRESS_INTERVAL) {
+        onProgress({ processed: processed, found: found, currentFile: currentFile });
+        lastReportProcessed = processed;
+      }
+    };
+
+    for (const childUri of fileUris) {
+      if (ScanService.stopped) {
+        break;
+      }
+      let stat: fileIo.Stat | null = null;
+      try {
+        stat = await fileIo.stat(childUri);
+      } catch (e) {
+        LogUtil.w('ScanService', `无法 stat 已选文件: ${childUri} -> ${(e as Error).message}`);
+        continue;
+      }
+      if (stat.isDirectory()) {
+        continue;
+      }
+      processed++;
+      let name: string = '';
+      try {
+        name = new fileUri.FileUri(childUri).name ?? '';
+      } catch (e) {
+        name = childUri.substring(childUri.lastIndexOf('/') + 1);
+      }
+      const ext: string = FormatUtil.getExtension(name);
+      if (!ScanService.matchExt(ext, config.fileTypes)) {
+        continue;
+      }
+      if (stat.size / 1024 < config.minSizeKb) {
+        continue;
+      }
+      let fileName: string = name;
+      if (scanRules.length > 0) {
+        fileName = KeywordReplace.applyRules(fileName, scanRules) ?? fileName;
+      }
+      const parsed = Parser.parseFileName(fileName);
+      if (parseRules.length > 0) {
+        parsed.title = KeywordReplace.applyRules(parsed.title, parseRules) ?? parsed.title;
+        parsed.author = KeywordReplace.applyRules(parsed.author, parseRules) ?? parsed.author;
+        parsed.progress = KeywordReplace.applyRules(parsed.progress, parseRules) ?? parsed.progress;
+        parsed.source = KeywordReplace.applyRules(parsed.source, parseRules) ?? parsed.source;
+      }
+      const rec: ScannedFile = new ScannedFile();
+      rec.path = childUri;
+      rec.fileName = fileName;
+      rec.fileSize = stat.size;
+      rec.title = parsed.title;
+      rec.author = parsed.author;
+      rec.progress = parsed.progress;
+      rec.source = parsed.source;
+      rec.encoding = await ScanService.detectEncoding(childUri);
+      rec.titlePinyin = ChineseConverter.toPinyin(parsed.title);
+      rec.authorPinyin = ChineseConverter.toPinyin(parsed.author);
+      rec.contentHash = config.exactHash ? await ScanService.computeMd5(childUri) : '';
+      rec.ext = ext;
+      rec.scanRunId = runId;
+      rec.createdAt = Date.now();
+      const rawMtime: number = stat.mtime ? Number(stat.mtime) : 0;
+      rec.fileDate = rawMtime > 0 ? (rawMtime < 1e12 ? rawMtime * 1000 : rawMtime) : 0;
+      batch.push(rec);
+      found++;
+      if (batch.length >= ScanService.BATCH_SIZE) {
+        await flushBatch();
+      }
+      reportProgress(name);
+    }
+
+    await flushBatch();
+    await ScanRunDao.updateFileCount(runId, found);
+    const status: string = ScanService.stopped ? '已停止' : '完成';
+    LogUtil.operation('扫描', `文库=${config.name} 目录=${config.folderName} 命中=${found} 状态=${status} 文库ID=${runId} [FILE多选回退]`);
     return { runId: runId, total: found, processed: processed, stopped: ScanService.stopped };
   }
 

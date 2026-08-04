@@ -11,6 +11,7 @@ import { ListExportUtil, ExportColumn } from '../utils/ListExportUtil';
 import { FormatUtil } from '../utils/FormatUtil';
 import { LogUtil } from '../utils/LogUtil';
 import { ToastUtil } from '../utils/ToastUtil';
+import { AppTextInput } from '../components/AppTextInput';
 
 type FilterKind = 'ALL' | 'MARKED' | 'UNMARKED' | 'CHECKED' | 'UNCHECKED' | 'HAS_CHECKED';
 type SortKind = 'TIME' | 'NAME' | 'SIZE';
@@ -1087,10 +1088,7 @@ struct LibraryScreen {
       // 搜索框（对齐安卓：仅点击搜索图标后显示）
       if (this.searchVisible) {
         Row({ space: 8 }) {
-          TextInput({ text: this.queryInput, placeholder: '搜索文件名/书名/作者' })
-            .height(40)
-            .layoutWeight(1)
-            .onChange((v: string) => this.onQueryInputChanged(v))
+          AppTextInput({ text: this.queryInput, placeholder: '搜索文件名/书名/作者', inputHeight: 40, expand: true, onChangeCallback: (v: string) => this.onQueryInputChanged(v) })
           if (this.queryInput.length > 0 || this.query.length > 0) {
             Button('清空')
               .fontSize(this.fs(12))
@@ -1110,28 +1108,17 @@ struct LibraryScreen {
             Text('数量:')
               .fontSize(this.fs(13))
               .fontColor($r('app.color.text_secondary'))
-            TextInput({ text: this.colMinCount > 0 ? this.colMinCount.toString() : '', placeholder: '最小' })
-              .height(36)
-              .width(70)
-              .type(InputType.Number)
-              .onChange((v: string) => {
-                const n: number = Number.parseInt(v, 10);
-                this.colMinCount = isNaN(n) || n < 0 ? 0 : n;
-              })
+            AppTextInput({ text: this.colMinCount > 0 ? this.colMinCount.toString() : '', placeholder: '最小', inputHeight: 36, widthValue: 70, inputType: InputType.Number, onChangeCallback: (v: string) => {
+              const n: number = Number.parseInt(v, 10);
+              this.colMinCount = isNaN(n) || n < 0 ? 0 : n;
+            } })
             Text('-')
               .fontColor($r('app.color.text_secondary'))
-            TextInput({ text: this.colMaxCount > 0 ? this.colMaxCount.toString() : '', placeholder: '最大' })
-              .height(36)
-              .width(70)
-              .type(InputType.Number)
-              .onChange((v: string) => {
-                const n: number = Number.parseInt(v, 10);
-                this.colMaxCount = isNaN(n) || n < 0 ? 0 : n;
-              })
-            TextInput({ text: this.colExcludeInput, placeholder: '排除书名关键词（多个用逗号分隔）' })
-              .height(36)
-              .layoutWeight(1)
-              .onChange((v: string) => (this.colExcludeInput = v))
+            AppTextInput({ text: this.colMaxCount > 0 ? this.colMaxCount.toString() : '', placeholder: '最大', inputHeight: 36, widthValue: 70, inputType: InputType.Number, onChangeCallback: (v: string) => {
+              const n: number = Number.parseInt(v, 10);
+              this.colMaxCount = isNaN(n) || n < 0 ? 0 : n;
+            } })
+            AppTextInput({ text: this.colExcludeInput, placeholder: '排除书名关键词（多个用逗号分隔）', inputHeight: 36, expand: true, onChangeCallback: (v: string) => (this.colExcludeInput = v) })
           }
           .width('100%')
 
@@ -1239,12 +1226,7 @@ struct LibraryScreen {
               Text('每页')
                 .fontSize(this.fs(12))
                 .fontColor($r('app.color.text_secondary'))
-              TextInput({ text: this.pageSizeInput })
-                .type(InputType.Number)
-                .fontSize(this.fs(12))
-                .height(30)
-                .width(60)
-                .onChange((v: string) => (this.pageSizeInput = v))
+              AppTextInput({ text: this.pageSizeInput, inputHeight: 30, widthValue: 60, inputType: InputType.Number, fontSizeVal: this.fs(12), onChangeCallback: (v: string) => (this.pageSizeInput = v) })
               Button('✓')
                 .fontSize(this.fs(13))
                 .height(30)
@@ -1258,12 +1240,7 @@ struct LibraryScreen {
                 .fontColor($r('app.color.text_secondary'))
                 .margin({ left: 6 })
               // 跳转输入框：不加 placeholder（前面的"跳转"标签已说明用途），避免被误认为默认填入文字
-              TextInput({ text: this.jumpPage })
-                .type(InputType.Number)
-                .fontSize(this.fs(12))
-                .height(30)
-                .width(48)
-                .onChange((v: string) => (this.jumpPage = v))
+              AppTextInput({ text: this.jumpPage, inputHeight: 30, widthValue: 48, inputType: InputType.Number, fontSizeVal: this.fs(12), onChangeCallback: (v: string) => (this.jumpPage = v) })
               Button('✓')
                 .fontSize(this.fs(13))
                 .height(30)

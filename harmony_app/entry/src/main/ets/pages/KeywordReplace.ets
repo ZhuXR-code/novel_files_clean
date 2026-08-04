@@ -2,6 +2,7 @@ import { KeywordReplaceRule } from '../model/KeywordReplaceRule';
 import { KeywordReplaceDao } from '../database/KeywordReplaceDao';
 import { LogUtil } from '../utils/LogUtil';
 import { TopBar } from '../components/TopBar';
+import { AppTextInput } from '../components/AppTextInput';
 import { ToastUtil } from '../utils/ToastUtil';
 
 /**
@@ -408,10 +409,7 @@ struct KeywordReplace {
         .onClick(() => this.toggleSearch())
 
         if (this.searchOpen) {
-          TextInput({ text: this.searchQuery, placeholder: '按 查找 / 替换 内容过滤规则…' })
-            .onChange((v: string) => (this.searchQuery = v))
-            .width('100%')
-            .padding({ left: 12, right: 12 })
+          AppTextInput({ text: this.searchQuery, placeholder: '按 查找 / 替换 内容过滤规则…', onChangeCallback: (v: string) => (this.searchQuery = v) })
         }
 
         // 批量启用 / 不启用：仅作用于当前列表（搜索命中）的规则
@@ -448,10 +446,8 @@ struct KeywordReplace {
                 Text(this.editing.id > 0 ? '编辑规则' : '新增规则')
                   .fontSize(15)
                   .fontColor($r('app.color.text_primary'))
-                TextInput({ text: this.editPattern, placeholder: '匹配串（字面量）' })
-                  .onChange((v: string) => (this.editPattern = v))
-                TextInput({ text: this.editReplacement, placeholder: '替换为（留空=删除）' })
-                  .onChange((v: string) => (this.editReplacement = v))
+                AppTextInput({ text: this.editPattern, placeholder: '匹配串（字面量）', onChangeCallback: (v: string) => (this.editPattern = v) })
+                AppTextInput({ text: this.editReplacement, placeholder: '替换为（留空=删除）', onChangeCallback: (v: string) => (this.editReplacement = v) })
                 Row({ space: 12 }) {
                   Button('取消').layoutWeight(1).onClick(() => (this.editing = null))
                   Button('保存')
