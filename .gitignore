@@ -60,6 +60,17 @@ local.properties
 *.apk
 *.aab
 
+# Android 签名文件（含密码，禁止入库）
+android_app/keystore/
+android_app/release.keystore
+
+# 华为应用市场发布材料（含发布流程、命令参考、构建总结等内部文档，不公开）
+android_app/华为应用市场上架指南.md
+android_app/快速发布命令.bat
+android_app/Android构建总结.md
+android_app/build_release.bat
+android_app/generate_keystore.bat
+
 # 打包产物与分发文件
 output/
 *.exe

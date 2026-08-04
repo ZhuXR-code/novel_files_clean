@@ -4,3 +4,16 @@
 /build
 /.cxx
 /.test
+
+# 鸿蒙签名配置（含加密密码和本机证书，仅本地保留，不入公开仓库）
+/keystore/
+/release.keystore
+/hap/
+/*.hap
+
+# 本地化配置（含敏感词替换规则、业务逻辑配置，禁止入库）
+/src/main/resources/keyword_rules.txt
+
+# 密码检查临时文件（含明文密码，禁止入库）
+build-profile-pwd-check.txt
+/_check_pwd.py
