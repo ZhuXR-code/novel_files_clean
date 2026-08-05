@@ -250,17 +250,29 @@ workflows:
               exit 1
             fi
 
-            IPA=$(ls build/ipa/*.ipa | head -n 1)
-            ARCHIVE_PATH="$CM_BUILD_DIR/build/booksclean.xcarchive"
-            echo "上传 IPA: $IPA"
-            echo "使用 xcarchive: $ARCHIVE_PATH"
+            # 诊断：打印 Key ID 与 Issuer ID（脱敏），便于核对 App Store Connect 上的真实值
+            echo "=== 密钥凭证核对 ==="
+            echo "API Key ID : $APPSTORE_API_KEY_ID"
+            echo "Issuer ID  : ${APPSTORE_API_ISSUER_ID:0:8}**** (长度 ${#APPSTORE_API_ISSUER_ID})"
+            echo "提示: Issuer ID 应为 36 位 UUID(如 69a6de91-xxxx...)，不是 Team ID(SGY2APMUQ5)。若长度不对，请到 App Store Connect → 用户和访问 → 密钥 页面顶部复制。"
 
-            # Xcode 16 中 altool 已废弃，改用最稳定的 xcodebuild -uploadArchive
-            xcodebuild -uploadArchive \
-              -archivePath "$ARCHIVE_PATH" \
-              -authenticationKeyPath "$KEY_PATH" \
-              -authenticationKeyID "$APPSTORE_API_KEY_ID" \
-              -authenticationIssuerID "$APPSTORE_API_ISSUER_ID" \
-              -allowProvisioningUpdates
+            IPA=$(ls build/ipa/*.ipa | head -n 1)
+            echo "上传 IPA: $IPA"
+
+            # altool 是 API Key 上传 iOS 构建的唯一官方 CLI 途径（xcodebuild 无 -uploadArchive）
+            echo "=== 1/2 校验应用 ==="
+            xcrun altool --validate-app \
+              --type ios --file "$IPA" \
+              --apiKey "$APPSTORE_API_KEY_ID" \
+              --apiIssuer "$APPSTORE_API_ISSUER_ID" \
+              --output-format normal
+
+            echo "=== 2/2 上传到 App Store Connect ==="
+            xcrun altool --upload-app \
+              --type ios --file "$IPA" \
+              --apiKey "$APPSTORE_API_KEY_ID" \
+              --apiIssuer "$APPSTORE_API_ISSUER_ID" \
+              --show-progress \
+              --output-format normal
 
             echo "上传成功，请到 App Store Connect 网页端选择构建版本并提交审核。"
