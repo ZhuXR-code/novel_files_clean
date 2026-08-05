@@ -133,7 +133,7 @@ export class ScanService {
 
   /**
    * 设备是否支持 FOLDER（目录选择）模式。
-   * FOLDER 模式由 Picker 的 documentPickerMode=DIRECTORY 提供，需 API 26+ 手机。
+   * FOLDER 模式由 Picker 的 selectMode=DocumentSelectMode.FOLDER 提供，需 API 26+ 手机。
    */
   private static canPickFolder(): boolean {
     try {
@@ -155,9 +155,10 @@ export class ScanService {
       const documentPicker = new picker.DocumentViewPicker(context);
       const options = new picker.DocumentSelectOptions();
       options.maxSelectNumber = 1;
-      // 必须声明 DIRECTORY 模式：否则 Picker 默认打开「文件」选择器，用户选到的是
+      // 必须声明 FOLDER 模式：否则 Picker 默认打开「文件」选择器，用户选到的是
       // 文件 URI，后续 listFile 遍历目录会失败，导致「点击扫描提示扫描失败」。
-      options.documentPickerMode = picker.DocumentViewMode.DIRECTORY;
+      // （从 API 26.0.0 开始支持 selectMode + FOLDER）
+      options.selectMode = picker.DocumentSelectMode.FOLDER;
       if (defaultUri && defaultUri.startsWith('file://')) {
         options.defaultFilePathUri = defaultUri;
       }
