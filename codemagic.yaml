@@ -228,27 +228,39 @@ workflows:
         recipients:
           - your@email.com
       scripts:
-        - name: 上传 IPA 到 App Store Connect (altool)
+        - name: 上传 IPA 到 App Store Connect
           script: |
             set -e
             if [ -z "${APPSTORE_API_KEY_B64:-}" ] || [ -z "${APPSTORE_API_KEY_ID:-}" ] || [ -z "${APPSTORE_API_ISSUER_ID:-}" ]; then
               echo "ERROR: 缺少 APPSTORE_API_KEY_B64 / APPSTORE_API_KEY_ID / APPSTORE_API_ISSUER_ID，请在 ios_signing 变量组中配置。"
               exit 1
             fi
-            # 从 base64 还原 p8 文件（必须放在 private_keys 子目录 altool 才能识别）
-            mkdir -p ~/.appstoreconnect/private_keys
-            echo "$APPSTORE_API_KEY_B64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_$APPSTORE_API_KEY_ID.p8
-            chmod 600 ~/.appstoreconnect/private_keys/AuthKey_$APPSTORE_API_KEY_ID.p8
-            echo "p8 文件已还原:"
-            ls -la ~/.appstoreconnect/private_keys/
+
+            # 从 base64 还原 p8 文件
+            KEY_DIR="$HOME/.appstoreconnect/private_keys"
+            mkdir -p "$KEY_DIR"
+            KEY_PATH="$KEY_DIR/AuthKey_${APPSTORE_API_KEY_ID}.p8"
+            echo "$APPSTORE_API_KEY_B64" | base64 --decode > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+
+            echo "=== p8 文件已还原 ==="
+            ls -la "$KEY_DIR/"
+            if ! grep -q "BEGIN EC PRIVATE KEY" "$KEY_PATH"; then
+              echo "ERROR: 还原的 p8 文件不是有效的 EC 私钥格式，请检查 APPSTORE_API_KEY_B64。"
+              exit 1
+            fi
 
             IPA=$(ls build/ipa/*.ipa | head -n 1)
+            ARCHIVE_PATH="$CM_BUILD_DIR/build/booksclean.xcarchive"
             echo "上传 IPA: $IPA"
-            xcrun altool --upload-app \
-              --type ios \
-              --file "$IPA" \
-              --apiKey "$APPSTORE_API_KEY_ID" \
-              --apiIssuer "$APPSTORE_API_ISSUER_ID" \
-              --show-progress \
-              --output-format normal
+            echo "使用 xcarchive: $ARCHIVE_PATH"
+
+            # Xcode 16 中 altool 已废弃，改用最稳定的 xcodebuild -uploadArchive
+            xcodebuild -uploadArchive \
+              -archivePath "$ARCHIVE_PATH" \
+              -authenticationKeyPath "$KEY_PATH" \
+              -authenticationKeyID "$APPSTORE_API_KEY_ID" \
+              -authenticationIssuerID "$APPSTORE_API_ISSUER_ID" \
+              -allowProvisioningUpdates
+
             echo "上传成功，请到 App Store Connect 网页端选择构建版本并提交审核。"
