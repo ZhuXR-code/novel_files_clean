@@ -235,12 +235,12 @@ workflows:
               echo "ERROR: 缺少 APPSTORE_API_KEY_B64 / APPSTORE_API_KEY_ID / APPSTORE_API_ISSUER_ID，请在 ios_signing 变量组中配置。"
               exit 1
             fi
-            # 从 base64 还原 p8 文件
-            mkdir -p ~/.appstoreconnect
-            echo "$APPSTORE_API_KEY_B64" | base64 --decode > ~/.appstoreconnect/AuthKey_$APPSTORE_API_KEY_ID.p8
-            chmod 600 ~/.appstoreconnect/AuthKey_$APPSTORE_API_KEY_ID.p8
+            # 从 base64 还原 p8 文件（必须放在 private_keys 子目录 altool 才能识别）
+            mkdir -p ~/.appstoreconnect/private_keys
+            echo "$APPSTORE_API_KEY_B64" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_$APPSTORE_API_KEY_ID.p8
+            chmod 600 ~/.appstoreconnect/private_keys/AuthKey_$APPSTORE_API_KEY_ID.p8
             echo "p8 文件已还原:"
-            ls -la ~/.appstoreconnect/
+            ls -la ~/.appstoreconnect/private_keys/
 
             IPA=$(ls build/ipa/*.ipa | head -n 1)
             echo "上传 IPA: $IPA"
