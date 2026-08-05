@@ -245,8 +245,8 @@ workflows:
 
             echo "=== p8 文件已还原 ==="
             ls -la "$KEY_DIR/"
-            if ! grep -q "BEGIN EC PRIVATE KEY" "$KEY_PATH"; then
-              echo "ERROR: 还原的 p8 文件不是有效的 EC 私钥格式，请检查 APPSTORE_API_KEY_B64。"
+            if ! grep -qE "BEGIN (EC )?PRIVATE KEY" "$KEY_PATH"; then
+              echo "ERROR: 还原的 p8 文件不是有效的 EC 私钥格式（应为 PKCS#8 或 SEC1），请检查 APPSTORE_API_KEY_B64。"
               exit 1
             fi
 
