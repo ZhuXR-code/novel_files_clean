@@ -1,6 +1,6 @@
 workflows:
   build-ios:
-    name: Build iOS IPA
+    name: Build iOS IPA (Ad Hoc 测试)
     instance_type: mac_mini_m2
     max_build_duration: 30
     environment:
@@ -117,3 +117,138 @@ workflows:
       email:
         recipients:
           - your@email.com
+
+  release-appstore:
+    name: Release iOS to App Store (上架)
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      xcode: 16.0
+      groups:
+        - ios_signing  # 已包含 APPSTORE_API_KEY_ID / APPSTORE_API_ISSUER_ID / APPSTORE_PROFILE_B64 / APPSTORE_API_KEY_B64
+      vars:
+        APP_DEVELOPMENT_TEAM: SGY2APMUQ5
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: master
+          include: false  # 手动触发，不自动构建
+    scripts:
+      - name: 显示构建信息
+        script: |
+          xcodebuild -version
+          swift --version
+      - name: 安装签名证书与描述文件 (App Store)
+        script: |
+          set -e
+          echo "=== 环境变量状态检查 ==="
+          for v in DIST_P12_B64 APPSTORE_PROFILE_B64 DIST_P12_PASSWORD; do
+            if [ -n "${!v:-}" ]; then
+              echo "$v: 已设置"
+            else
+              echo "$v: 未设置"
+            fi
+          done
+
+          if [ -z "${DIST_P12_B64:-}" ] || [ -z "${APPSTORE_PROFILE_B64:-}" ]; then
+            echo "ERROR: 缺少 DIST_P12_B64 或 APPSTORE_PROFILE_B64，请在 Codemagic 环境变量组 ios_signing 中配置。"
+            exit 1
+          fi
+
+          KEYCHAIN="$HOME/Library/Keychains/ci-signing.keychain-db"
+          security create-keychain -p ci "$KEYCHAIN" 2>/dev/null || true
+          security default-keychain -s "$KEYCHAIN"
+          security unlock-keychain -p ci "$KEYCHAIN"
+
+          echo "=== 导入 Distribution p12 ==="
+          echo "$DIST_P12_B64" | base64 --decode > /tmp/dist.p12
+          security import /tmp/dist.p12 -k "$KEYCHAIN" -P "$DIST_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KEYCHAIN" 2>/dev/null || true
+          rm -f /tmp/dist.p12
+
+          echo "=== 安装 App Store Provisioning Profile ==="
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$APPSTORE_PROFILE_B64" | base64 --decode > "$HOME/Library/MobileDevice/Provisioning Profiles/booksclean-appstore.mobileprovision"
+          echo "App Store profile 安装完成"
+          ls -la "$HOME/Library/MobileDevice/Provisioning Profiles"
+      - name: Clean
+        script: |
+          cd ios_app
+          xcodebuild clean \
+            -project booksclean.xcodeproj \
+            -scheme booksclean \
+            -configuration Release \
+            -sdk iphoneos
+      - name: Archive
+        script: |
+          cd ios_app
+          mkdir -p $CM_BUILD_DIR/build
+          xcodebuild archive \
+            -project booksclean.xcodeproj \
+            -scheme booksclean \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination generic/platform=iOS \
+            -archivePath $CM_BUILD_DIR/build/booksclean.xcarchive \
+            DEVELOPMENT_TEAM="$APP_DEVELOPMENT_TEAM" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER=booksclean-appstore
+      - name: Export IPA (App Store)
+        script: |
+          mkdir -p build/ipa
+          cat > build/ExportOptions.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>teamID</key>
+              <string>SGY2APMUQ5</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>com.booksclean.app</key>
+                  <string>booksclean-appstore</string>
+              </dict>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath $CM_BUILD_DIR/build/booksclean.xcarchive \
+            -exportPath build/ipa \
+            -exportOptionsPlist build/ExportOptions.plist
+    artifacts:
+      - build/ipa/*.ipa
+    publishing:
+      email:
+        recipients:
+          - your@email.com
+      scripts:
+        - name: 上传 IPA 到 App Store Connect (altool)
+          script: |
+            set -e
+            if [ -z "${APPSTORE_API_KEY_B64:-}" ] || [ -z "${APPSTORE_API_KEY_ID:-}" ] || [ -z "${APPSTORE_API_ISSUER_ID:-}" ]; then
+              echo "ERROR: 缺少 APPSTORE_API_KEY_B64 / APPSTORE_API_KEY_ID / APPSTORE_API_ISSUER_ID，请在 ios_signing 变量组中配置。"
+              exit 1
+            fi
+            # 从 base64 还原 p8 文件
+            mkdir -p ~/.appstoreconnect
+            echo "$APPSTORE_API_KEY_B64" | base64 --decode > ~/.appstoreconnect/AuthKey_$APPSTORE_API_KEY_ID.p8
+            chmod 600 ~/.appstoreconnect/AuthKey_$APPSTORE_API_KEY_ID.p8
+            echo "p8 文件已还原:"
+            ls -la ~/.appstoreconnect/
+
+            IPA=$(ls build/ipa/*.ipa | head -n 1)
+            echo "上传 IPA: $IPA"
+            xcrun altool --upload-app \
+              --type ios \
+              --file "$IPA" \
+              --apiKey "$APPSTORE_API_KEY_ID" \
+              --apiIssuer "$APPSTORE_API_ISSUER_ID" \
+              --show-progress \
+              --output-format normal
+            echo "上传成功，请到 App Store Connect 网页端选择构建版本并提交审核。"

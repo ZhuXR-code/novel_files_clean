@@ -24,6 +24,14 @@
 	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>UISupportsDocumentBrowser</key>
+	<true/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>本应用需要访问您选择的文件夹以扫描、整理和删除其中的文本文件。文件操作均在您授权后于设备本地完成，不会上传任何数据。</string>
 	<key>UIBackgroundModes</key>
 	<array/>
 	<key>UISupportedInterfaceOrientations</key>
