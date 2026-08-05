@@ -123,7 +123,7 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 30
     environment:
-      xcode: 16.0
+      xcode: 16.4
       groups:
         - ios_signing  # 已包含 APPSTORE_API_KEY_ID / APPSTORE_API_ISSUER_ID / APPSTORE_PROFILE_B64 / APPSTORE_API_KEY_B64
       vars:
@@ -236,11 +236,15 @@ workflows:
               exit 1
             fi
 
+            # 清理环境变量中可能混入的换行/空格（Codemagic 复制粘贴时常带尾部换行）
+            APPSTORE_API_KEY_ID=$(printf '%s' "$APPSTORE_API_KEY_ID" | tr -d '[:space:]')
+            APPSTORE_API_ISSUER_ID=$(printf '%s' "$APPSTORE_API_ISSUER_ID" | tr -d '[:space:]')
+
             # 从 base64 还原 p8 文件
             KEY_DIR="$HOME/.appstoreconnect/private_keys"
             mkdir -p "$KEY_DIR"
             KEY_PATH="$KEY_DIR/AuthKey_${APPSTORE_API_KEY_ID}.p8"
-            echo "$APPSTORE_API_KEY_B64" | base64 --decode > "$KEY_PATH"
+            printf '%s' "$APPSTORE_API_KEY_B64" | base64 --decode > "$KEY_PATH"
             chmod 600 "$KEY_PATH"
 
             echo "=== p8 文件已还原 ==="
