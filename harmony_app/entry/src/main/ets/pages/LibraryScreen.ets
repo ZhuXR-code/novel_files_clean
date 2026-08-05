@@ -65,7 +65,12 @@ struct LibraryScreen {
   @State currentStep: number = 1; // 1=扫描 2=合集 3=勾选重复 4=确认 5=删除
   @State refreshing: boolean = false;
   @State multiSelectMode: boolean = false;
-  @State multiSelectIds: Set<number> = new Set<number>();
+  // 多选选中 id 集合：刻意不放入 @State。ArkUI 对 @State 引用类型（Set/数组）整体赋值
+  // 会触发依赖它的全部 UI 重求值——全选数百上千个 id 时 UI 线程同步重渲染大量行，
+  // 数据量大（如 pageSize 调至 2000）直接导致应用卡死/无响应。
+  // 改为普通成员 + 轻量 @State 版本号（multiSelectTick）驱动刷新，开销降至 O(可见行)。
+  private multiSelectIds: Set<number> = new Set<number>();
+  @State multiSelectTick: number = 0;
   // 每页条数可调（10~2000，默认100）、勾选排前、合集排序
   @State pageSize: number = 100;
   @State pageSizeInput: string = '100';
@@ -237,6 +242,7 @@ struct LibraryScreen {
     const s = new Set<number>();
     s.add(id);
     this.multiSelectIds = s;
+    this.multiSelectTick++;
     ToastUtil.show('已进入多选模式');
   }
 
@@ -248,6 +254,7 @@ struct LibraryScreen {
       s.add(id);
     }
     this.multiSelectIds = s;
+    this.multiSelectTick++;
     if (s.size === 0) {
       this.multiSelectMode = false;
     }
@@ -258,12 +265,26 @@ struct LibraryScreen {
     for (const f of this.viewItems) {
       s.add(f.id);
     }
+    // 合集模式：展开的合集同样参与全选（viewItems 在合集模式下为空数组）
+    for (const files of this.expandedGroupFiles.values()) {
+      for (const f of files) {
+        s.add(f.id);
+      }
+    }
     this.multiSelectIds = s;
+    this.multiSelectTick++;
   }
 
   private invertVisible(): void {
     const s = new Set<number>(this.multiSelectIds);
-    for (const f of this.viewItems) {
+    const allVisible = (): Array<ScannedFile> => {
+      const list: ScannedFile[] = [...this.viewItems];
+      for (const files of this.expandedGroupFiles.values()) {
+        list.push(...files);
+      }
+      return list;
+    };
+    for (const f of allVisible()) {
       if (s.has(f.id)) {
         s.delete(f.id);
       } else {
@@ -271,11 +292,18 @@ struct LibraryScreen {
       }
     }
     this.multiSelectIds = s;
+    this.multiSelectTick++;
   }
 
   private exitMultiSelect(): void {
     this.multiSelectMode = false;
     this.multiSelectIds = new Set<number>();
+    this.multiSelectTick++;
+  }
+
+  /** 多选已选数量（内部读取 @State 版本号，驱动操作栏计数随 tick 刷新）。 */
+  private multiSelectCount(): number {
+    return this.multiSelectTick >= 0 ? this.multiSelectIds.size : 0;
   }
 
   // 多选模式下：将选中文件批量勾选为待删除
@@ -986,7 +1014,7 @@ struct LibraryScreen {
       // 多选模式操作栏
       if (this.multiSelectMode) {
         Row({ space: 8 }) {
-          Text(`已选 ${this.multiSelectIds.size} 个`)
+          Text(`已选 ${this.multiSelectCount()} 个`)
             .fontSize(this.fs(13))
             .fontColor($r('app.color.text_on_primary'))
           Blank()
@@ -1533,7 +1561,7 @@ struct LibraryScreen {
     }
     .width('100%')
     .padding(12)
-    .backgroundColor(this.multiSelectMode && this.multiSelectIds.has(file.id) ? $r('app.color.primary_light') : $r('app.color.bg_card'))
+    .backgroundColor(this.multiSelectMode && (this.multiSelectTick >= 0) && this.multiSelectIds.has(file.id) ? $r('app.color.primary_light') : $r('app.color.bg_card'))
     .borderRadius(10)
     .onClick(() => {
       if (this.multiSelectMode) {

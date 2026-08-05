@@ -9,6 +9,10 @@ struct DeleteConfirmView: View {
     @State private var files: [ScannedFile] = []
     /// 选中集：默认全选，可逐条取消（对齐安卓/鸿蒙删除确认页）
     @State private var selectedIDs: Set<Int64> = []
+    /// 选中文件合计大小缓存：在 toggle/全选/移除时增量维护，
+    /// 避免把 selectedFiles/totalSize 写成 computed property —— 那会导致每次 body 求值
+    /// 都对全部文件（可能上万）做 O(n) filter + reduce，滚动/搜索/toggle 时明显卡顿。
+    @State private var totalSizeCache: Int64 = 0
     /// 清单加载完成标记
     @State private var loading = true
     /// 清单模糊搜索关键字
@@ -21,12 +25,9 @@ struct DeleteConfirmView: View {
         _selectedIDs = State(initialValue: Set(ids))
     }
 
-    /// 当前勾选的文件（用于合计大小）
-    private var selectedFiles: [ScannedFile] {
-        files.filter { selectedIDs.contains($0.id) }
-    }
-    private var totalSize: Int64 {
-        selectedFiles.reduce(0) { $0 + $1.fileSize }
+    /// 当前勾选的文件 id（仅「开始删除」时取一次，避免在 body 中重复全量过滤）
+    private var selectedFileIDs: [Int64] {
+        files.filter { selectedIDs.contains($0.id) }.map { $0.id }
     }
 
     /// 模糊搜索过滤后的清单（匹配 文件名/书名/作者）
@@ -43,7 +44,9 @@ struct DeleteConfirmView: View {
     /// 将文件从本次待删除清单中移除（不删除磁盘文件与扫描记录）
     private func removeFromList(_ f: ScannedFile) {
         files.removeAll { $0.id == f.id }
-        selectedIDs.remove(f.id)
+        if selectedIDs.remove(f.id) != nil {
+            totalSizeCache -= f.fileSize
+        }
     }
 
     var body: some View {
@@ -70,7 +73,7 @@ struct DeleteConfirmView: View {
                     }
                     Divider().frame(height: 28)
                     VStack(spacing: 2) {
-                        Text(FormatUtil.formatSize(totalSize)).fsFont(.headline).foregroundColor(.fsPrimary)
+                        Text(FormatUtil.formatSize(totalSizeCache)).fsFont(.headline).foregroundColor(.fsPrimary)
                         Text("合计大小").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
                     }
                 }
@@ -101,9 +104,15 @@ struct DeleteConfirmView: View {
                     HStack {
                         Text("待删除清单").fsFont(.subheadline).fontWeight(.medium).foregroundColor(.fsPrimary)
                         Spacer()
-                        // 一键全选 / 取消全选
+                        // 一键全选 / 取消全选（同步维护合计大小缓存）
                         Button(selectedIDs.count == files.count ? "取消全选" : "全选") {
-                            selectedIDs = (selectedIDs.count == files.count) ? [] : Set(files.map(\.id))
+                            if selectedIDs.count == files.count {
+                                selectedIDs = []
+                                totalSizeCache = 0
+                            } else {
+                                selectedIDs = Set(files.map(\.id))
+                                totalSizeCache = files.reduce(0) { $0 + $1.fileSize }
+                            }
                         }
                         .fsFont(.caption)
                         .foregroundColor(.fsPrimary)
@@ -133,7 +142,13 @@ struct DeleteConfirmView: View {
                                 DeleteConfirmRow(file: f, isOn: Binding(
                                     get: { selectedIDs.contains(f.id) },
                                     set: { on in
-                                        if on { selectedIDs.insert(f.id) } else { selectedIDs.remove(f.id) }
+                                        if on {
+                                            selectedIDs.insert(f.id)
+                                            totalSizeCache += f.fileSize
+                                        } else {
+                                            selectedIDs.remove(f.id)
+                                            totalSizeCache -= f.fileSize
+                                        }
                                     }
                                 )) {
                                     removeFromList(f)
@@ -170,6 +185,7 @@ struct DeleteConfirmView: View {
         await MainActor.run {
             files = loaded
             selectedIDs = Set(loaded.map(\.id))
+            totalSizeCache = loaded.reduce(0) { $0 + $1.fileSize }
             loading = false
         }
     }
@@ -274,17 +290,31 @@ struct DeleteProgressView: View {
         defer { if accessing { folderURL?.stopAccessingSecurityScopedResource() } }
 
         var deleted = 0, failed = 0
+        // 进度回调节流：与扫描侧节流对齐（每 64 个文件跳一次主线程）。
+        // 10w 文件若每删一个就 await MainActor.run 更新 3 个 @State，
+        // 主线程需承受 10w 次跳转 + SwiftUI 重渲染，进度页会明显卡顿。
+        let interval = 64
+        var lastReported = 0
         for (i, f) in files.enumerated() {
             if physical, let u = URL(string: f.path) {
                 do { try FileManager.default.removeItem(at: u); deleted += 1 }
                 catch { failed += 1; LogUtil.e("Delete", "删除失败 \(f.fileName): \(error)") }
             }
-            let p = Int((i + 1) * 100 / max(files.count, 1))
-            await MainActor.run { progress = p; deletedCount = deleted; failedCount = failed }
+            let done = i + 1
+            if done - lastReported >= interval {
+                lastReported = done
+                let p = Int(done * 100 / max(files.count, 1))
+                await MainActor.run { progress = p; deletedCount = deleted; failedCount = failed }
+            }
         }
         FileRepository.shared.deleteFiles(ids: ids)
         FileRepository.shared.logOperation(level: "I", tag: "Delete", message: "删除 \(deleted) 个文件（失败 \(failed)），physical=\(physical)")
+        // 强制补报最终状态：小批量（< interval）时循环内可能一次都没触发，
+        // 直接在完成态一次性写入 100% 与成败计数。
         await MainActor.run {
+            progress = 100
+            deletedCount = deleted
+            failedCount = failed
             finished = true
             if failed > 0 { errorMsg = "\(failed) 个文件因权限或已被移动而删除失败（数据库记录已移除）" }
         }

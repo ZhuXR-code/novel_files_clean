@@ -16,6 +16,7 @@ import { KeywordReplace } from '../utils/KeywordReplace';
 import { FormatUtil } from '../utils/FormatUtil';
 import { LogUtil } from '../utils/LogUtil';
 import { FilePermissionUtil } from '../utils/FilePermissionUtil';
+import { PreferencesUtil } from '../utils/PreferencesUtil';
 
 export interface ScanProgress {
   processed: number;
@@ -67,6 +68,40 @@ export class ScanService {
     return ScanService.selectedFileUris.length > 0;
   }
 
+  private static readonly PREF_FILE_URIS: string = 'scan_selected_file_uris';
+
+  /**
+   * 保存 FILE 回退模式选中的文件 URI 列表。
+   * selectedFileUris 是内存静态变量，应用重启即丢失；同时写入 Preferences，
+   * 重启后 runScan 可恢复，避免「重新进入扫描时报扫描失败」。
+   */
+  private static saveFileFallback(uris: string[]): void {
+    ScanService.selectedFileUris = [...uris];
+    PreferencesUtil.putString(ScanService.PREF_FILE_URIS, uris.join('\n'));
+  }
+
+  /**
+   * 从持久化存储恢复上次 FILE 回退选中的文件列表（仅当内存列表为空时）。
+   * @returns 是否存在可用的文件列表
+   */
+  public static restoreFileFallback(): boolean {
+    if (ScanService.selectedFileUris.length > 0) {
+      return true;
+    }
+    const raw: string = PreferencesUtil.getString(ScanService.PREF_FILE_URIS, '');
+    if (raw.length === 0) {
+      return false;
+    }
+    ScanService.selectedFileUris = raw.split('\n').filter((s: string) => s.length > 0);
+    return ScanService.selectedFileUris.length > 0;
+  }
+
+  /** 清空 FILE 回退缓存（内存 + 持久化）。 */
+  public static clearFileFallback(): void {
+    ScanService.selectedFileUris = [];
+    PreferencesUtil.putString(ScanService.PREF_FILE_URIS, '');
+  }
+
   /**
    * 选择扫描目标，返回用户选中的「目录展示 URI」（已获访问授权）。用户取消时返回空字符串。
    *
@@ -81,8 +116,8 @@ export class ScanService {
    * @param defaultUri  可选，上次选择的 URI，用于预设 Picker 打开位置（更好的 UX）
    */
   public static async selectDirectory(context: common.Context, defaultUri?: string): Promise<string> {
-    // 先清空上次的文件缓存，避免旧列表影响新配置。
-    ScanService.selectedFileUris = [];
+    // 先清空上次的文件缓存（内存 + 持久化），避免旧列表影响新配置。
+    ScanService.clearFileFallback();
     // FOLDER 模式优先：直接选目录，授权整棵树，可递归遍历扫描。
     if (ScanService.canPickFolder()) {
       const folderUri: string = await ScanService.tryPickFolder(context, defaultUri);
@@ -120,6 +155,9 @@ export class ScanService {
       const documentPicker = new picker.DocumentViewPicker(context);
       const options = new picker.DocumentSelectOptions();
       options.maxSelectNumber = 1;
+      // 必须声明 DIRECTORY 模式：否则 Picker 默认打开「文件」选择器，用户选到的是
+      // 文件 URI，后续 listFile 遍历目录会失败，导致「点击扫描提示扫描失败」。
+      options.documentPickerMode = picker.DocumentViewMode.DIRECTORY;
       if (defaultUri && defaultUri.startsWith('file://')) {
         options.defaultFilePathUri = defaultUri;
       }
@@ -190,12 +228,23 @@ export class ScanService {
     // runScan 对父目录做 BFS 遍历，扫描其下全部文件——保留「选文件→推导父目录→扫文件夹」模式。
     if (parentDirUri.length > 0 && FilePermissionUtil.checkUriAccessible(parentDirUri)) {
       ScanService.selectedFileUris = [];
+      // 关键：仅持久化选中文件们，重启后父目录授权不会自动恢复（picker 授权的是
+      // 文件而非父目录），再次扫描 listFile 父目录必然失败。这里同时持久化父目录
+      // 授权，保证应用重启后仍可遍历整个文件夹。
+      try {
+        await FilePermissionUtil.persistFolderPermission(parentDirUri);
+        LogUtil.i('ScanService', `已持久化父目录授权: ${parentDirUri}`);
+      } catch (e) {
+        LogUtil.w('ScanService', `持久化父目录授权失败: ${(e as Error).message}`);
+      }
       LogUtil.i('ScanService', `已定位目录（选中 ${uris.length} 个文件），将扫描整个文件夹: ${parentDirUri}`);
       return parentDirUri;
     }
 
     // 父目录不可访问（如文档卷未授权父目录）：回退为逐文件扫描选中列表。
-    ScanService.selectedFileUris = [...uris];
+    // 列表需持久化：selectedFileUris 是内存变量，重启丢失后 runScan 会错误地走
+    // BFS 遍历不可访问的父目录导致「扫描失败」。
+    ScanService.saveFileFallback(uris);
     LogUtil.i('ScanService', `FILE 多选：共选 ${uris.length} 个文件，父目录不可遍历，逐文件扫描`);
     return parentDirUri;
   }
@@ -245,9 +294,10 @@ export class ScanService {
     const parseRules: KeywordReplaceRule[] = await KeywordReplaceDao.getEnabledByScope(KeywordReplace.SCOPE_PARSE);
 
     // FILE 多选回退模式（低版本手机不支持 FOLDER 模式）：
-    // selectDirectory 已把用户选中的文件 URI 保存到 selectedFileUris，每个文件都已单独授权。
-    // 直接逐文件处理，不再尝试 listFile 父目录，避免 Operation not permitted。
-    if (ScanService.selectedFileUris.length > 0) {
+    // selectDirectory 已把用户选中的文件 URI 保存到 selectedFileUris（并持久化），
+    // 每个文件都已单独授权。直接逐文件处理，不再尝试 listFile 父目录，
+    // 避免 Operation not permitted；重启后内存列表为空时从持久化恢复。
+    if (ScanService.selectedFileUris.length > 0 || ScanService.restoreFileFallback()) {
       return ScanService.runScanFromFiles(config, onProgress, run, runId, scanRules, parseRules);
     }
 
@@ -384,7 +434,7 @@ export class ScanService {
     parseRules: KeywordReplaceRule[]
   ): Promise<{ runId: number; total: number; processed: number; stopped: boolean }> {
     const fileUris: string[] = [...ScanService.selectedFileUris];
-    ScanService.selectedFileUris = []; // 立即清空，避免重复扫描或旧数据残留
+    ScanService.clearFileFallback(); // 立即清空（内存+持久化），避免重复扫描或旧数据残留
 
     const batch: ScannedFile[] = [];
     let processed: number = 0;

@@ -63,6 +63,23 @@ struct ScanProgress {
       ToastUtil.show('请先选择扫描目录');
       return;
     }
+    // 权限预检（修复「点击扫描提示扫描失败」）：
+    // FILE 回退模式（逐文件扫描，每个文件已单独授权）无需目录权限，直接扫描；
+    // 目录授权失效时自动弹出重新授权确认框，成功后再继续，而不是直接报扫描失败。
+    if (!(ScanService.useFileFallback() || ScanService.restoreFileFallback())) {
+      const accessibleUri: string = await ScanService.tryAccessOrReauthorize(getContext(this), this.folderUri);
+      if (accessibleUri.length === 0) {
+        this.folderName = '';
+        ToastUtil.show('扫描目录权限已失效，请重新选择目录');
+        return;
+      }
+      if (accessibleUri !== this.folderUri) {
+        this.folderUri = accessibleUri;
+        if (this.config) {
+          this.config.folderUri = accessibleUri;
+        }
+      }
+    }
     const cfg: ScanConfig = this.config ?? new ScanConfig();
     cfg.folderUri = this.folderUri;
     cfg.folderName = this.folderName;
@@ -96,8 +113,14 @@ struct ScanProgress {
       // 推送全局刷新信号，让首页/文库列表在扫描完成后立即显示新文库
       AppStorage.setOrCreate('libraryRefreshTick', Date.now());
     } catch (e) {
-      LogUtil.e('ScanProgress', `扫描失败: ${(e as Error).message}`);
-      ToastUtil.show('扫描失败，请查看日志');
+      const errMsg: string = (e as Error).message;
+      LogUtil.e('ScanProgress', `扫描失败: ${errMsg}`);
+      if (errMsg.includes('无法访问扫描目录') || errMsg.includes('Operation not permitted') ||
+        errMsg.toLowerCase().includes('permission')) {
+        ToastUtil.show('扫描目录不可访问，请重新选择目录');
+      } else {
+        ToastUtil.show('扫描失败，请查看日志');
+      }
     }
     this.scanning = false;
   }

@@ -465,15 +465,20 @@ struct OneClickReviewSheet: View {
 
     /// 将文件从本次待删除清单中移除（数据库 checked=0，下次 confirmDelete 不会取到）。
     private func removeFromList(_ f: ScannedFile) {
-        // 1) 数据库：取消勾选
-        FileRepository.shared.setChecked(id: f.id, checked: false)
-        // 2) 本地数组移除
+        // 1) 本地数组立即移除（主线程，UI 即时响应）
         files.removeAll { $0.id == f.id }
-        // 3) 重新拉统计，通知父级同步顶部数字
-        let newChecked = FileRepository.shared.getCheckedIds(runId: runId).count
-        let newTotal = FileRepository.shared.countFiles(runId: runId)
-        let newDup = FileRepository.shared.getDuplicateGroups(runId: runId)
-        onCountChanged?(newChecked, newTotal, newDup)
+        // 2) 数据库写 + 统计重算挪到后台线程：
+        //    getDuplicateGroups 会全量加载已勾选文件做分组统计，勾选上万时同步执行必卡主线程。
+        let runId = runId
+        DispatchQueue.global(qos: .userInitiated).async {
+            FileRepository.shared.setChecked(id: f.id, checked: false)
+            let newChecked = FileRepository.shared.getCheckedIds(runId: runId).count
+            let newTotal = FileRepository.shared.countFiles(runId: runId)
+            let newDup = FileRepository.shared.getDuplicateGroups(runId: runId)
+            DispatchQueue.main.async {
+                onCountChanged?(newChecked, newTotal, newDup)
+            }
+        }
     }
 
     private func load() {

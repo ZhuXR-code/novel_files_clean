@@ -33,9 +33,13 @@ export class DeleteService {
     }
     const deleteSource: boolean = options.deleteSource !== false;
     const BATCH: number = 200;
+    // 进度回调节流：与扫描侧 ScanService.PROGRESS_INTERVAL=16 对齐。
+    // 10w 文件若每删一个就回调一次 onProgress，UI 线程需 10w 次 @State 刷新必然卡顿。
+    const PROGRESS_INTERVAL: number = 16;
     let deleted: number = 0;
     let failed: number = 0;
     let done: number = 0;
+    let lastReportDone: number = 0;
     const total: number = ids.length;
     const affectedRuns: Set<number> = new Set<number>();
 
@@ -79,14 +83,22 @@ export class DeleteService {
         if (options.onFileDone) {
           options.onFileDone({ id: f.id, name: f.fileName, path: f.path, ok: ok, error: ok ? undefined : errMsg });
         }
-        if (options.onProgress) {
+        // 节流：仅当累计增量 ≥ PROGRESS_INTERVAL 才回调进度，避免每文件一次 UI 刷新。
+        if (options.onProgress && done - lastReportDone >= PROGRESS_INTERVAL) {
           options.onProgress(done, total, deleted, failed, f.fileName);
+          lastReportDone = done;
         }
       }
       // 批量删除本批成功文件的数据库记录（一次 DELETE 替代逐条删除）。
       if (successIds.length > 0) {
         await ScannedFileDao.deleteByIds(successIds);
       }
+    }
+    // 强制补报最终进度：小批量（< PROGRESS_INTERVAL）时上述节流可能一次都没触发，
+    // UI 若停留在 0/0 将无法显示完成状态。
+    if (options.onProgress && total > 0 && done - lastReportDone > 0) {
+      options.onProgress(done, total, deleted, failed, '');
+      lastReportDone = done;
     }
 
     // 删除完成后，重算所有受影响文库的文件数（回写 scan_run.file_count）

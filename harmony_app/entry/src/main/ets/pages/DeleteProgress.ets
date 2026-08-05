@@ -33,8 +33,23 @@ struct DeleteProgress {
   @State currentFile: string = '';
   @State deleteSource: boolean = true;
   @State logs: DeleteLog[] = [];
+  /** 未刷新的日志缓冲：onFileDone 每文件回调一次，攒够一批再合并刷新，
+   *  避免 10w 次删除 = 10w 次 @State 数组整体重赋值触发 List 全量重渲染。 */
+  private pendingLogs: DeleteLog[] = [];
   private logScroller: Scroller = new Scroller();
   private logCountSinceScroll: number = 0;
+
+  /** 把缓冲日志合并进环形缓冲并滚动（每批只触发一次 @State 刷新）。 */
+  private flushLogs(): void {
+    const merged: DeleteLog[] = this.logs.concat(this.pendingLogs);
+    this.pendingLogs = [];
+    this.logs = merged.length > DeleteProgress.LOG_MAX ? merged.slice(merged.length - DeleteProgress.LOG_MAX) : merged;
+    this.logCountSinceScroll++;
+    if (this.logCountSinceScroll >= DeleteProgress.SCROLL_INTERVAL) {
+      this.logCountSinceScroll = 0;
+      this.logScroller.scrollEdge(Edge.Bottom);
+    }
+  }
 
   async aboutToAppear(): Promise<void> {
     const params = router.getParams() as Record<string, Object>;
@@ -80,26 +95,19 @@ struct DeleteProgress {
           this.currentFile = c;
         },
         onFileDone: (info) => {
-          // 环形缓冲：超过上限丢弃最旧条目，保证数组长度 ≤ LOG_MAX，
-          // 避免 10w 次删除时 [...this.logs] 每次 O(n) 拷贝累计成 O(n²) 卡死。
-          const next: DeleteLog = { name: info.name, ok: info.ok, error: info.error ?? '' };
-          if (this.logs.length >= DeleteProgress.LOG_MAX) {
-            this.logs = [...this.logs.slice(1), next];
-          } else {
-            this.logs = [...this.logs, next];
-          }
-          // 滚动节流：每 SCROLL_INTERVAL 个文件才滚一次，降低高频 UI 调用。
-          this.logCountSinceScroll++;
-          if (this.logCountSinceScroll >= DeleteProgress.SCROLL_INTERVAL) {
-            this.logCountSinceScroll = 0;
-            this.logScroller.scrollEdge(Edge.Bottom);
+          // 先入缓冲，攒够一批由 flushLogs 合并刷新：保留全部日志条目，
+          // 同时把 @State 重赋值（触发 List 重渲染）从每文件一次降到每批一次。
+          this.pendingLogs.push({ name: info.name, ok: info.ok, error: info.error ?? '' });
+          if (this.pendingLogs.length >= DeleteProgress.SCROLL_INTERVAL) {
+            this.flushLogs();
           }
         }
       });
       this.deleted = res.deleted;
       this.failed = res.failed;
+      // 强制刷新剩余不足一批的日志，再滚到底部展示最终日志。
+      this.flushLogs();
       this.done = true;
-      // 删除结束后滚动到底部，展示最后一批日志。
       this.logScroller.scrollEdge(Edge.Bottom);
     } catch (e) {
       LogUtil.e('DeleteProgress', `删除失败: ${(e as Error).message}`);
