@@ -8,7 +8,7 @@ These Terms of Use (the "Terms") govern the auto-renewable subscription ("Subscr
    1.1 The App offers the following auto-renewable subscription:
        - Product name: Annual Membership
        - Billing period: 1 year (12 months)
-       - Price: USD 2.99 / year (final price shown in your local currency on the Apple App Store in your country or region)
+       - Price: CNY 3 / year (in China region; final price shown in your local currency on the Apple App Store in your country or region)
    1.2 The actual price may vary by country/region, local taxes, and Apple's pricing tiers. The price displayed at Apple's checkout is final.
 
 2. Auto-Renewal
