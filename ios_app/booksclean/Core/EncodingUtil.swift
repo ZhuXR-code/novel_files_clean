@@ -51,39 +51,41 @@ enum EncodingUtil {
 
     // MARK: - 严格解码（解决 GBK 字节被 UTF-8 lenient 解码成乱码的问题）
 
-    /// U+FFFD 替换字符（"�"），用于检测宽容解码造成的脏数据。
-    static let replacementChar: Character = "\u{FFFD}"
-
-    /// 计算字符串中 U+FFFD 替换字符占比。
-    /// 真实 GBK/GB18030 文本不应出现该字符；UTF-8 lenient 解码 GBK 字节会产生大量替换字符。
-    static func replacementCharRatio(_ s: String) -> Double {
+    /// CJK 统一表意文字（含扩展 A）占比：用于中文 txt 解码质量评分。
+    /// 注意：iOS 的 `String(data:encoding:.utf8)` 对非法字节是**静默丢弃**（不插入 U+FFFD），
+    /// 所以单靠 replacementCharRatio 无法识别「GBK 字节被 UTF-8 当乱码」的情况；
+    /// 而正确解码的中文文本 CJK 比例应明显更高，故以 CJK 占比作为主判据。
+    private static func cjkCharRatio(_ s: String) -> Double {
         if s.isEmpty { return 0 }
-        var bad = 0
+        var cjk = 0
         for ch in s {
-            if ch == replacementChar { bad += 1 }
+            guard let v = ch.unicodeScalars.first?.value else { continue }
+            if (0x3400...0x9FFF).contains(v) { cjk += 1 }
         }
-        return Double(bad) / Double(s.count)
+        return Double(cjk) / Double(s.count)
     }
 
-    /// 严格按候选顺序尝试解码。
-    /// - UTF-8：先做字节级合法性校验（`looksLikeUtf8`），再检查替换字符比例（>0.5% 视为 lenient 误解码）。
-    /// - 其他编码（如 GB18030）：CFString 实现对非法序列通常返回 nil；成功后再校验替换字符比例。
+    /// 严格按候选顺序尝试解码，以「CJK 内容占比」为核心判据选择最合理的解码结果。
+    ///
+    /// 判定逻辑（解决 iOS Foundation UTF-8 静默丢字节、不产生 U+FFFD 导致乱码的问题）：
+    /// - 对所有成功解码（`String(data:encoding:)` 非 nil）的候选，计算 CJK 占比；
+    /// - 真 UTF-8 中文：UTF-8 分支 CJK 高，且其字节必过 `looksLikeUtf8` → 额外 +0.2 红利，确保优先；
+    /// - 真 GBK/GB18030：UTF-8 分支静默丢字节后 CJK 极低，GB18030 分支 CJK 高 → 选 GB18030；
+    /// - 纯 ASCII/英文：各候选 CJK≈0，UTF-8 凭红利胜出，保持保真。
     /// 返回 (解码文本, 实际使用的编码名)。全部失败返回 ("", "")。
     static func decodeStrict(data: Data, candidates: [String]) -> (String, String) {
+        var best = ("", "", -1.0)
         for name in candidates {
             let enc = stringEncoding(named: name)
-            // UTF-8 必须先过字节级严格校验，避免宽容解码
-            if name == "UTF-8" {
-                guard looksLikeUtf8(data) else { continue }
-                guard let s = String(data: data, encoding: enc) else { continue }
-                if replacementCharRatio(s) > 0.005 { continue }
-                return (s, name)
-            }
             guard let s = String(data: data, encoding: enc) else { continue }
-            // 其它编码的宽容解码也可能产生 U+FFFD（罕见），同样按比例兜底
-            if replacementCharRatio(s) > 0.005 { continue }
-            return (s, name)
+            var score = cjkCharRatio(s)
+            if name == "UTF-8" && looksLikeUtf8(data) {
+                score += 0.2 // 真 UTF-8 字节流红利，避免被 GB18030 误解码抢走
+            }
+            if score > best.2 {
+                best = (s, name, score)
+            }
         }
-        return ("", "")
+        return (best.0, best.1)
     }
 }

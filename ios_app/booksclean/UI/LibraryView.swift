@@ -1305,14 +1305,14 @@ struct FilePreviewView: View {
 
         // 编码尝试链（去重保序）：
         //   1) 扫描阶段记录的存储编码（早期可能误判为 UTF-8）
-        //   2) UTF-8
-        //   3) GB18030
-        // 使用 EncodingUtil.decodeStrict：UTF-8 先做字节级严格校验且对宽容解码产生的
-        // U+FFFD 替换字符比例 > 0.5% 视为失败，回退下一编码。
+        //   2) GB18030（中文 txt 最常见的编码，优先于 UTF-8 兜底，避免 UTF-8 静默丢字节乱码）
+        //   3) UTF-8
+        // 使用 EncodingUtil.decodeStrict：以「CJK 内容占比」为核心判据选择最合理解码；
+        // 真 UTF-8 字节流因其 CJK 占比高且通过 looksLikeUtf8 校验而带红利，仍会被优先选中。
         // 覆盖典型场景：扫描仅采样 8KB，文件前段是 ASCII 序章被判为 UTF-8，
-        // 中文内容出现在样本外，预览时整文件 UTF-8 解码会乱码——这里自动回退 GB18030。
+        // 中文内容出现在样本外，预览时整文件按错误编码解码会乱码——此处自动校正。
         var candidates: [String] = []
-        for name in [enc, "UTF-8", "GB18030"] where !candidates.contains(name) {
+        for name in [enc, "GB18030", "UTF-8"] where !candidates.contains(name) {
             candidates.append(name)
         }
 
