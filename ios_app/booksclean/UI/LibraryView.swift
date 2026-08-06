@@ -1322,7 +1322,7 @@ struct FilePreviewView: View {
             let (text, usedName) = EncodingUtil.decodeStrict(data: data, candidates: candidates)
             if !text.isEmpty {
                 if usedName != enc {
-                    LogUtil.w(tag, "preview fallback decoding: \(url.lastPathComponent) stored=\(enc) used=\(usedName)")
+                    LogUtil.d(tag, "preview fallback decoding: \(url.lastPathComponent) stored=\(enc) used=\(usedName)")
                 }
                 return (text + truncatedSuffix, nil)
             }
