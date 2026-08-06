@@ -24,7 +24,26 @@ final class DatabaseManager {
             return
         }
         createTables()
+        migrateSchema()
         seedDefaultData()
+    }
+
+    // MARK: - 表结构补齐（对齐安卓 Room 迁移：升级用户旧库可能缺少新列）
+    private func migrateSchema() {
+        addColumnIfMissing("dup_rule_configs", "is_builtin", "INTEGER NOT NULL DEFAULT 1")
+        addColumnIfMissing("dup_rule_configs", "conditions", "TEXT")
+        addColumnIfMissing("dup_rule_configs", "action", "TEXT")
+        addColumnIfMissing("dup_rule_configs", "sort_order", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing("dup_rule_configs", "created_at", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing("dup_rule_configs", "updated_at", "INTEGER NOT NULL DEFAULT 0")
+    }
+
+    private func addColumnIfMissing(_ table: String, _ column: String, _ definition: String) {
+        let cols = fetchAll("PRAGMA table_info(\(table))").compactMap { $0[1] as? String }
+        if !cols.contains(column) {
+            _ = execute("ALTER TABLE \(table) ADD COLUMN \(column) \(definition)")
+            LogUtil.i("DB", "补齐列 \(table).\(column)")
+        }
     }
 
     // MARK: - 建表

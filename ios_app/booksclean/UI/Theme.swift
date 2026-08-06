@@ -10,7 +10,7 @@ extension Color {
     static let fsSeparator = Color(.separator)
 }
 
-// MARK: - 字号缩放（跟随设置中的 小/标准/大）
+// MARK: - 文本样式（统一使用系统文本样式，字号由各 View 自行指定）
 extension View {
     /// 按当前字号偏好缩放系统文本样式。
     func fsFont(_ style: Font.TextStyle, design: Font.Design = .default) -> some View {

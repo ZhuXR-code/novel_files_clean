@@ -24,11 +24,6 @@ struct SettingsView: View {
                     Text("浅色").tag("light")
                     Text("深色").tag("dark")
                 }
-                Picker("阅读字号", selection: $prefs.fontScaleMode) {
-                    Text("小").tag("small")
-                    Text("标准").tag("standard")
-                    Text("大").tag("large")
-                }
                 Picker("预览滚动条", selection: $prefs.previewScrollbarMode) {
                     Text("右侧纵向").tag("vertical")
                     Text("横向").tag("horizontal")

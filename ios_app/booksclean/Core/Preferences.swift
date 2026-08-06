@@ -11,7 +11,6 @@ final class Preferences: ObservableObject {
     @Published var groupMinCount: Int { didSet { ud.set(groupMinCount, forKey: "group_min_count") } }
     @Published var groupMaxCount: Int { didSet { ud.set(groupMaxCount, forKey: "group_max_count") } }
     @Published var groupExcludeNames: String { didSet { ud.set(groupExcludeNames, forKey: "group_exclude_names") } }
-    @Published var fontScaleMode: String { didSet { ud.set(fontScaleMode, forKey: "font_scale") } }
     @Published var previewScrollbarMode: String { didSet { ud.set(previewScrollbarMode, forKey: "preview_scrollbar_mode") } }
     /// 合集排序方式（对齐安卓 GroupSortMode）：count_desc/count_asc/size_desc/size_asc/name_asc/name_desc/date_newest/date_oldest
     @Published var groupSort: String { didSet { ud.set(groupSort, forKey: "group_sort") } }
@@ -32,7 +31,6 @@ final class Preferences: ObservableObject {
         groupMinCount = ud.integer(forKey: "group_min_count")
         groupMaxCount = ud.object(forKey: "group_max_count") as? Int ?? -1
         groupExcludeNames = ud.string(forKey: "group_exclude_names") ?? ""
-        fontScaleMode = ud.string(forKey: "font_scale") ?? "standard"
         previewScrollbarMode = ud.string(forKey: "preview_scrollbar_mode") ?? "vertical"
         groupSort = ud.string(forKey: "group_sort") ?? "count_desc"
         checkedSortToFront = ud.bool(forKey: "checked_sort_to_front")
@@ -48,10 +46,6 @@ final class Preferences: ObservableObject {
     }
 
     var fontScaleFactor: CGFloat {
-        switch fontScaleMode {
-        case "small": return 0.85
-        case "large": return 1.2
-        default: return 1.0
-        }
+        return 1.0
     }
 }

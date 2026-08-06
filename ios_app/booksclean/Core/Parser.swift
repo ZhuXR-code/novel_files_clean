@@ -270,7 +270,8 @@ enum Parser {
 }
 
 private extension String {
-    func range(from ns: NSRange) -> Range<String.Index> {
-        return Range(ns, in: self)!
+    /// NSRange → Range<String.Index>（安全解包，避免强制解包崩溃；当前 Parser 内统一使用 String.sub）。
+    func range(from ns: NSRange) -> Range<String.Index>? {
+        return Range(ns, in: self)
     }
 }
