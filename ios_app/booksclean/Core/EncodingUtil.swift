@@ -30,7 +30,7 @@ enum EncodingUtil {
     static func detectEncodingName(sample: Data) -> String { detectEncodingAndBom(sample: sample).0 }
 
     /// 手写 UTF-8 合法性校验；采样末尾被截断的多字节序列不算错误。
-    private static func looksLikeUtf8(_ b: Data) -> Bool {
+    static func looksLikeUtf8(_ b: Data) -> Bool {
         var i = 0
         while i < b.count {
             let c = Int(b[i])
@@ -47,5 +47,43 @@ enum EncodingUtil {
             i += need + 1
         }
         return true
+    }
+
+    // MARK: - 严格解码（解决 GBK 字节被 UTF-8 lenient 解码成乱码的问题）
+
+    /// U+FFFD 替换字符（"�"），用于检测宽容解码造成的脏数据。
+    static let replacementChar: Character = "\u{FFFD}"
+
+    /// 计算字符串中 U+FFFD 替换字符占比。
+    /// 真实 GBK/GB18030 文本不应出现该字符；UTF-8 lenient 解码 GBK 字节会产生大量替换字符。
+    static func replacementCharRatio(_ s: String) -> Double {
+        if s.isEmpty { return 0 }
+        var bad = 0
+        for ch in s {
+            if ch == replacementChar { bad += 1 }
+        }
+        return Double(bad) / Double(s.count)
+    }
+
+    /// 严格按候选顺序尝试解码。
+    /// - UTF-8：先做字节级合法性校验（`looksLikeUtf8`），再检查替换字符比例（>0.5% 视为 lenient 误解码）。
+    /// - 其他编码（如 GB18030）：CFString 实现对非法序列通常返回 nil；成功后再校验替换字符比例。
+    /// 返回 (解码文本, 实际使用的编码名)。全部失败返回 ("", "")。
+    static func decodeStrict(data: Data, candidates: [String]) -> (String, String) {
+        for name in candidates {
+            let enc = stringEncoding(named: name)
+            // UTF-8 必须先过字节级严格校验，避免宽容解码
+            if name == "UTF-8" {
+                guard looksLikeUtf8(data) else { continue }
+                guard let s = String(data: data, encoding: enc) else { continue }
+                if replacementCharRatio(s) > 0.005 { continue }
+                return (s, name)
+            }
+            guard let s = String(data: data, encoding: enc) else { continue }
+            // 其它编码的宽容解码也可能产生 U+FFFD（罕见），同样按比例兜底
+            if replacementCharRatio(s) > 0.005 { continue }
+            return (s, name)
+        }
+        return ("", "")
     }
 }

@@ -1301,29 +1301,33 @@ struct FilePreviewView: View {
         }
 
         let enc = f.encoding.isEmpty ? "UTF-8" : f.encoding
-        let primaryEncoding = EncodingUtil.stringEncoding(named: enc)
         let maxBytes = 200 * 1024
 
-        // 编码尝试链：存储编码 → UTF-8 → GB18030 兜底。
-        // 覆盖早期扫描误判为 UTF-8 的 GB18030/GBK/GB2312 文件（典型场景：样本 8KB 是 ASCII 序章，
-        // Chinese 内容出现在样本外，导致 EncodingUtil.detectEncodingAndBom 返回 UTF-8，
-        // 但全文件 UTF-8 解码失败）。GB18030 是中文环境最稳的兜底。
-        let fallbackNames = ["UTF-8", "GB18030"]
-        var attempted: [String] = [enc]
+        // 编码尝试链（去重保序）：
+        //   1) 扫描阶段记录的存储编码（早期可能误判为 UTF-8）
+        //   2) UTF-8
+        //   3) GB18030
+        // 使用 EncodingUtil.decodeStrict：UTF-8 先做字节级严格校验且对宽容解码产生的
+        // U+FFFD 替换字符比例 > 0.5% 视为失败，回退下一编码。
+        // 覆盖典型场景：扫描仅采样 8KB，文件前段是 ASCII 序章被判为 UTF-8，
+        // 中文内容出现在样本外，预览时整文件 UTF-8 解码会乱码——这里自动回退 GB18030。
+        var candidates: [String] = []
+        for name in [enc, "UTF-8", "GB18030"] where !candidates.contains(name) {
+            candidates.append(name)
+        }
 
         // 先尝试 FileHandle（可控偏移，支持 tail 模式）；失败则回退到 Data(contentsOf:)。
         if let data = await readFileData(url: url, mode: mode, maxBytes: maxBytes, tag: tag) {
             let truncatedSuffix = makeTruncatedSuffix(mode: mode, dataCount: data.count, maxBytes: maxBytes)
-            // 1) 存储编码
-            if let s = String(data: data, encoding: primaryEncoding) { return (s + truncatedSuffix, nil) }
-            // 2) 兜底链
-            for name in fallbackNames where !attempted.contains(name) {
-                attempted.append(name)
-                let encObj = EncodingUtil.stringEncoding(named: name)
-                if let s = String(data: data, encoding: encObj) { return (s + truncatedSuffix, nil) }
+            let (text, usedName) = EncodingUtil.decodeStrict(data: data, candidates: candidates)
+            if !text.isEmpty {
+                if usedName != enc {
+                    LogUtil.w(tag, "preview fallback decoding: \(url.lastPathComponent) stored=\(enc) used=\(usedName)")
+                }
+                return (text + truncatedSuffix, nil)
             }
-            LogUtil.e(tag, "string decoding failed for \(url.lastPathComponent), tried=\(attempted.joined(separator: ","))")
-            return ("", "文件编码解析失败（已尝试 \(attempted.joined(separator: "/"))，均解码失败）")
+            LogUtil.e(tag, "string decoding failed for \(url.lastPathComponent), tried=\(candidates.joined(separator: ","))")
+            return ("", "文件编码解析失败（已尝试 \(candidates.joined(separator: "/"))，均解码失败）")
         }
         return ("", "无法读取文件数据（可能缺少文件夹访问权限，请重新扫描以刷新授权）")
     }
