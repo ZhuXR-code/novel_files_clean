@@ -11,7 +11,6 @@ final class Preferences: ObservableObject {
     @Published var groupMinCount: Int { didSet { ud.set(groupMinCount, forKey: "group_min_count") } }
     @Published var groupMaxCount: Int { didSet { ud.set(groupMaxCount, forKey: "group_max_count") } }
     @Published var groupExcludeNames: String { didSet { ud.set(groupExcludeNames, forKey: "group_exclude_names") } }
-    @Published var previewScrollbarMode: String { didSet { ud.set(previewScrollbarMode, forKey: "preview_scrollbar_mode") } }
     /// 合集排序方式（对齐安卓 GroupSortMode）：count_desc/count_asc/size_desc/size_asc/name_asc/name_desc/date_newest/date_oldest
     @Published var groupSort: String { didSet { ud.set(groupSort, forKey: "group_sort") } }
     /// 勾选过的文件/合集是否自动排到最前面（对齐安卓 auto_sort_checked，默认关闭）
@@ -31,7 +30,6 @@ final class Preferences: ObservableObject {
         groupMinCount = ud.integer(forKey: "group_min_count")
         groupMaxCount = ud.object(forKey: "group_max_count") as? Int ?? -1
         groupExcludeNames = ud.string(forKey: "group_exclude_names") ?? ""
-        previewScrollbarMode = ud.string(forKey: "preview_scrollbar_mode") ?? "vertical"
         groupSort = ud.string(forKey: "group_sort") ?? "count_desc"
         checkedSortToFront = ud.bool(forKey: "checked_sort_to_front")
         markedSortToFront = ud.object(forKey: "marked_sort_to_front") as? Bool ?? true

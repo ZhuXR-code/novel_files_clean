@@ -24,10 +24,6 @@ struct SettingsView: View {
                     Text("浅色").tag("light")
                     Text("深色").tag("dark")
                 }
-                Picker("预览滚动条", selection: $prefs.previewScrollbarMode) {
-                    Text("右侧纵向").tag("vertical")
-                    Text("横向").tag("horizontal")
-                }
             }
             Section("默认扫描参数") {
                 TextField("默认文件类型（逗号分隔）", text: $prefs.scanFileTypes)

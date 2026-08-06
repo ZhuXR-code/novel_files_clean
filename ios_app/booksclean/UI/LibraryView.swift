@@ -1215,17 +1215,17 @@ struct FilePreviewView: View {
             .padding(.horizontal, 12)
             .background(Color.fsSecondaryBg)
 
-            // 文本 + 自定义滑条（横/竖由设置 previewScrollbarMode 控制，对齐安卓）
+            // 文本 + 自定义滑条（统一纵向滚动条）
             ZStack(alignment: .topTrailing) {
                 ScrollableText(text: text, fontPt: fontPt,
-                               mode: prefs.previewScrollbarMode == "horizontal" ? .horizontal : .vertical,
+                               mode: .vertical,
                                allLines: nil,
                                state: scrollState)
                 // UIScrollView 作为 SwiftUI 子视图没有固有高度，必须显式撑满父级剩余空间，
                 // 否则 scroll.bounds.height=0，updateUIView 拿不到可视区域，文本永远无法渲染（屏幕全黑）。
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 MiniScrollBar(state: scrollState,
-                              axis: prefs.previewScrollbarMode == "horizontal" ? .horizontal : .vertical)
+                              axis: .vertical)
             }
         }
         .navigationTitle(file?.fileName ?? "预览")
