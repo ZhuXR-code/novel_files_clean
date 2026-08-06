@@ -298,7 +298,7 @@ struct DeleteProgressView: View {
         for (i, f) in files.enumerated() {
             if physical, let u = URL(string: f.path) {
                 do { try FileManager.default.removeItem(at: u); deleted += 1 }
-                catch { failed += 1; LogUtil.e("Delete", "删除失败 \(f.fileName): \(error)") }
+                catch { failed += 1; LogUtil.e("Delete", "删除失败 \(f.fileName): \(error)"); FileRepository.shared.logOperation(level: "W", tag: "删除", message: "删除文件失败：\(f.fileName)（\(error.localizedDescription)）") }
             }
             let done = i + 1
             if done - lastReported >= interval {
@@ -308,7 +308,7 @@ struct DeleteProgressView: View {
             }
         }
         FileRepository.shared.deleteFiles(ids: ids)
-        FileRepository.shared.logOperation(level: "I", tag: "Delete", message: "删除 \(deleted) 个文件（失败 \(failed)），physical=\(physical)")
+        FileRepository.shared.logOperation(level: "I", tag: "删除", message: "删除 \(deleted) 个文件（失败 \(failed)），physical=\(physical)")
         // 强制补报最终状态：小批量（< interval）时循环内可能一次都没触发，
         // 直接在完成态一次性写入 100% 与成败计数。
         await MainActor.run {

@@ -18,10 +18,12 @@ final class ScanService {
         let sm = ScanStateManager.shared
         guard let folderURL = resolveBookmark(config.folderUri) else {
             await MainActor.run { sm.status = "error"; sm.errorMsg = "无法解析文件夹权限，请重新选择"; sm.finished = true }
+            FileRepository.shared.logOperation(level: "W", tag: "扫描", message: "扫描失败：无法解析文件夹权限（配置「\(config.name)」）")
             return -1
         }
         guard folderURL.startAccessingSecurityScopedResource() else {
             await MainActor.run { sm.status = "error"; sm.errorMsg = "无文件夹访问权限"; sm.finished = true }
+            FileRepository.shared.logOperation(level: "W", tag: "扫描", message: "扫描失败：无文件夹访问权限（配置「\(config.name)」）")
             return -1
         }
         defer { folderURL.stopAccessingSecurityScopedResource() }
@@ -99,6 +101,8 @@ final class ScanService {
             sm.status = sm.shouldStop() ? "stopped" : "completed"
         }
         LogUtil.i("ScanService", "扫描完成: \(scanned) 文件 run=\(runId)")
+        let statusMsg = sm.shouldStop() ? "（已停止）" : ""
+        FileRepository.shared.logOperation(level: "I", tag: "扫描", message: "扫描完成：文库 \(runId) 共 \(scanned) 个文件\(statusMsg)")
         return runId
     }
 

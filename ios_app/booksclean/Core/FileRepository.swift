@@ -26,6 +26,7 @@ final class FileRepository {
     func deleteScanRun(runId: Int64) {
         db.deleteScanRun(runId)
         LogUtil.i("Repo", "删除文库 run=\(runId)")
+        logOperation(level: "W", tag: "其他", message: "删除文库 run=\(runId)")
     }
     func getScanRuns() -> [ScanRun] { db.getScanRuns() }
     func getScanRun(_ id: Int64) -> ScanRun? { db.getScanRun(id) }
@@ -69,9 +70,13 @@ final class FileRepository {
         let ids = db.findDuplicateIdsByFileNameBatched(runId: runId)
         db.updateMarked(ids: ids, marked: 1)
         LogUtil.i("Repo", "按文件名标记重复 \(ids.count) 条")
+        if !ids.isEmpty { logOperation(level: "I", tag: "标记", message: "按「文件名」相同批量标记重复，新增标记 \(ids.count) 个文件（文库 \(runId)）") }
         return ids.count
     }
-    func updateFileName(id: Int64, newName: String) { db.updateFileName(id: id, newName: newName) }
+    func updateFileName(id: Int64, newName: String) {
+        db.updateFileName(id: id, newName: newName)
+        logOperation(level: "I", tag: "其他", message: "修改文件名 id=\(id) -> 「\(newName)」")
+    }
     func deleteFiles(ids: [Int64]) {
         guard !ids.isEmpty else { return }
         db.deleteFiles(ids: ids)
@@ -230,8 +235,15 @@ final class FileRepository {
 
     func getDupRuleConfigs() -> [DupRuleConfig] { db.getDupRuleConfigs() }
     @discardableResult
-    func saveDupRuleConfig(_ c: DupRuleConfig) -> Int64 { db.saveDupRuleConfig(c) }
-    func deleteDupRuleConfig(_ id: Int64) { db.execute("DELETE FROM dup_rule_configs WHERE id=?", [id]) }
+    func saveDupRuleConfig(_ c: DupRuleConfig) -> Int64 {
+        let id = db.saveDupRuleConfig(c)
+        logOperation(level: "I", tag: "规则", message: "新增勾选重复规则「\(c.ruleName)」（\(c.ruleKey)）")
+        return id
+    }
+    func deleteDupRuleConfig(_ id: Int64) {
+        db.execute("DELETE FROM dup_rule_configs WHERE id=?", [id])
+        logOperation(level: "I", tag: "规则", message: "删除勾选重复规则 id=\(id)")
+    }
     func setDupRuleEnabled(key: String, enabled: Bool) {
         db.setDupRuleEnabled(key: key, enabled: enabled)
         LogUtil.i("Repo", "勾选重复规则 \(key) 设为 \(enabled)")
@@ -246,8 +258,15 @@ final class FileRepository {
     // MARK: - 扫描配置
     func getScanConfigs() -> [ScanConfig] { db.getScanConfigs() }
     func getScanConfig(_ id: Int64) -> ScanConfig? { db.getScanConfig(id) }
-    func saveScanConfig(_ c: ScanConfig) -> Int64 { db.saveScanConfig(c) }
-    func deleteScanConfig(_ id: Int64) { db.deleteScanConfig(id) }
+    func saveScanConfig(_ c: ScanConfig) -> Int64 {
+        let id = db.saveScanConfig(c)
+        logOperation(level: "I", tag: "扫描", message: "新增扫描配置「\(c.name)」（\(c.fileTypes)）")
+        return id
+    }
+    func deleteScanConfig(_ id: Int64) {
+        db.deleteScanConfig(id)
+        logOperation(level: "I", tag: "扫描", message: "删除扫描配置 id=\(id)")
+    }
 
     // MARK: - 导出 / 清空（对齐安卓）
     /// 导出已标记文件清单到应用 Documents 目录，返回文件路径；无标记项时返回 nil。
@@ -310,6 +329,7 @@ final class FileRepository {
         do {
             try text.write(to: url, atomically: true, encoding: .utf8)
             LogUtil.i("Repo", "导出文库 \(runId) \(files.count) 个 -> \(url.path)")
+            logOperation(level: "I", tag: "导出", message: "导出文库文件清单（文库 \(runId)，\(files.count) 个）")
             return url.path
         } catch {
             LogUtil.e("Repo", "导出文库失败：\(error.localizedDescription)")
@@ -384,6 +404,7 @@ final class FileRepository {
         do {
             try text.write(to: url, atomically: true, encoding: .utf8)
             LogUtil.i("Repo", "导出列表 \(files.count) 个 -> \(url.path)")
+            logOperation(level: "I", tag: "导出", message: "导出所选列表（文库 \(runId)，\(files.count) 个）")
             return url.path
         } catch {
             LogUtil.e("Repo", "导出列表失败：\(error.localizedDescription)")

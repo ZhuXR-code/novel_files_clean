@@ -640,8 +640,8 @@ struct KeywordReplaceView: View {
         guard !ids.isEmpty else { return }
         FileRepository.shared.setKeywordRulesEnabled(ids: ids, enabled: enabled)
         FileRepository.shared.logOperation(
-            level: "INFO", tag: "关键词替换",
-            message: "批量\(enabled ? "启用" : "不启用") \(ids.count) 条 scope=\(scope)")
+            level: "I", tag: "规则",
+            message: "批量\(enabled ? "启用" : "停用") \(ids.count) 条关键词替换规则 scope=\(scope)")
         reload()
     }
 
