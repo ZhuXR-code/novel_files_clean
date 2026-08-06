@@ -1,0 +1,51 @@
+Terms of Use — BookSclean (文包整理清理助手)
+
+Effective date: August 6, 2026
+
+These Terms of Use (the "Terms") govern the auto-renewable subscription ("Subscription") offered within the "BookSclean / 文包整理清理助手" app (the "App"), purchased through Apple's App Store in-app purchase. Please read these Terms carefully before purchasing.
+
+1. Subscription Product and Price
+   1.1 The App offers the following auto-renewable subscription:
+       - Product name: Annual Membership
+       - Billing period: 1 year (12 months)
+       - Price: USD 2.99 / year (final price shown in your local currency on the Apple App Store in your country or region)
+   1.2 The actual price may vary by country/region, local taxes, and Apple's pricing tiers. The price displayed at Apple's checkout is final.
+
+2. Auto-Renewal
+   2.1 The Subscription renews automatically. At least 24 hours before the current period ends, Apple will charge your linked payment method for the next period and extend the Subscription by one equal period.
+   2.2 If you do not cancel at least 24 hours before the period ends, you authorize Apple to charge automatically and the Subscription continues.
+
+3. Term and Activation
+   3.1 The Subscription begins when your purchase is completed and Apple confirms the payment.
+   3.2 During the Subscription period, all Subscription-related features of the App are available to you.
+
+4. Cancellation
+   4.1 You may cancel auto-renewal at any time. To cancel: open iOS "Settings" → tap your Apple ID avatar → "Subscriptions" → select "BookSclean" → tap "Cancel Subscription".
+   4.2 After cancellation, the current paid period remains active until it expires; it will not renew afterward and Subscription features will stop.
+   4.3 We do not provide a separate in-app cancellation entry. All subscription management is handled by Apple's iOS subscription mechanism.
+
+5. Refunds
+   5.1 Subscription fees are collected by Apple via the App Store. All refund requests are handled by Apple under its Media Services Terms and Conditions, not directly by us.
+   5.2 To request a refund, use iOS "Settings" → Apple ID → "Subscriptions" or visit reportaproblem.apple.com and file a request with Apple. Whether and how much is refunded is determined by Apple's policy.
+
+6. Free Trial (if offered)
+   6.1 If a free trial is offered, it applies only once to your first Subscription. The trial automatically converts to a paid Subscription at the end of the trial unless canceled at least 24 hours before it ends.
+   6.2 Users who have previously purchased another subscription in the same subscription group or used a free trial are generally not eligible again, subject to Apple's rules.
+
+7. Changes and Termination
+   7.1 We may adjust Subscription price or feature scope. Price changes take effect for you only after your agreement via Apple's subscription price-change flow, with notice given in advance.
+   7.2 If you violate these Terms or Apple's policies, we or Apple may terminate your Subscription without refund.
+
+8. Relationship with Privacy Policy
+   8.1 The App runs entirely locally and does not collect or upload any personal information. Subscription records are managed by Apple.
+   8.2 Personal information handling is described in our Privacy Policy, which together with these Terms governs your use of the App.
+
+9. Disclaimer
+The App is provided "as is". To the maximum extent permitted by law, we are not liable for any indirect or incidental damages arising from use or inability to use the App.
+
+10. Contact
+If you have any questions about these Terms, contact us via the in-app feedback channel.
+
+If you do not agree with any part of these Terms, do not purchase the Subscription.
+
+Developer contact: in-app feedback.
