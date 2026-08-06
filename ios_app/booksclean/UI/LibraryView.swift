@@ -1230,6 +1230,9 @@ struct FilePreviewView: View {
         }
         .navigationTitle(file?.fileName ?? "预览")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            FileRepository.shared.logOperation(level: "I", tag: "预览", message: "打开文件预览 id=\(fileId)")
+        }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {

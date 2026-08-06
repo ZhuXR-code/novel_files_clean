@@ -18,7 +18,9 @@ final class FileRepository {
 
     // MARK: - 文库
     func createScanRun(name: String, folderUri: String, folderName: String, fileTypes: String) -> Int64 {
-        db.saveScanRun(ScanRun(name: name, folderUri: folderUri, folderName: folderName, fileTypes: fileTypes, createdAt: Int64(Date().timeIntervalSince1970 * 1000)))
+        let runId = db.saveScanRun(ScanRun(name: name, folderUri: folderUri, folderName: folderName, fileTypes: fileTypes, createdAt: Int64(Date().timeIntervalSince1970 * 1000)))
+        logOperation(level: "I", tag: "扫描", message: "新建文库「\(folderName)」（fileTypes=\(fileTypes)）")
+        return runId
     }
     func setRunFileCount(runId: Int64, count: Int) { db.updateScanRunFileCount(runId, count: count) }
     func deleteScanRun(runId: Int64) {
@@ -34,12 +36,32 @@ final class FileRepository {
     func insertAll(_ files: [ScannedFile]) { db.insertScannedFiles(files) }
     func getById(_ id: Int64) -> ScannedFile? { db.getById(id) }
     func getByIds(_ ids: [Int64]) -> [ScannedFile] { db.getByIds(ids) }
-    func setChecked(id: Int64, checked: Bool) { db.setChecked(id: id, checked: checked ? 1 : 0) }
-    func updateChecked(ids: [Int64], checked: Bool) { db.updateChecked(ids: ids, checked: checked ? 1 : 0) }
-    func resetChecked(runId: Int64) { db.resetChecked(runId: runId) }
-    func setMarked(id: Int64, marked: Bool) { db.setMarked(id: id, marked: marked ? 1 : 0) }
-    func updateMarked(ids: [Int64], marked: Bool) { db.updateMarked(ids: ids, marked: marked ? 1 : 0) }
-    func resetMarked(runId: Int64) { db.resetMarked(runId: runId) }
+    func setChecked(id: Int64, checked: Bool) {
+        db.setChecked(id: id, checked: checked ? 1 : 0)
+        logOperation(level: "I", tag: "勾选", message: checked ? "勾选文件 id=\(id)" : "取消勾选文件 id=\(id)")
+    }
+    func updateChecked(ids: [Int64], checked: Bool) {
+        guard !ids.isEmpty else { return }
+        db.updateChecked(ids: ids, checked: checked ? 1 : 0)
+        logOperation(level: "I", tag: "勾选", message: "\(checked ? "勾选" : "取消勾选") \(ids.count) 个文件")
+    }
+    func resetChecked(runId: Int64) {
+        db.resetChecked(runId: runId)
+        logOperation(level: "I", tag: "勾选", message: "清空文库 \(runId) 的勾选状态")
+    }
+    func setMarked(id: Int64, marked: Bool) {
+        db.setMarked(id: id, marked: marked ? 1 : 0)
+        logOperation(level: "I", tag: "标记", message: marked ? "标记文件 id=\(id)" : "取消标记文件 id=\(id)")
+    }
+    func updateMarked(ids: [Int64], marked: Bool) {
+        guard !ids.isEmpty else { return }
+        db.updateMarked(ids: ids, marked: marked ? 1 : 0)
+        logOperation(level: "I", tag: "标记", message: "\(marked ? "标记" : "取消标记") \(ids.count) 个文件")
+    }
+    func resetMarked(runId: Int64) {
+        db.resetMarked(runId: runId)
+        logOperation(level: "I", tag: "标记", message: "清空文库 \(runId) 的标记状态")
+    }
 
     /// 一键标记同名重复文件（保留首个），返回标记条数。对齐安卓「标记重复文件名」。
     @discardableResult
@@ -50,7 +72,11 @@ final class FileRepository {
         return ids.count
     }
     func updateFileName(id: Int64, newName: String) { db.updateFileName(id: id, newName: newName) }
-    func deleteFiles(ids: [Int64]) { db.deleteFiles(ids: ids) }
+    func deleteFiles(ids: [Int64]) {
+        guard !ids.isEmpty else { return }
+        db.deleteFiles(ids: ids)
+        logOperation(level: "I", tag: "删除", message: "删除 \(ids.count) 个文件（数据库记录）")
+    }
 
     // MARK: - 关键词替换规则
     func getEnabledRules(scope: String) -> [KeywordReplaceRule] {
@@ -87,6 +113,7 @@ final class FileRepository {
         // 仅把本次命中的待删项标记为勾选，不清空其它已勾选项（对齐安卓 setCheckedForIds 的「合并勾选」语义：
         // 用户手动勾选的文件保留，重复规则命中的文件在此基础上增量叠加，避免一键清理清掉用户已有勾选）。
         if !result.isEmpty { db.updateChecked(ids: Array(result), checked: 1) }
+        if !result.isEmpty { logOperation(level: "I", tag: "勾选", message: "勾选重复：命中 \(result.count) 个待删除文件（文库 \(runId)）") }
         return result
     }
 
@@ -149,6 +176,7 @@ final class FileRepository {
     func markDuplicatesByName(runId: Int64) -> Int {
         let n = db.markDuplicatesByName(runId: runId)
         LogUtil.i("Repo", "按书名作者相同标记 run=\(runId) 新增标记=\(n)")
+        if n > 0 { logOperation(level: "I", tag: "标记", message: "按「书名+作者」相同标记重复，新增标记 \(n) 个文件（文库 \(runId)）") }
         return n
     }
 
@@ -161,6 +189,7 @@ final class FileRepository {
         let toMark = all.filter { !before.contains($0) }
         if !toMark.isEmpty { db.updateMarked(ids: toMark, marked: 1) }
         LogUtil.i("Repo", "按文件名相同标记 run=\(runId) 新标记=\(toMark.count)")
+        if !toMark.isEmpty { logOperation(level: "I", tag: "标记", message: "按「文件名」相同标记重复，新增标记 \(toMark.count) 个文件（文库 \(runId)）") }
         return toMark.count
     }
 
@@ -178,14 +207,26 @@ final class FileRepository {
     // MARK: - 关键词 / 勾选规则持久化
     func getKeywordReplaceRules(scope: String? = nil) -> [KeywordReplaceRule] { db.getKeywordReplaceRules(scope: scope) }
     @discardableResult
-    func saveKeywordReplaceRule(_ r: KeywordReplaceRule) -> Int64 { db.saveKeywordReplaceRule(r) }
-    func updateKeywordReplaceRule(_ r: KeywordReplaceRule) { db.updateKeywordReplaceRule(r) }
+    func saveKeywordReplaceRule(_ r: KeywordReplaceRule) -> Int64 {
+        let id = db.saveKeywordReplaceRule(r)
+        logOperation(level: "I", tag: "规则", message: "新增关键词替换规则「\(r.pattern)」->「\(r.replacement)」(\(r.enabled ? "启用" : "停用"))")
+        return id
+    }
+    func updateKeywordReplaceRule(_ r: KeywordReplaceRule) {
+        db.updateKeywordReplaceRule(r)
+        logOperation(level: "I", tag: "规则", message: "修改关键词替换规则「\(r.pattern)」->「\(r.replacement)」(\(r.enabled ? "启用" : "停用"))")
+    }
     /// 批量启用 / 不启用关键词替换规则，返回实际处理条数。
     @discardableResult
     func setKeywordRulesEnabled(ids: [Int64], enabled: Bool) -> Int {
-        db.setKeywordRulesEnabled(ids: ids, enabled: enabled)
+        let n = db.setKeywordRulesEnabled(ids: ids, enabled: enabled)
+        if n > 0 { logOperation(level: "I", tag: "规则", message: "批量\(enabled ? "启用" : "停用") \(n) 条关键词替换规则") }
+        return n
     }
-    func deleteKeywordReplaceRule(_ id: Int64) { db.deleteKeywordReplaceRule(id) }
+    func deleteKeywordReplaceRule(_ id: Int64) {
+        db.deleteKeywordReplaceRule(id)
+        logOperation(level: "I", tag: "规则", message: "删除关键词替换规则 id=\(id)")
+    }
 
     func getDupRuleConfigs() -> [DupRuleConfig] { db.getDupRuleConfigs() }
     @discardableResult
@@ -194,6 +235,7 @@ final class FileRepository {
     func setDupRuleEnabled(key: String, enabled: Bool) {
         db.setDupRuleEnabled(key: key, enabled: enabled)
         LogUtil.i("Repo", "勾选重复规则 \(key) 设为 \(enabled)")
+        logOperation(level: "I", tag: "规则", message: "勾选重复规则 \(key) 设为 \(enabled ? "启用" : "停用")")
     }
 
     // MARK: - 日志
@@ -228,6 +270,7 @@ final class FileRepository {
         do {
             try text.write(to: url, atomically: true, encoding: .utf8)
             LogUtil.i("Repo", "导出已标记 \(marked.count) 个 -> \(url.path)")
+            logOperation(level: "I", tag: "导出", message: "导出已标记文件清单 \(marked.count) 个")
             return url.path
         } catch {
             LogUtil.e("Repo", "导出已标记失败：\(error.localizedDescription)")
@@ -239,6 +282,7 @@ final class FileRepository {
     func clearAllData() {
         db.deleteAllData()
         LogUtil.i("Repo", "已清空全部本地数据")
+        logOperation(level: "W", tag: "其他", message: "已清空全部本地数据")
     }
 
     /// 导出指定文库的文件清单到应用 Documents 目录，返回文件路径；
