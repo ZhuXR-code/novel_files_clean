@@ -1,5 +1,5 @@
 import { router, promptAction } from '@kit.ArkUI';
-import { ConfigurationConstant } from '@kit.AbilityKit';
+import { ConfigurationConstant, bundleManager } from '@kit.AbilityKit';
 import { PreferencesUtil } from '../utils/PreferencesUtil';
 import { AppContext } from '../utils/AppContext';
 import { LogUtil } from '../utils/LogUtil';
@@ -41,12 +41,25 @@ export struct MinePage {
   @State themeMode: ThemeMode = 'system';
   @State fontScale: FontScale = 'standard';
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
+  @State appVersion: string = '';
 
   aboutToAppear(): void {
     const themeSaved: string = PreferencesUtil.getString(THEME_MODE_KEY, 'system');
     this.themeMode = (themeSaved === 'light' || themeSaved === 'dark') ? themeSaved as ThemeMode : 'system';
     const fontSaved: string = PreferencesUtil.getString(FONT_SCALE_KEY, 'standard');
     this.fontScale = (fontSaved === 'small' || fontSaved === 'large') ? fontSaved as FontScale : 'standard';
+    this.loadAppVersion();
+  }
+
+  private loadAppVersion(): void {
+    try {
+      const bundleInfo: bundleManager.BundleInfo =
+        bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+      this.appVersion = bundleInfo.versionName ?? '';
+    } catch (e) {
+      LogUtil.e('MinePage', `读取版本号失败: ${e}`);
+      this.appVersion = '';
+    }
   }
 
   private go(url: string): void {
@@ -177,7 +190,7 @@ export struct MinePage {
             this.item('帮助', 'pages/Help')
             this.item('隐私协议', 'pages/PrivacyPolicy')
             this.infoItem('应用名称', '文包整理清理助手')
-            this.infoItem('版本', '1.0.0')
+            this.infoItem('版本', this.appVersion)
             this.infoItem('运行形态', '纯本地（不联网）')
           }
           .width('100%')
