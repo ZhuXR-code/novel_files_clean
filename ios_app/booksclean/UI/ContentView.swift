@@ -27,6 +27,7 @@ struct ContentView: View {
                     case .filePreview(let id, let mode): MaxWidthContainer { FilePreviewView(fileId: id, mode: mode) }
                     case .deleteConfirm(let runId, let ids, let physical): DeleteConfirmView(runId: runId, ids: ids, physical: physical)
                     case .deleteProgress(let runId, let ids, let physical): DeleteProgressView(runId: runId, ids: ids, physical: physical)
+                    case .paywall: PaywallView()
                     }
                 }
         }

@@ -6,6 +6,7 @@ struct SettingsView: View {
     @State private var showExportResult = false
     @State private var exportPath: String = ""
     @State private var showClearConfirm = false
+    @State private var restoreMessage: String?
 
     var body: some View {
         List {
@@ -18,6 +19,45 @@ struct SettingsView: View {
             Section("日志") {
                 row("操作日志") { router.navigate(.logViewer) }
             }
+            Section("会员") {
+                HStack {
+                    Text("解锁状态")
+                    Spacer()
+                    if prefs.unlocked {
+                        Label("已永久解锁", systemImage: "checkmark.seal.fill")
+                            .fsFont(.subheadline).foregroundColor(.fsPrimary)
+                    } else {
+                        Text("未解锁").fsFont(.subheadline).foregroundColor(.fsSecondaryLabel)
+                    }
+                }
+                if !prefs.unlocked {
+                    Button {
+                        router.navigate(.paywall)
+                    } label: { Label("购买 / 解锁", systemImage: "cart.fill") }
+
+                    Button {
+                        Task {
+                            let ok = await IAPManager.restore()
+                            if !ok {
+                                restoreMessage = "未找到已有购买记录，请确认使用同一 Apple ID。"
+                            }
+                        }
+                    } label: { Label("恢复购买", systemImage: "arrow.clockwise") }
+                } else {
+                    Button {
+                        Task {
+                            _ = await IAPManager.restore()
+                        }
+                    } label: { Label("恢复购买", systemImage: "arrow.clockwise") }
+                }
+            }
+            .alert("恢复购买", isPresented: Binding(get: { restoreMessage != nil },
+                                                  set: { if !$0 { restoreMessage = nil } })) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text(restoreMessage ?? "")
+            }
+
             Section("显示偏好") {
                 Picker("主题", selection: $prefs.themeMode) {
                     Text("跟随系统").tag("system")

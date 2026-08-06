@@ -492,7 +492,11 @@ private fun RunFilesScreen(
                                     contentDescription = stringResource(R.string.toggle_toolbar)
                                 )
                             }
-                            IconButton(modifier = Modifier.size(34.dp), onClick = { sortMenu = true }) {
+                            // 合集模式下点击排序图标直接打开「合集排序」（含按大小），
+                            // 避免用户误以为顶部排序菜单(仅对列表模式生效)在合集里无效而找不到入口。
+                            IconButton(modifier = Modifier.size(34.dp), onClick = {
+                                if (groupMode) showGroupSort = true else sortMenu = true
+                            }) {
                                 Icon(Icons.Filled.Sort, contentDescription = stringResource(R.string.sort_time))
                             }
                             // 方案 B：合集模式下，"勾选重复"作为常驻主按钮（不再藏在 ⋮ 菜单里）

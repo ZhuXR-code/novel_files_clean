@@ -78,17 +78,20 @@ class DeleteService : Service() {
                     for (f in entities) {
                         if (!isActive) break
                         if (deleteSource) {
-                            // 删除记录 + 源文件：物理删除成功才删记录
-                            val ok = FileUtil.deleteViaUri(app, Uri.parse(f.path))
-                            if (ok) {
-                                successIds.add(f.id)
-                                affectedRuns.add(f.scanRunId)
-                                success++
+                            // 删除记录 + 源文件：尽力物理删除，但「是否移出列表」以用户意图为准，
+                            // 不依赖物理删除的返回值——否则在 SAF 自定义卷/文件已被外部删除等场景下，
+                            // 物理删除会误报失败，导致数据库记录残留、列表仍显示已不存在的文件。
+                            val physicallyDeleted = FileUtil.deleteViaUri(app, Uri.parse(f.path))
+                            if (physicallyDeleted) {
                                 DeleteStateManager.log("✓ ${f.fileName}（${FormatUtil.formatSize(f.fileSize)}）", true)
                             } else {
-                                failed++
-                                DeleteStateManager.log("✗ ${f.fileName} —— 删除失败（可能已被移动或权限不足）", false)
+                                // 物理删除未完成（如权限不足/文件已不可达），但按用户「删除记录和源文件」的意图，
+                                // 仍移除数据库记录，保证列表不再残留；仅日志提示，不计入失败保留。
+                                DeleteStateManager.log("⚠ ${f.fileName} —— 物理删除未完成，已移除记录（源文件可能需手动清理）", false)
                             }
+                            successIds.add(f.id)
+                            affectedRuns.add(f.scanRunId)
+                            success++
                         } else {
                             // 仅删除记录：不碰源文件，直接删库
                             successIds.add(f.id)

@@ -19,6 +19,8 @@ final class Preferences: ObservableObject {
     @Published var markedSortToFront: Bool { didSet { ud.set(markedSortToFront, forKey: "marked_sort_to_front") } }
     @Published var kwSeedDone: Bool { didSet { ud.set(kwSeedDone, forKey: "kw_seed_done") } }
     @Published var privacyAgreed: Bool { didSet { ud.set(privacyAgreed, forKey: "privacy_agreed") } }
+    /// 买断制：是否已永久解锁全部功能。
+    @Published var unlocked: Bool { didSet { ud.set(unlocked, forKey: "bk_unlocked") } }
 
     private let ud = UserDefaults.standard
 
@@ -35,6 +37,7 @@ final class Preferences: ObservableObject {
         markedSortToFront = ud.object(forKey: "marked_sort_to_front") as? Bool ?? true
         kwSeedDone = ud.bool(forKey: "kw_seed_done")
         privacyAgreed = ud.bool(forKey: "privacy_agreed")
+        unlocked = ud.bool(forKey: "bk_unlocked")
     }
 
     func setGroupFilter(minCount: Int, maxCount: Int, excludeNames: String) {

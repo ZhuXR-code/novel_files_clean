@@ -347,12 +347,41 @@ object FileUtil {
         }
     }
 
+    /**
+     * 通过 SAF 删除指定 content URI 对应的文件。
+     *
+     * 返回值语义对删除流程至关重要：
+     * - 返回 true = "该文件已不在列表应关注的范围内"，调用方据此移除数据库记录。
+     * - 因此对「文件已不存在」的情况也返回 true（物理上已删，自然满足「已移除」）。
+     *
+     * 实现顺序：
+     * 1) 优先用 DocumentsContract.deleteDocument 直接删除（比 DocumentFile.fromSingleUri
+     *    更可靠，尤其在 MuMuShared 等自定义卷上不会误报失败）。
+     * 2) 兜底用 DocumentFile.fromSingleUri(...).delete()。
+     * 3) 若以上都未明确成功，则检查文件是否仍存在；已不存在则视为「已删除」返回 true，
+     *    避免「文件早被删了，但列表仍残留显示」的问题。
+     */
     fun deleteViaUri(context: Context, uri: Uri): Boolean {
         return try {
-            DocumentFile.fromSingleUri(context, uri)?.delete() ?: false
+            val resolver = context.contentResolver
+            // 1) 直接走 DocumentsContract.deleteDocument（最可靠路径）
+            val deleted = DocumentsContract.deleteDocument(resolver, uri)
+            if (deleted) return true
+            // 2) 兜底：DocumentFile 方式
+            val ok = DocumentFile.fromSingleUri(context, uri)?.delete() ?: false
+            if (ok) return true
+            // 3) 删除未明确成功，检查文件是否还存在：不存在即视为「已删除」
+            val stillExists = DocumentFile.fromSingleUri(context, uri)?.exists() ?: false
+            !stillExists
         } catch (e: Exception) {
             LogUtil.e("FileUtil", "deleteViaUri failed: ${e.message}")
-            false
+            // 异常时退一步：文件若已不存在，则当作已删除（保证列表一致性）
+            try {
+                val stillExists = DocumentFile.fromSingleUri(context, uri)?.exists() ?: false
+                !stillExists
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 }
