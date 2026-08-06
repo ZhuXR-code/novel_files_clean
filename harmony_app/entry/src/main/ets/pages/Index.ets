@@ -242,6 +242,7 @@ export struct HomePage {
         }
         .align(Alignment.Top)
         .layoutWeight(1)
+        .edgeEffect(EdgeEffect.Spring)
       }
       .layoutWeight(1)
       .onRefreshing(() => {
@@ -253,6 +254,7 @@ export struct HomePage {
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.bg_page'))
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 
   // G组 #28 更多功能入口按钮

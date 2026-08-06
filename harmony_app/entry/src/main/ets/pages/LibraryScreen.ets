@@ -801,6 +801,7 @@ struct LibraryScreen {
         .layoutWeight(1)
         .width('100%')
         .scrollBar(BarState.Auto)
+        .edgeEffect(EdgeEffect.Spring)
 
         Row({ space: 12 }) {
           Button('取消')
@@ -1317,6 +1318,7 @@ struct LibraryScreen {
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.bg_page'))
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     // 回到顶部 FAB
     .overlay(() => {
       this.fabButton()

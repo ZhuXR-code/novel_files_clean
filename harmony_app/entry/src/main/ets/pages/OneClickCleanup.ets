@@ -474,6 +474,7 @@ struct OneClickCleanup {
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.bg_page'))
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 
   // 流水线节点进度卡片（对齐 PC 端 pipeline 的 5 节点展示）

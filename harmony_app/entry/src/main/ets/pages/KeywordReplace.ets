@@ -583,6 +583,7 @@ struct KeywordReplace {
       .width('100%')
       .height('100%')
       .backgroundColor($r('app.color.bg_page'))
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
     .width('100%')
     .height('100%')

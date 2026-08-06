@@ -206,6 +206,7 @@ struct DeleteProgress {
         }
         .layoutWeight(1)
         .width('100%')
+        .edgeEffect(EdgeEffect.Spring)
       } else {
         Blank().layoutWeight(1)
       }
@@ -243,5 +244,6 @@ struct DeleteProgress {
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.bg_page'))
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 }
