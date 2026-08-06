@@ -1425,13 +1425,20 @@ struct ScrollableText: UIViewRepresentable {
     }
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
+        // 视图已卸载（返回上个页面 / 切换文件）：context 可能已失效，立即退出，避免访问
+        // 已离屏或重用的 scrollView/UITextView 造成 EXC_BAD_ACCESS。
+        // 典型场景：第一个文件 bounds=0 时排了 DispatchQueue.main.async 重入闭包，用户在
+        // 下一帧前返回并打开第二个文件，旧闭包 fire 时访问已释放的 context/scroll 导致闪退。
+        guard !context.coordinator.cancelled else { return }
         guard let tv = context.coordinator.textView else { return }
         // SwiftUI 首次 layout 时 scroll.bounds 可能仍为 0，延迟到下一帧再渲染，避免首帧 tv 宽度为 0 文本不可见。
         if scroll.bounds.width <= 0 || scroll.bounds.height <= 0 {
             // 文本待渲染但 scroll 尚未 layout：调度到下一个 runloop，等 SwiftUI 完成 layout 后重试。
+            // 用 [weak self/context 失效检测] 防止视图卸载后闭包仍修改已离屏的 scrollView。
             if context.coordinator.lastText != text {
                 DispatchQueue.main.async { [weak scroll] in
                     guard let scroll = scroll else { return }
+                    guard !context.coordinator.cancelled else { return }
                     self.updateUIView(scroll, context: context)
                 }
             }
@@ -1467,7 +1474,19 @@ struct ScrollableText: UIViewRepresentable {
         context.coordinator.publish(scroll)
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator {
+        let c = Coordinator()
+        return c
+    }
+
+    /// 视图从层级移除时 SwiftUI 调用：标记 coordinator 已取消，
+    /// 使早先排队的 DispatchQueue.main.async 重入闭包（来自 bounds=0 的首帧）安全退出，
+    /// 不再访问即将释放的 scrollView/UITextView，修复「预览第一个文件返回后开第二个文件闪退」。
+    static func dismantleUIView(_ scroll: UIScrollView, coordinator: Coordinator) {
+        coordinator.cancelled = true
+        coordinator.textView = nil
+        coordinator.scroll = nil
+    }
 
     class Coordinator: NSObject, UIScrollViewDelegate {
         weak var state: PreviewScrollState?
@@ -1475,6 +1494,10 @@ struct ScrollableText: UIViewRepresentable {
         weak var textView: UITextView?
         var lastText: String?
         var lastFontPt: CGFloat = 0
+        /// 视图已卸载标记：FilePreviewView 的 .onDisappear 会置 true，
+        /// 此后所有异步重入的 updateUIView 闭包立即退出，不再访问已离屏的 scrollView，
+        /// 避免「第一个文件预览返回后又开第二个文件」时旧闭包导致的 EXC_BAD_ACCESS 闪退。
+        var cancelled = false
 
         func publish(_ scroll: UIScrollView) {
             state?.contentSize = scroll.contentSize
