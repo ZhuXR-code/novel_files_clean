@@ -61,17 +61,21 @@ enum IAPManager {
                 if case .verified(let tx) = verification {
                     await tx.finish()
                     Preferences.shared.unlocked = true
+                    FileRepository.shared.logOperation(level: "I", tag: "其他", message: "购买成功，已解锁（product=\(product.id)）")
                     return true
                 }
                 return false
             case .userCancelled:
+                FileRepository.shared.logOperation(level: "I", tag: "其他", message: "取消购买（product=\(product.id)）")
                 return false
             case .pending:
+                FileRepository.shared.logOperation(level: "I", tag: "其他", message: "购买待处理（product=\(product.id)）")
                 return false
             @unknown default:
                 return false
             }
         } catch {
+            FileRepository.shared.logOperation(level: "W", tag: "其他", message: "购买失败：\(error.localizedDescription)（product=\(product.id)）")
             return false
         }
     }
@@ -83,7 +87,14 @@ enum IAPManager {
             try await AppStore.sync()
         } catch {
             // 同步失败也尝试刷新本地已购状态
+            FileRepository.shared.logOperation(level: "W", tag: "其他", message: "恢复购买同步异常：\(error.localizedDescription)")
         }
-        return await refreshUnlockedState()
+        let ok = await refreshUnlockedState()
+        if ok {
+            FileRepository.shared.logOperation(level: "I", tag: "其他", message: "恢复购买成功，已解锁")
+        } else {
+            FileRepository.shared.logOperation(level: "I", tag: "其他", message: "恢复购买完成，但未找到已购记录")
+        }
+        return ok
     }
 }
