@@ -37,7 +37,7 @@ struct MergeNameDialog {
         .fontColor($r('app.color.text_secondary'))
       AppTextInput({
         placeholder: '请输入合并后的文库名称',
-        text: '',
+        text: this.mergeInput,
         onChangeCallback: (v: string) => {
           this.mergeInput = v;
         }
