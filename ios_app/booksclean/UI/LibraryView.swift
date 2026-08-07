@@ -1263,7 +1263,7 @@ struct FilePreviewView: View {
         .navigationTitle(file?.fileName ?? "预览")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            FileRepository.shared.logOperation(level: "I", tag: "预览", message: "进入预览页 id=\(fileId) mode=\(modeState == .all ? "all" : (modeState == .head ? "head" : "tail"))")
+            FileRepository.shared.logOperation(level: "I", tag: "预览", message: "进入预览页 id=\(fileId) mode=\(modeState)")
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -1285,7 +1285,7 @@ struct FilePreviewView: View {
             return
         }
         file = f
-        FileRepository.shared.logOperation(level: "I", tag: "预览", message: "取到文件 \(f.fileName) encoding=\(f.encoding) size=\(f.size)")
+        FileRepository.shared.logOperation(level: "I", tag: "预览", message: "取到文件 \(f.fileName) encoding=\(f.encoding) size=\(f.fileSize)")
         text = "加载中…"
         totalLines = 0
         let m = modeState
