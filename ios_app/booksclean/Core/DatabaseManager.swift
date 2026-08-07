@@ -835,7 +835,7 @@ final class DatabaseManager {
     @discardableResult
     func mergeRuns(_ sourceIds: [Int64], newName: String) -> Int64 {
         guard sourceIds.count >= 2 else { return -1 }
-        let placeholders = sourceIds.map { "?" }.joined(separator: ",")
+        let placeholders = sourceIds.map { _ in "?" }.joined(separator: ",")
         let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalName = name.isEmpty ? "合并文库" : name
         execute("BEGIN TRANSACTION", [])

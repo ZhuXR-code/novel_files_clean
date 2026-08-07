@@ -15,7 +15,7 @@ enum IAPManager {
                 if case .verified(let tx) = verification {
                     // 买断制：只要存在已验证交易即视为永久解锁
                     await tx.finish()
-                    await refreshUnlockedState()
+                    let _ = await refreshUnlockedState()
                 }
             }
         }
@@ -25,19 +25,15 @@ enum IAPManager {
     /// 返回 true 表示已解锁。
     @MainActor
     static func refreshUnlockedState() async -> Bool {
-        do {
-            for await verification in Transaction.currentEntitlements {
-                if case .verified(let tx) = verification {
-                    if tx.productID == productID, tx.revocationDate == nil {
-                        Preferences.shared.unlocked = true
-                        return true
-                    }
+        for await verification in Transaction.currentEntitlements {
+            if case .verified(let tx) = verification {
+                if tx.productID == productID, tx.revocationDate == nil {
+                    Preferences.shared.unlocked = true
+                    return true
                 }
             }
-        } catch {
-            // 查询失败（如离线）时保留本地已存状态，不强制锁回。
         }
-        // 本地已解锁则保持（首次离线也能用）。
+        // 查询无结果（含离线/未购买）时保留本地已存状态，不强制锁回（首次离线也能用）。
         return Preferences.shared.unlocked
     }
 

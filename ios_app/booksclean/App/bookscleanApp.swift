@@ -32,7 +32,7 @@ struct bookscleanApp: App {
                         }
                 }
             } else {
-                LogUtil.i("App", "首次启动，显示隐私协议")
+                let _ = LogUtil.i("App", "首次启动，显示隐私协议")
                 PrivacyPolicyView(
                     showActions: true,
                     onAgree: { preferences.privacyAgreed = true },

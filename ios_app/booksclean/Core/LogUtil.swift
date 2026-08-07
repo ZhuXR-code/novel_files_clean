@@ -10,6 +10,8 @@ final class LogUtil {
     static func i(_ tag: String, _ message: String) { shared.append("I", tag, message) }
     static func e(_ tag: String, _ message: String) { shared.append("E", tag, message) }
     static func d(_ tag: String, _ message: String) { shared.append("D", tag, message) }
+    /// 警告级日志（ScanService 等模块使用）。
+    static func w(_ tag: String, _ message: String) { shared.append("W", tag, message) }
 
     private func append(_ level: String, _ tag: String, _ message: String) {
         lock.lock()

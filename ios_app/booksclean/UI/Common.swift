@@ -39,6 +39,54 @@ struct MaxWidthContainer<Content: View>: View {
 }
 
 
+
+// MARK: - 轻量 Toast 提示
+
+/// 全局顶部飘字提示（不依赖 SwiftUI 环境，可在任意调用点使用）。
+/// 基于一个临时 UIWindow + UILabel，2 秒后自动淡出并释放。
+enum ToastUtil {
+    static func show(message: String) {
+        guard let windowScene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }) else {
+            return
+        }
+        let window = UIWindow(windowScene: windowScene)
+        window.backgroundColor = .clear
+        window.isUserInteractionEnabled = false
+
+        let label = UILabel()
+        label.text = message
+        label.textColor = .white
+        label.font = UIFont.systemFont(ofSize: 15, weight: .medium)
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        label.backgroundColor = UIColor(white: 0, alpha: 0.8)
+        label.layer.cornerRadius = 10
+        label.clipsToBounds = true
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        window.addSubview(label)
+        window.isHidden = false
+
+        let margin: CGFloat = 24
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: window.topAnchor, constant: 80),
+            label.leadingAnchor.constraint(equalTo: window.leadingAnchor, constant: margin),
+            label.trailingAnchor.constraint(equalTo: window.trailingAnchor, constant: -margin)
+        ])
+        label.layoutIfNeeded()
+
+        label.alpha = 0
+        UIView.animate(withDuration: 0.25) { label.alpha = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            UIView.animate(withDuration: 0.3, animations: { label.alpha = 0 }) { _ in
+                window.isHidden = true
+            }
+        }
+    }
+}
+
+
 /// 文件夹选择器（iOS 文档选择器，用于挑选待扫描目录，等价于 Android 端 SAF 选目录）。
 struct FolderPicker: UIViewControllerRepresentable {
     let onPick: (URL) -> Void
