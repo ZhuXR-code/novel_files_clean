@@ -283,7 +283,7 @@ export class ScanService {
   public static async runScan(
     config: ScanConfig,
     onProgress: (p: ScanProgress) => void
-  ): Promise<{ runId: number; total: number; processed: number; stopped: boolean }> {
+  ): Promise<{ runId: number; total: number; processed: number; excluded: number; stopped: boolean }> {
     ScanService.stopped = false;
     const run: ScanRun = new ScanRun();
     run.name = config.name;
@@ -496,7 +496,7 @@ export class ScanService {
     runId: number,
     scanRules: KeywordReplaceRule[],
     parseRules: KeywordReplaceRule[]
-  ): Promise<{ runId: number; total: number; processed: number; stopped: boolean }> {
+  ): Promise<{ runId: number; total: number; processed: number; excluded: number; stopped: boolean }> {
     const fileUris: string[] = [...ScanService.selectedFileUris];
     ScanService.clearFileFallback(); // 立即清空（内存+持久化），避免重复扫描或旧数据残留
 
@@ -587,7 +587,7 @@ export class ScanService {
     await ScanRunDao.updateFileCount(runId, found);
     const status: string = ScanService.stopped ? '已停止' : '完成';
     LogUtil.operation('扫描', `文库=${config.name} 目录=${config.folderName} 命中=${found} 状态=${status} 文库ID=${runId} [FILE多选回退]`);
-    return { runId: runId, total: found, processed: processed, stopped: ScanService.stopped };
+    return { runId: runId, total: found, processed: processed, excluded: 0, stopped: ScanService.stopped };
   }
 
   private static isExcluded(name: string, excluded: string): boolean {

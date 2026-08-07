@@ -348,28 +348,41 @@ final class FileRepository {
     /// 无文件时返回 nil。对齐安卓文库「导出列表」功能。
     /// 清单中的路径以人类可读形式展示（仅展示用，不改变底层存储）。
     func exportLibrary(runId: Int64) -> String? {
-        let files = db.getScannedFilesPaged(runId: runId, offset: 0, limit: Int.max,
-                                            sortBy: "created_at", ascending: true,
-                                            titleFilter: nil, authorFilter: nil,
-                                            progressFilter: nil, sourceFilter: nil, search: nil)
-        guard !files.isEmpty else { return nil }
+        // 分批游标读取，避免 limit: Int.max 一次性把全量（可能 20w 行）载入内存导致 OOM。
+        let batch = 2000
+        var offset = 0
+        var total = 0
+        var bodyLines: [String] = []   // 仅文件明细行，标题最后统一拼接
+        while true {
+            let files = db.getScannedFilesPaged(runId: runId, offset: offset, limit: batch,
+                                                sortBy: "created_at", ascending: true,
+                                                titleFilter: nil, authorFilter: nil,
+                                                progressFilter: nil, sourceFilter: nil, search: nil)
+            if files.isEmpty { break }
+            for f in files {
+                var block = "\(f.fileName)\n"
+                if !f.title.isEmpty { block += "  书名：\(f.title)\n" }
+                if !f.author.isEmpty { block += "  作者：\(f.author)\n" }
+                if !f.path.isEmpty { block += "  路径：\(FormatUtil.toHumanReadablePath(f.path))\n" }
+                block += "\n"
+                bodyLines.append(block)
+                total += 1
+            }
+            if files.count < batch { break }
+            offset += files.count
+        }
+        guard total > 0 else { return nil }
+        var text = "文库文件清单（共 \(total) 个）\n"
+        text += "生成时间：\(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .medium))\n"
+        text += String(repeating: "=", count: 40) + "\n"
+        text += bodyLines.joined()
         let df = DateFormatter(); df.dateFormat = "yyyyMMdd_HHmmss"
         let name = "library_files_\(runId)_\(df.string(from: Date())).txt"
         let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(name)
-        var text = "文库文件清单（共 \(files.count) 个）\n"
-        text += "生成时间：\(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .medium))\n"
-        text += String(repeating: "=", count: 40) + "\n"
-        for f in files {
-            text += "\(f.fileName)\n"
-            if !f.title.isEmpty { text += "  书名：\(f.title)\n" }
-            if !f.author.isEmpty { text += "  作者：\(f.author)\n" }
-            if !f.path.isEmpty { text += "  路径：\(FormatUtil.toHumanReadablePath(f.path))\n" }
-            text += "\n"
-        }
         do {
             try text.write(to: url, atomically: true, encoding: .utf8)
-            LogUtil.i("Repo", "导出文库 \(runId) \(files.count) 个 -> \(url.path)")
-            logOperation(level: "I", tag: "导出", message: "导出文库文件清单（文库 \(runId)，\(files.count) 个）")
+            LogUtil.i("Repo", "导出文库 \(runId) \(total) 个 -> \(url.path)")
+            logOperation(level: "I", tag: "导出", message: "导出文库文件清单（文库 \(runId)，\(total) 个）")
             return url.path
         } catch {
             LogUtil.e("Repo", "导出文库失败：\(error.localizedDescription)")
@@ -394,10 +407,21 @@ final class FileRepository {
                            currentPage: [ScannedFile]? = nil) -> String? {
         let files: [ScannedFile]
         if all {
-            files = db.getScannedFilesPaged(runId: runId, offset: 0, limit: Int.max,
-                                            sortBy: "created_at", ascending: true,
-                                            titleFilter: nil, authorFilter: nil,
-                                            progressFilter: nil, sourceFilter: nil, search: nil)
+            // 分批游标读取，避免 limit: Int.max 一次性把全量（可能 20w 行）载入内存导致 OOM。
+            var acc: [ScannedFile] = []
+            let batch = 2000
+            var off = 0
+            while true {
+                let part = db.getScannedFilesPaged(runId: runId, offset: off, limit: batch,
+                                                   sortBy: "created_at", ascending: true,
+                                                   titleFilter: nil, authorFilter: nil,
+                                                   progressFilter: nil, sourceFilter: nil, search: nil)
+                if part.isEmpty { break }
+                acc.append(contentsOf: part)
+                if part.count < batch { break }
+                off += part.count
+            }
+            files = acc
         } else if let currentPage = currentPage, !currentPage.isEmpty {
             files = currentPage
         } else {

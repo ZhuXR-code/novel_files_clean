@@ -65,6 +65,13 @@ struct FilePreview {
     await this.loadContent();
   }
 
+  aboutToDisappear(): void {
+    if (this.scrollbarTimer !== null) {
+      clearTimeout(this.scrollbarTimer);
+      this.scrollbarTimer = null;
+    }
+  }
+
   onPageShow(): void {
     // 重新读取字号设置（滚动条方向已通过 @StorageProp 自动响应，无需手动读取）
     const fontScale: string = PreferencesUtil.getString(FONT_SCALE_KEY, 'standard');

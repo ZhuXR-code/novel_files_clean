@@ -110,7 +110,7 @@ struct ScanProgress {
       // 小量文件时可能从未触发回调）
       this.found = res.total;
       this.processed = res.processed ?? this.processed;
-      this.excludedCount = (res as any).excluded ?? this.excludedCount;
+      this.excludedCount = res.excluded ?? this.excludedCount;
       this.done = true;
       // 推送全局刷新信号，让首页/文库列表在扫描完成后立即显示新文库
       AppStorage.setOrCreate('libraryRefreshTick', Date.now());
@@ -125,6 +125,16 @@ struct ScanProgress {
       }
     }
     this.scanning = false;
+  }
+
+  private buildSummaryText(): string {
+    const excl: number = this.excludedCount;
+    if (this.stopped) {
+      return `已处理 ${this.processed} 个文件，保留命中 ${this.found} 个`;
+    }
+    return (excl > 0)
+      ? `共解析 ${this.found} 个文件（已排除 ${excl} 个）`
+      : `共解析 ${this.found} 个文件`;
   }
 
   private openResult(): void {
@@ -190,13 +200,7 @@ struct ScanProgress {
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.stopped ? $r('app.color.text_secondary') : $r('app.color.success'))
-          Text(() => {
-            const excl = this.excludedCount;
-            if (this.stopped) return `已处理 ${this.processed} 个文件，保留命中 ${this.found} 个`;
-            return (excl > 0)
-              ? `共解析 ${this.found} 个文件（已排除 ${excl} 个）`
-              : `共解析 ${this.found} 个文件`;
-          })
+          Text(this.buildSummaryText())
             .fontSize(14)
             .fontColor($r('app.color.text_secondary'))
           Row({ space: 12 }) {
