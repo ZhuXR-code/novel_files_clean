@@ -148,4 +148,58 @@ export class ScanRunDao {
     rs.close();
     return list;
   }
+
+  /**
+   * 合并多个文库为一个新文库。
+   * 流程：① 新建文库（记录合并来源）② 用 INSERT...SELECT 把源文库文件复制进新文库（保留
+   * marked/checked/content_hash 等全部状态，相同 path 通过唯一约束去重）③ 统计新文库文件数
+   * ④ 删除源文库及其文件。对齐安卓 ScanRunDao.mergeRuns。
+   * 要求 sourceIds.length >= 2，否则返回 -1。
+   */
+  public static async mergeRuns(sourceIds: number[], newName: string): Promise<number> {
+    if (sourceIds.length < 2) {
+      return -1;
+    }
+    const store = ScanRunDao.store;
+    const placeholders: string = sourceIds.map(() => '?').join(',');
+    try {
+      await store.executeSql('BEGIN TRANSACTION', []);
+      // ① 新建文库
+      const name: string = newName && newName.trim().length > 0 ? newName.trim() : '合并文库';
+      const newId: number = await store.insert('scan_run', {
+        name: name,
+        created_at: Date.now(),
+        status: 'done',
+        file_count: 0
+      } as relationalStore.ValuesBucket);
+      // ② 复制文件（保留全部列；path 唯一冲突的行忽略）
+      await store.executeSql(
+        `INSERT INTO scanned_file (scan_run_id, path, file_name, file_size, title, author, progress, source, encoding, title_pinyin, author_pinyin, content_hash, ext, marked, checked, created_at, file_date, title_author_key)
+         SELECT ?, path, file_name, file_size, title, author, progress, source, encoding, title_pinyin, author_pinyin, content_hash, ext, marked, checked, created_at, file_date, title_author_key
+         FROM scanned_file WHERE scan_run_id IN (${placeholders})`,
+        [newId, ...sourceIds]
+      );
+      // ③ 统计新文库文件数
+      const cntRs = await store.querySql('SELECT COUNT(*) AS cnt FROM scanned_file WHERE scan_run_id = ?', [newId]);
+      let fileCount: number = 0;
+      if (cntRs.goToFirstRow()) {
+        fileCount = Number(cntRs.getLong(0));
+      }
+      cntRs.close();
+      await store.executeSql('UPDATE scan_run SET file_count = ? WHERE id = ?', [fileCount, newId]);
+      // ④ 删除源文库（先文件后文库）
+      await store.executeSql(`DELETE FROM scanned_file WHERE scan_run_id IN (${placeholders})`, sourceIds);
+      await store.executeSql(`DELETE FROM scan_run WHERE id IN (${placeholders})`, sourceIds);
+      await store.executeSql('COMMIT', []);
+      return newId;
+    } catch (e) {
+      try {
+        await store.executeSql('ROLLBACK', []);
+      } catch (_) {
+        // ignore
+      }
+      console.error('mergeRuns failed:', e);
+      return -1;
+    }
+  }
 }

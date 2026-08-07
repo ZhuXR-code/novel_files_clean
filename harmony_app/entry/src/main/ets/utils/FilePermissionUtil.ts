@@ -3,6 +3,7 @@ import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { PreferencesUtil } from './PreferencesUtil';
 import { LogUtil } from './LogUtil';
+import { AppContext } from './AppContext';
 
 /**
  * 文件 URI 权限持久化工具，对齐鸿蒙官方「授权持久化」方案。
@@ -105,22 +106,35 @@ export class FilePermissionUtil {
   /**
    * 检查 URI 是否仍可访问（权限是否有效）。
    * 通过尝试 listFile 来验证读写权限。
+   *
+   * 注意：fileIo.listFile 是异步方法，不 await 时返回的是 Promise<Array<string>>
+   * 而非抛出异常——若直接调用且不 await，try/catch 捕获不到 rejected Promise，
+   * 会错误地判定为「权限失效」，进而触发重新授权。因此必须 await。
+   *
+   * 同时：传入的可能是 Picker 返回的 content:// URI，也可能是真实文件系统
+   * 路径（file:// 或绝对路径）。对 URI 应使用 fileIo.listFile（异步），对纯
+   * 路径应使用 fileIo.listFileSync；二者不要混用，否则对 URI 调用 listFileSync
+   * 会抛「不支持的操作」而误判失效。
    */
-  public static checkUriAccessible(uri: string): boolean {
+  public static async checkUriAccessible(uri: string): Promise<boolean> {
     if (!uri || uri.length === 0) {
       return false;
     }
-    try {
-      fileIo.listFile(uri);
-      return true;
-    } catch (e) {
-      // URI 可能是 path 格式，尝试 path 方式
+    // Picker 返回的 URI（content:// / file://）走异步 listFile
+    if (uri.startsWith('content://') || uri.startsWith('file://')) {
       try {
-        fileIo.listFileSync(uri);
+        await fileIo.listFile(uri);
         return true;
-      } catch (e2) {
+      } catch (e) {
         return false;
       }
+    }
+    // 真实文件系统路径：listFileSync 同步校验
+    try {
+      fileIo.listFileSync(uri);
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 
@@ -136,8 +150,20 @@ export class FilePermissionUtil {
     if (!uri || uri.length === 0) {
       return false;
     }
+    // DocumentViewPicker 需要真正的 UIAbilityContext 才能正确拉起授权弹窗。
+    // 调用方可能误传 @Component 的 UIContext（如 getContext(this)）。UIAbilityContext 独有
+    // startAbility 方法，用它判定；若传入的不是 UIAbilityContext，则回退到 AppContext
+    // 中由 EntryAbility 保存的 UIAbilityContext（最可靠）。
+    let abilityContext: common.Context = context;
+    const hasAbilityApi: boolean = typeof (abilityContext as common.UIAbilityContext)?.startAbility === 'function';
+    if (!hasAbilityApi) {
+      const appCtx: common.Context | null = AppContext.get();
+      if (appCtx && typeof (appCtx as common.UIAbilityContext)?.startAbility === 'function') {
+        abilityContext = appCtx;
+      }
+    }
     try {
-      const documentPicker = new picker.DocumentViewPicker(context);
+      const documentPicker = new picker.DocumentViewPicker(abilityContext);
       const options = new picker.DocumentSelectOptions();
       options.maxSelectNumber = 1;
       options.authMode = true;

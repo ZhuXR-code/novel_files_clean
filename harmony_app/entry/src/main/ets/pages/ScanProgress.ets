@@ -67,7 +67,7 @@ struct ScanProgress {
     // FILE 回退模式（逐文件扫描，每个文件已单独授权）无需目录权限，直接扫描；
     // 目录授权失效时自动弹出重新授权确认框，成功后再继续，而不是直接报扫描失败。
     if (!(ScanService.useFileFallback() || ScanService.restoreFileFallback())) {
-      const accessibleUri: string = await ScanService.tryAccessOrReauthorize(getContext(this), this.folderUri);
+      const accessibleUri: string = await ScanService.tryAccessOrReauthorize(AppContext.get(), this.folderUri);
       if (accessibleUri.length === 0) {
         this.folderName = '';
         ToastUtil.show('扫描目录权限已失效，请重新选择目录');

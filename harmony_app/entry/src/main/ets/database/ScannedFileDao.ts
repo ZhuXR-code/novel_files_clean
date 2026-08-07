@@ -433,6 +433,83 @@ export class ScannedFileDao {
   }
 
   /**
+   * 该文库是否存在有效内容哈希（content_hash 非空）。
+   * 对齐安卓 ScannedFileDao.hasContentHash。
+   */
+  public static async hasContentHash(scanRunId: number): Promise<number> {
+    const rs = await ScannedFileDao.store.querySql(
+      'SELECT COUNT(*) AS cnt FROM scanned_file WHERE scan_run_id = ? AND content_hash <> ?',
+      [scanRunId, '']
+    );
+    let c: number = 0;
+    if (rs.goToFirstRow()) {
+      c = Number(rs.getLong(0));
+    }
+    rs.close();
+    return c;
+  }
+
+  /**
+   * 标记：内容哈希相同、但时间更早的文件（每组仅保留 file_date 最新且 id 最大的一条不标记）。
+   * 对齐安卓 ScannedFileDao.markDuplicatesByHashSql。
+   * 返回受影响行数；若该文库无内容哈希返回 -1。
+   */
+  public static async markDuplicatesByHashSql(scanRunId: number): Promise<number> {
+    const has: number = await ScannedFileDao.hasContentHash(scanRunId);
+    if (has === 0) {
+      return -1;
+    }
+    const sql: string = `
+      UPDATE scanned_file SET marked = 1
+      WHERE scan_run_id = ? AND content_hash <> ''
+        AND id NOT IN (
+          SELECT MAX(id) FROM scanned_file
+          WHERE scan_run_id = ? AND content_hash <> ''
+          GROUP BY content_hash
+          HAVING MAX(COALESCE(file_date, 0)) = COALESCE(file_date, 0) AND MAX(id) = id
+        )
+    `;
+    await ScannedFileDao.store.executeSql(sql, [scanRunId, scanRunId]);
+    const rs = await ScannedFileDao.store.querySql('SELECT changes() AS changed', []);
+    let changed: number = 0;
+    if (rs.goToFirstRow()) {
+      changed = Number(rs.getLong(0));
+    }
+    rs.close();
+    return changed;
+  }
+
+  /**
+   * 勾选：内容哈希相同、但时间更早的文件（每组仅保留 file_date 最新且 id 最大的一条不勾选）。
+   * 对齐安卓 ScannedFileDao.checkDuplicatesByHashSql。
+   * 返回受影响行数；若该文库无内容哈希返回 -1。
+   */
+  public static async checkDuplicatesByHashSql(scanRunId: number): Promise<number> {
+    const has: number = await ScannedFileDao.hasContentHash(scanRunId);
+    if (has === 0) {
+      return -1;
+    }
+    const sql: string = `
+      UPDATE scanned_file SET checked = 1
+      WHERE scan_run_id = ? AND content_hash <> ''
+        AND id NOT IN (
+          SELECT MAX(id) FROM scanned_file
+          WHERE scan_run_id = ? AND content_hash <> ''
+          GROUP BY content_hash
+          HAVING MAX(COALESCE(file_date, 0)) = COALESCE(file_date, 0) AND MAX(id) = id
+        )
+    `;
+    await ScannedFileDao.store.executeSql(sql, [scanRunId, scanRunId]);
+    const rs = await ScannedFileDao.store.querySql('SELECT changes() AS changed', []);
+    let changed: number = 0;
+    if (rs.goToFirstRow()) {
+      changed = Number(rs.getLong(0));
+    }
+    rs.close();
+    return changed;
+  }
+
+  /**
    * 取某个合集（书名）内的全部文件，供合集展开时懒加载。
    * marked / checked 为 null 时不作过滤。
    */

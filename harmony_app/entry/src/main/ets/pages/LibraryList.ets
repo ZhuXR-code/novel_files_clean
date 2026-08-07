@@ -24,6 +24,8 @@ export struct LibraryTab {
   @State renamingRun: ScanRun | null = null;
   @State showRename: boolean = false;
   @State renameInput: string = '';
+  @State showMerge: boolean = false;
+  @State mergeInput: string = '';
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
   // 全局刷新信号：扫描/导入完成或切到本 Tab 时由 MainTabs/ScanProgress 推送，触发重载
   @StorageLink('libraryRefreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
@@ -169,6 +171,39 @@ export struct LibraryTab {
     });
   }
 
+  private async mergeSelected(): Promise<void> {
+    if (this.selectedIds.length < 2) {
+      ToastUtil.show('请至少选择 2 个文库');
+      return;
+    }
+    this.showMerge = true;
+    this.mergeInput = '合并文库';
+  }
+
+  private async doMerge(): Promise<void> {
+    const ids = [...this.selectedIds];
+    const name = this.mergeInput.trim();
+    this.showMerge = false;
+    if (ids.length < 2) {
+      return;
+    }
+    try {
+      const newId: number = await ScanRunDao.mergeRuns(ids, name);
+      if (newId > 0) {
+        LogUtil.operation('合并文库', `源文库ID=[${ids.join(',')}] 新文库ID=${newId}`);
+        this.exitSelectMode();
+        await this.load();
+        ToastUtil.show(`已合并为「${name}」`);
+        this.openRun(newId);
+      } else {
+        ToastUtil.show('合并失败');
+      }
+    } catch (e) {
+      LogUtil.e('LibraryTab', `合并文库失败: ${(e as Error).message}`);
+      ToastUtil.show('合并失败');
+    }
+  }
+
   private async deleteSelected(): Promise<void> {
     if (this.selectedIds.length === 0) {
       return;
@@ -212,7 +247,7 @@ export struct LibraryTab {
 
   @Builder
   checkBox(run: ScanRun) {
-    Checkbox({ name: 'lib_' + run.id.toString(), group: 'library_select' })
+    Checkbox({ name: 'lib_' + run.id.toString() })
       .select(this.isSelected(run.id))
       .width(this.fs(20))
       .height(this.fs(20))
@@ -224,8 +259,13 @@ export struct LibraryTab {
         strokeWidth: 2
       })
       .margin({ right: 12 })
-      .onChange(() => {
-        this.toggleSelect(run.id);
+      .onChange((checked: boolean) => {
+        // 受控：仅当实际勾选状态与本地 selectedIds 不一致时才同步，
+        // 避免外部（如全选）批量赋值 selectedIds 触发 onChange 时再次反转状态。
+        const selected: boolean = this.isSelected(run.id);
+        if (checked !== selected) {
+          this.toggleSelect(run.id);
+        }
       })
   }
 
@@ -248,6 +288,13 @@ export struct LibraryTab {
               .fontColor($r('app.color.text_primary'))
               .layoutWeight(1)
               .textAlign(TextAlign.Center)
+            if (this.selectedIds.length >= 2) {
+              Text('合并')
+                .fontSize(this.fs(15))
+                .fontColor($r('app.color.primary'))
+                .padding({ right: 16, top: 14, bottom: 14 })
+                .onClick(() => this.mergeSelected())
+            }
             Text(this.selectedIds.length === this.runs.length ? '取消全选' : '全选')
               .fontSize(this.fs(15))
               .fontColor($r('app.color.primary'))
@@ -419,6 +466,49 @@ export struct LibraryTab {
         .justifyContent(FlexAlign.Center)
         .onClick(() => {
           this.showRename = false;
+        })
+      }
+
+      // 合并文库命名弹窗（多选 ≥2 个文库后触发）
+      if (this.showMerge) {
+        Column() {
+          Column({ space: 12 }) {
+            Text('合并文库')
+              .fontSize(this.fs(15))
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_primary'))
+            Text(`将把选中的 ${this.selectedIds.length} 个文库合并为一个新文库`)
+              .fontSize(this.fs(12))
+              .fontColor($r('app.color.text_secondary'))
+            AppTextInput({ placeholder: '请输入合并后的文库名称', text: this.mergeInput, onChangeCallback: (v: string) => {
+              this.mergeInput = v;
+            } })
+            Row({ space: 12 }) {
+              Button('取消')
+                .layoutWeight(1)
+                .backgroundColor($r('app.color.bg_card'))
+                .fontColor($r('app.color.text_primary'))
+                .onClick(() => {
+                  this.showMerge = false;
+                })
+              Button('合并')
+                .layoutWeight(1)
+                .backgroundColor($r('app.color.primary'))
+                .fontColor($r('app.color.text_on_primary'))
+                .onClick(() => this.doMerge())
+            }
+          }
+          .padding(20)
+          .backgroundColor($r('app.color.bg_card'))
+          .borderRadius(12)
+          .margin({ left: 24, right: 24 })
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#80000000')
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          this.showMerge = false;
         })
       }
     }

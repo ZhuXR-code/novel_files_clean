@@ -378,6 +378,7 @@ export class DupLogic {
         try {
           return new RegExp(targetStr).test(actualStr);
         } catch (e) {
+          LogUtil.e('DupLogic', `自定义规则正则编译失败，跳过该规则: pattern=${targetStr} err=${(e as Error).message}`);
           return false;
         }
       default: return true;
@@ -403,6 +404,28 @@ export class DupLogic {
   public static async markDuplicatesByName(runId: number): Promise<number> {
     const n: number = await ScannedFileDao.markDuplicatesByNameSql(runId);
     LogUtil.i('DupLogic', `按书名作者勾选重复 marked ${n} files (run=${runId})`);
+    return n;
+  }
+
+  /**
+   * 标记：内容哈希相同、但时间更早的文件（每组仅保留 file_date 最新且 id 最大的一条不标记）。
+   * 对齐安卓 LibraryViewModel.markDuplicatesByHash。
+   * 返回受影响条数；若该文库无内容哈希返回 -1，调用方据此提示重新扫描。
+   */
+  public static async markDuplicatesByHash(runId: number): Promise<number> {
+    const n: number = await ScannedFileDao.markDuplicatesByHashSql(runId);
+    LogUtil.i('DupLogic', `按内容哈希标记重复 marked ${n} files (run=${runId})`);
+    return n;
+  }
+
+  /**
+   * 勾选：内容哈希相同、但时间更早的文件（每组仅保留 file_date 最新且 id 最大的一条不勾选）。
+   * 对齐安卓 LibraryViewModel.selectDuplicatesByHash。
+   * 返回受影响条数；若该文库无内容哈希返回 -1，调用方据此提示重新扫描。
+   */
+  public static async selectDuplicatesByHash(runId: number): Promise<number> {
+    const n: number = await ScannedFileDao.checkDuplicatesByHashSql(runId);
+    LogUtil.i('DupLogic', `按内容哈希勾选重复 checked ${n} files (run=${runId})`);
     return n;
   }
 

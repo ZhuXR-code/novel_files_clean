@@ -533,6 +533,50 @@ struct LibraryScreen {
     this.marking = false;
   }
 
+  /** 标记：内容哈希相同但时间更早的文件（对齐安卓 mark_by_hash 三态提示）。 */
+  private async markDuplicatesByHash(): Promise<void> {
+    this.marking = true;
+    try {
+      const n: number = await DupLogic.markDuplicatesByHash(this.runId);
+      if (n < 0) {
+        ToastUtil.show('该文库未扫描内容哈希，无法按哈希标记；请在深度扫描中开启“内容哈希”后重新扫描');
+      } else if (n > 0) {
+        this.currentStep = Math.max(this.currentStep, 3);
+        await this.loadStats();
+        await this.reload();
+        ToastUtil.show(`已按内容哈希标记 ${n} 个较早文件`);
+      } else {
+        ToastUtil.show('未发现内容哈希相同的重复文件');
+      }
+    } catch (e) {
+      LogUtil.e('LibraryScreen', `按内容哈希标重失败: ${(e as Error).message}`);
+      ToastUtil.show('按内容哈希标重失败');
+    }
+    this.marking = false;
+  }
+
+  /** 勾选：内容哈希相同但时间更早的文件（对齐安卓 check_by_hash 三态提示）。 */
+  private async selectDuplicatesByHash(): Promise<void> {
+    this.marking = true;
+    try {
+      const n: number = await DupLogic.selectDuplicatesByHash(this.runId);
+      if (n < 0) {
+        ToastUtil.show('该文库未扫描内容哈希，无法按哈希勾选；请在深度扫描中开启“内容哈希”后重新扫描');
+      } else if (n > 0) {
+        this.currentStep = Math.max(this.currentStep, 3);
+        await this.loadStats();
+        await this.reload();
+        ToastUtil.show(`已按内容哈希勾选 ${n} 个较早文件`);
+      } else {
+        ToastUtil.show('未发现内容哈希相同的重复文件');
+      }
+    } catch (e) {
+      LogUtil.e('LibraryScreen', `按内容哈希勾选失败: ${(e as Error).message}`);
+      ToastUtil.show('按内容哈希勾选失败');
+    }
+    this.marking = false;
+  }
+
   private applyCollectionFilter(): void {
     this.colExcludeNames = this.colExcludeInput
       .split(/[,，]/)
@@ -612,6 +656,8 @@ struct LibraryScreen {
       items.push({ value: '合集排序', action: () => { this.showGroupSort = true; } });
     }
     items.push({ value: '按书名标重', action: () => this.markDuplicatesByName() });
+    items.push({ value: '标记哈希更早重复', action: () => this.markDuplicatesByHash() });
+    items.push({ value: '勾选哈希更早重复', action: () => this.selectDuplicatesByHash() });
     items.push({ value: '清空标记', action: () => this.clearMarked() });
     items.push({ value: '清空勾选', action: () => this.clearChecked() });
     items.push({ value: '导出列表', action: () => this.openExportDialog() });

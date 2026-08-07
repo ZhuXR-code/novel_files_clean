@@ -227,7 +227,7 @@ export class ScanService {
 
     // 优先整目录扫描：父目录可访问（listFile 成功）时，选中文件仅用于定位文件夹，
     // runScan 对父目录做 BFS 遍历，扫描其下全部文件——保留「选文件→推导父目录→扫文件夹」模式。
-    if (parentDirUri.length > 0 && FilePermissionUtil.checkUriAccessible(parentDirUri)) {
+    if (parentDirUri.length > 0 && (await FilePermissionUtil.checkUriAccessible(parentDirUri))) {
       ScanService.selectedFileUris = [];
       // 关键：仅持久化选中文件们，重启后父目录授权不会自动恢复（picker 授权的是
       // 文件而非父目录），再次扫描 listFile 父目录必然失败。这里同时持久化父目录
@@ -258,7 +258,7 @@ export class ScanService {
    */
   public static async tryAccessOrReauthorize(context: common.Context, uri: string): Promise<string> {
     // 1. 权限仍有效，直接返回
-    if (FilePermissionUtil.checkUriAccessible(uri)) {
+    if (await FilePermissionUtil.checkUriAccessible(uri)) {
       return uri;
     }
 
@@ -266,7 +266,7 @@ export class ScanService {
 
     // 2. 尝试用 authMode 重新授权
     const reauthorized: boolean = await FilePermissionUtil.reauthorizeUri(context, uri);
-    if (reauthorized && FilePermissionUtil.checkUriAccessible(uri)) {
+    if (reauthorized && (await FilePermissionUtil.checkUriAccessible(uri))) {
       return uri;
     }
 
