@@ -62,7 +62,13 @@ fun ScanProgressScreen(onBack: () -> Unit, onFinished: () -> Unit) {
                     "empty" -> stringResource(R.string.scan_no_files)
                     "stopped" -> stringResource(R.string.scan_stopped, state.scannedFiles)
                     "error" -> "${stringResource(R.string.scan_error)}: ${state.error}"
-                    else -> stringResource(R.string.scan_completed, state.totalFiles)
+                    else -> {
+                        if (state.excludedFiles > 0)
+                            stringResource(R.string.scan_completed_with_excluded,
+                                state.scannedFiles, state.excludedFiles)
+                        else
+                            stringResource(R.string.scan_completed, state.scannedFiles)
+                    }
                 }
                 Text(
                     summary,

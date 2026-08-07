@@ -22,6 +22,7 @@ export interface ScanProgress {
   processed: number;
   found: number;
   currentFile: string;
+  excluded?: number;
 }
 
 /**
@@ -305,6 +306,7 @@ export class ScanService {
     const batch: ScannedFile[] = [];
     let processed: number = 0;
     let found: number = 0;
+    let excluded: number = 0;
     let lastReportProcessed: number = 0;
     let currentLevel: string[] = [config.folderUri];
 
@@ -322,7 +324,7 @@ export class ScanService {
       }
     };
 
-    // 解析“排除原始书名 / 排除书名词汇”：命中任一项的书名在解析后剔除（等同该文件被跳过，不入库）
+    // 解析"排除原始书名 / 排除书名词汇"：命中任一项的书名在解析后剔除（等同该文件被跳过，不入库）
     const titleExcludes = ScanService.parseTitleExcludes(config);
 
     while (currentLevel.length > 0 && !ScanService.stopped) {
@@ -446,9 +448,10 @@ export class ScanService {
             // stat.mtime 为最后修改时间；不同 API 版本可能是秒或毫秒，统一归一化为毫秒
             const rawMtime: number = stat.mtime ? Number(stat.mtime) : 0;
             rec.fileDate = rawMtime > 0 ? (rawMtime < 1e12 ? rawMtime * 1000 : rawMtime) : 0;
-            // 命中“排除原始书名 / 排除书名词汇”的文件：解析后剔除，不入库（等同扫描跳过）
+            // 命中"排除原始书名 / 排除书名词汇"的文件：解析后剔除，不入库（等同扫描跳过）
             if (ScanService.titleExcluded(rec.title, titleExcludes.exact, titleExcludes.keywords)) {
               processed++;
+              excluded++;
               reportProgress(name);
               continue;
             }
@@ -467,8 +470,8 @@ export class ScanService {
     await flushBatch();
     await ScanRunDao.updateFileCount(runId, found);
     const status: string = ScanService.stopped ? '已停止' : '完成';
-    LogUtil.operation('扫描', `文库=${config.name} 目录=${config.folderName} 命中=${found} 状态=${status} 文库ID=${runId}`);
-    return { runId: runId, total: found, processed: processed, stopped: ScanService.stopped };
+    LogUtil.operation('扫描', `文库=${config.name} 目录=${config.folderName} 命中=${found} 排除=${excluded} 状态=${status} 文库ID=${runId}`);
+    return { runId: runId, total: found, processed: processed, excluded: excluded, stopped: ScanService.stopped };
   }
 
   /**

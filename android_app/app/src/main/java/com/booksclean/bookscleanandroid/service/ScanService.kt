@@ -72,7 +72,7 @@ class ScanService : Service() {
             val folderName = intent.getStringExtra("folder_name") ?: ""
             LogUtil.i("ScanService", "startScan tree=$treeUri types=$fileTypes recursive=$recursive exclude=$excludedFolders")
 
-            // 记录本次扫描配置，供进度页“重新扫描”按钮复用
+            // 记录本次扫描配置，供进度页"重新扫描"按钮复用
             ScanStateManager.setLastConfig(
                 LastScanConfig(
                     treeUri = treeUriStr,
@@ -113,10 +113,10 @@ class ScanService : Service() {
             // 本次扫描对应一个文库（scan_run）：进入扫描前先建记录，拿到 runId 关联文件
             val runName = configName.ifBlank { folderName.ifBlank { "文库" } }
             val runId = app.repository.createScanRun(runName, treeUri.toString(), folderName, fileTypes)
-            // 记录本次文库 runId，供“一键清理”等编排流程在扫描完成后使用
+            // 记录本次文库 runId，供"一键清理"等编排流程在扫描完成后使用
             ScanStateManager.setRunId(runId)
             try {
-                // 收集阶段：实时上报“已收集 N 个文件”，避免大目录遍历时界面一直停在 0。
+                // 收集阶段：实时上报"已收集 N 个文件"，避免大目录遍历时界面一直停在 0。
                 var lastCollectUpdate = 0L
                 ScanStateManager.update(ScanState(isScanning = true, phase = "collecting"))
                 val fileList = FileUtil.collectSupportedFiles(
@@ -142,7 +142,7 @@ class ScanService : Service() {
                 val hasScanRules = scanRules.isNotEmpty()
                 val hasParseRules = parseRules.isNotEmpty()
 
-                // 解析“排除原始书名 / 排除书名词汇”：按逗号或换行切分，去空白、去空项。
+                // 解析"排除原始书名 / 排除书名词汇"：按逗号或换行切分，去空白、去空项。
                 // 命中任一项的书名在解析后剔除（等同该文件被跳过，不入库）。
                 val excludedTitleSet = excludedTitles
                     .split(',', '\n')
@@ -175,6 +175,7 @@ class ScanService : Service() {
                 // 避免原串行「解析完才能写、写完才能解析下一条」的等待瓶颈（10w 级文件尤为明显）。
                 val channel = Channel<ScannedFileEntity>(capacity = 256)
                 val done = AtomicInteger(0)
+                val excludedCount = AtomicInteger(0)
                 val lastState = AtomicLong(0L)
                 // 并行解析线程数：绑定到 CPU 核数但上限 4，避免移动端线程过多反而拖慢
                 val workerCount = min(4, max(1, Runtime.getRuntime().availableProcessors()))
@@ -191,9 +192,10 @@ class ScanService : Service() {
                             if (!isActive || ScanStateManager.stopRequested.value) return@launch
                             val entry = fileList[idx]
                             val entity = parseOne(entry, runId, scanRules, parseRules, hasScanRules, hasParseRules, scanMode, exactHash)
-                            // 命中“排除原始书名 / 排除书名词汇”的文件：解析后剔除，不入库（等同扫描跳过）
+                            // 命中"排除原始书名 / 排除书名词汇"的文件：解析后剔除，不入库（等同扫描跳过）
                             if (hasTitleExclude && titleExcluded(entity.title, excludedTitleSet, excludedTitleKeywordList)) {
                                 val d = done.incrementAndGet()
+                                excludedCount.incrementAndGet()
                                 reportParseProgress(d, total, entity.fileName, lastState)
                                 continue
                             }
@@ -261,15 +263,18 @@ class ScanService : Service() {
                     updateNotificationNow(getString(R.string.scan_stopped, dCount))
                     LogUtil.i("ScanService", "Scan stopped by user at $dCount/$total (run=$runId)")
                 } else {
+                    val found = foundCount.get()
+                    val excluded = excludedCount.get()
                     ScanStateManager.update(
                         ScanState(
-                            isScanning = false, phase = "scanning", progress = 100, scannedFiles = total,
-                            totalFiles = total, finished = true, status = "completed"
+                            isScanning = false, phase = "scanning", progress = 100,
+                            scannedFiles = found, totalFiles = total, finished = true,
+                            status = "completed", excludedFiles = excluded
                         )
                     )
-                    app.repository.setRunFileCount(runId, total)
-                    updateNotificationNow(getString(R.string.scan_completed, total))
-                    LogUtil.i("ScanService", "Scan finished: $total files (run=$runId)")
+                    app.repository.setRunFileCount(runId, found)
+                    updateNotificationNow(getString(R.string.scan_completed, found))
+                    LogUtil.i("ScanService", "Scan finished: $found files (excluded=$excluded) (run=$runId)")
                 }
             } catch (e: CancellationException) {
                 LogUtil.i("ScanService", "Scan cancelled")
@@ -287,10 +292,10 @@ class ScanService : Service() {
     }
 
     /**
-     * 判断某书名是否命中“排除原始书名 / 排除书名词汇”。
+     * 判断某书名是否命中"排除原始书名 / 排除书名词汇"。
      * - excludedTitleSet：精确书名集合，完全相同才剔除；
      * - excludedTitleKeywordList：书名词汇列表，书名包含任一词汇即剔除。
-     * 两者为“或”关系（命中任一即排除）。title 为空时不算命中。
+     * 两者为"或"关系（命中任一即排除）。title 为空时不算命中。
      */
     private fun titleExcluded(
         title: String,
@@ -359,7 +364,7 @@ class ScanService : Service() {
 
     /**
      * 计算文件内容的 MD5 哈希（十六进制小写）。
-     * 用于“内容哈希相同但时间更早”的重复识别；读取失败时返回空串（不参与哈希去重）。
+     * 用于"内容哈希相同但时间更早"的重复识别；读取失败时返回空串（不参与哈希去重）。
      */
     private fun computeContentHash(entry: FileEntry): String {
         // 在 IO 调度器执行整文件读取，避免在大文件 / SAF（如 MuMu 共享文件夹）上阻塞 CPU 解析线程池。

@@ -19,6 +19,7 @@ struct ScanProgress {
   @State scanning: boolean = false;
   @State processed: number = 0;
   @State found: number = 0;
+  @State excludedCount: number = 0;
   @State current: string = '';
   @State done: boolean = false;
   @State stopped: boolean = false;
@@ -188,7 +189,13 @@ struct ScanProgress {
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
             .fontColor(this.stopped ? $r('app.color.text_secondary') : $r('app.color.success'))
-          Text(this.stopped ? `已处理 ${this.processed} 个文件，保留命中 ${this.found} 个` : `共扫描到 ${this.found} 个文件`)
+          Text(() => {
+            const excl = this.excludedCount;
+            if (this.stopped) return `已处理 ${this.processed} 个文件，保留命中 ${this.found} 个`;
+            return (excl > 0)
+              ? `共解析 ${this.found} 个文件（已排除 ${excl} 个）`
+              : `共解析 ${this.found} 个文件`;
+          })
             .fontSize(14)
             .fontColor($r('app.color.text_secondary'))
           Row({ space: 12 }) {

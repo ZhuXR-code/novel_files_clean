@@ -234,33 +234,44 @@ final class ScanService {
         // 其 `count` 与底层 buffer 实际可访问长度可能不一致。后续对它的下标访问
         // （如 detectEncodingAndBom 的 sample[0..2]）会触发 Data.subscript 的
         // _preconditionFailure（SIGTRAP），表现为深度扫描闪退。
-        // 用 subdata 复制成独立 owned buffer 彻底隔离脏桥接，避免越界 trap。
-        return data.subdata(in: 0..<data.count)
+        // 用 withUnsafeBytes 复制成独立 [UInt8] 再包回 Data，彻底脱离 NSData 桥接，避免越界 trap。
+        let bytes: [UInt8] = data.withUnsafeBytes { Array($0) }
+        return Data(bytes)
     }
 
     private func readFileData(_ url: URL) -> Data? {
         // 关键：不能用 Data(contentsOf: .alwaysMapped) 直接 mmap。
-        // security-scoped 容器文件在扫描并发池线程上用 mmap 映射出的 NSData 桥接对象，
-        // 其底层 buffer 与 Swift Data 视图长度可能不一致，Insecure.MD5.hash 逐字节访问时
+        // security-scoped 容器文件在扫描并发池线程上用 mmap/filehandle 读取出的 NSData 桥接对象，
+        // 其底层 buffer 与 Swift Data 视图长度可能不一致，后续 Insecure.MD5.hash 逐字节访问时
         // 会触发 Data.subscript 的 _preconditionFailure（SIGTRAP），表现为勾选「计算内容指纹」闪退。
-        // 改为逐块读取并拼接到独立 owned Data，彻底隔离脏桥接，避免越界 trap。
+        // 改为逐块读取、每块用 withUnsafeBytes 复制成独立 [UInt8]（完全脱离 NSData 桥接），
+        // 再拼成标准 owned Data，彻底隔离脏 buffer，避免越界 trap。
         guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? fh.close() }
-        var out = Data()
+        var bytes: [UInt8] = []
         let chunk = 256 * 1024
         while true {
             let piece = fh.readData(ofLength: chunk)
             guard !piece.isEmpty else { break }
-            out.append(piece.subdata(in: 0..<piece.count))
+            // 复制成独立的 [UInt8]，切断与桥接 NSData 的一切关联
+            let part: [UInt8] = piece.withUnsafeBytes { Array($0) }
+            bytes.append(contentsOf: part)
         }
-        return out
+        return Data(bytes)
     }
 
     /// 内容指纹（MD5，整文件）：与安卓端 computeContentHash 一致（整文件内容计算 MD5 十六进制小写）。
     /// 仅当开启「内容哈希」开关（精确内容去重）时调用，文件较大时读取整文件有一定 IO 开销（已在扫描并发池内执行）。
     private func computeContentHash(url: URL) -> String {
         guard let data = readFileData(url) else { return "" }
-        let digest = Insecure.MD5.hash(data: data)
+        // 关键：不用 Insecure.MD5.hash(data:) 一次性提交整段 Data。该 API 内部会对 Data 做连续下标遍历，
+        // 若传入的 Data 仍是桥接脏 buffer（count 与底层 length 不一致）就会触发 Data.subscript 越界 trap。
+        // 改为流式 update + finalize，且 data 已由 readFileData 复制为独立 owned，双保险隔离脏桥接。
+        var hasher = Insecure.MD5()
+        data.withUnsafeBytes { buf in
+            hasher.update(data: buf)
+        }
+        let digest = hasher.finalize()
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 }

@@ -14,17 +14,19 @@ data class ScanState(
     val progress: Int = 0,
     val scannedFiles: Int = 0,
     val totalFiles: Int = 0,
-    /** 收集阶段已找到的匹配文件数（totalFiles 未知时用于实时反馈，避免界面“卡在 0”） */
+    /** 收集阶段已找到的匹配文件数（totalFiles 未知时用于实时反馈，避免界面"卡在 0"） */
     val collectedFiles: Int = 0,
     val currentFile: String = "",
     val status: String = "",
     val error: String = "",
-    val finished: Boolean = false
+    val finished: Boolean = false,
+    /** 被书名排除规则跳过的文件数（解析后剔除，不入库） */
+    val excludedFiles: Int = 0
 )
 
 /**
- * 最近一次“开始扫描”所使用的配置参数。
- * 供扫描进度页在“停止/完成后”提供“重新扫描”按钮，复用同一文件夹与参数重新发起扫描。
+ * 最近一次"开始扫描"所使用的配置参数。
+ * 供扫描进度页在"停止/完成后"提供"重新扫描"按钮，复用同一文件夹与参数重新发起扫描。
  */
 data class LastScanConfig(
     val treeUri: String,
@@ -56,7 +58,7 @@ object ScanStateManager {
 
     /**
      * 当前（或最近一次）扫描对应的文库 runId。
-     * 供“一键清理”等编排流程在扫描完成后读取，以便对本次文库执行
+     * 供"一键清理"等编排流程在扫描完成后读取，以便对本次文库执行
      * 勾选重复 / 删除等操作。与扫描进度状态分开保存，避免被 ScanState 的
      * 多次 update() 覆盖清零。
      */
@@ -67,7 +69,7 @@ object ScanStateManager {
     }
 
     /**
-     * 最近一次扫描的配置参数（文件夹/类型/排除项等），供“重新扫描”按钮复用。
+     * 最近一次扫描的配置参数（文件夹/类型/排除项等），供"重新扫描"按钮复用。
      * 不随 reset() 清空，确保停止后仍能按原参数重扫。
      */
     private val _lastConfig = MutableStateFlow<LastScanConfig?>(null)
