@@ -1,5 +1,6 @@
 import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
+import { CustomDialogController } from '@kit.ArkUI';
 import { ScanRun } from '../model/ScanRun';
 import { ScanRunDao } from '../database/ScanRunDao';
 import { ScannedFileDao } from '../database/ScannedFileDao';
@@ -9,6 +10,74 @@ import { TopBar } from '../components/TopBar';
 import { AppTextInput } from '../components/AppTextInput';
 import { ToastUtil } from '../utils/ToastUtil';
 
+
+/**
+ * 合并文库命名弹窗：悬浮在页面最上层，输入合并后文库名称。
+ * 使用 CustomDialog 避免原先 if(showMerge) 内嵌 Column 在部分机型/场景下
+ * 被列表或 Tab 栏遮挡、点击穿透关闭的问题。
+ */
+@CustomDialog
+struct MergeNameDialog {
+  @State mergeInput: string = '合并文库';
+  controller: CustomDialogController;
+  onConfirm?: (name: string) => void;
+  onCancel?: () => void;
+  private fs(base: number): number {
+    return Math.round(base * (AppStorage.get<number>('fontScale') ?? 1.0));
+  }
+
+  build() {
+    Column({ space: 12 }) {
+      Text('合并文库')
+        .fontSize(this.fs(16))
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.text_primary'))
+      Text(`将把选中的多个文库合并为一个新文库`)
+        .fontSize(this.fs(12))
+        .fontColor($r('app.color.text_secondary'))
+      AppTextInput({
+        placeholder: '请输入合并后的文库名称',
+        text: '',
+        onChangeCallback: (v: string) => {
+          this.mergeInput = v;
+        }
+      })
+      Row({ space: 12 }) {
+        Button('取消')
+          .layoutWeight(1)
+          .backgroundColor($r('app.color.bg_card'))
+          .fontColor($r('app.color.text_primary'))
+          .onClick(() => {
+            if (this.onCancel) {
+              this.onCancel();
+            }
+            this.controller.close();
+          })
+        Button('合并')
+          .layoutWeight(1)
+          .backgroundColor($r('app.color.primary'))
+          .fontColor($r('app.color.text_on_primary'))
+          .onClick(() => {
+            const name: string = this.mergeInput.trim();
+            if (name.length === 0) {
+              ToastUtil.show('请输入文库名称');
+              return;
+            }
+            this.controller.close();
+            if (this.onConfirm) {
+              this.onConfirm(name);
+            }
+          })
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .padding(20)
+    .backgroundColor($r('app.color.bg_card'))
+    .borderRadius(12)
+    .margin({ left: 24, right: 24 })
+  }
+}
 
 /**
  * 文库 Tab：列出全部文库，点击进入 LibraryScreen；左滑快速删除；下拉刷新。
@@ -24,8 +93,8 @@ export struct LibraryTab {
   @State renamingRun: ScanRun | null = null;
   @State showRename: boolean = false;
   @State renameInput: string = '';
-  @State showMerge: boolean = false;
-  @State mergeInput: string = '';
+  // 合并弹窗改用 CustomDialogController，确保悬浮在最前且不被列表/Tab 遮挡
+  private mergeDialogController: CustomDialogController | null = null;
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
   // 全局刷新信号：扫描/导入完成或切到本 Tab 时由 MainTabs/ScanProgress 推送，触发重载
   @StorageLink('libraryRefreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
@@ -176,24 +245,39 @@ export struct LibraryTab {
       ToastUtil.show('请至少选择 2 个文库');
       return;
     }
-    this.showMerge = true;
-    this.mergeInput = '合并文库';
+    // 使用 CustomDialog 弹出命名浮层，比 if(showMerge) 内嵌 overlay 更稳定，
+    // 不会被列表、删除栏或 TabBar 遮挡。
+    this.mergeDialogController = new CustomDialogController({
+      builder: MergeNameDialog({
+        onConfirm: (name: string) => {
+          this.doMerge(name);
+        },
+        onCancel: () => {
+          this.mergeDialogController = null;
+        }
+      }),
+      alignment: DialogAlignment.Center,
+      autoCancel: true,
+      customStyle: true,
+      offset: { dx: 0, dy: -24 }
+    });
+    this.mergeDialogController.open();
   }
 
-  private async doMerge(): Promise<void> {
+  private async doMerge(name: string): Promise<void> {
     const ids = [...this.selectedIds];
-    const name = this.mergeInput.trim();
-    this.showMerge = false;
-    if (ids.length < 2) {
+    const trimmedName = name.trim();
+    this.mergeDialogController = null;
+    if (ids.length < 2 || trimmedName.length === 0) {
       return;
     }
     try {
-      const newId: number = await ScanRunDao.mergeRuns(ids, name);
+      const newId: number = await ScanRunDao.mergeRuns(ids, trimmedName);
       if (newId > 0) {
         LogUtil.operation('合并文库', `源文库ID=[${ids.join(',')}] 新文库ID=${newId}`);
         this.exitSelectMode();
         await this.load();
-        ToastUtil.show(`已合并为「${name}」`);
+        ToastUtil.show(`已合并为「${trimmedName}」`);
         this.openRun(newId);
       } else {
         ToastUtil.show('合并失败');
@@ -469,48 +553,6 @@ export struct LibraryTab {
         })
       }
 
-      // 合并文库命名弹窗（多选 ≥2 个文库后触发）
-      if (this.showMerge) {
-        Column() {
-          Column({ space: 12 }) {
-            Text('合并文库')
-              .fontSize(this.fs(15))
-              .fontWeight(FontWeight.Medium)
-              .fontColor($r('app.color.text_primary'))
-            Text(`将把选中的 ${this.selectedIds.length} 个文库合并为一个新文库`)
-              .fontSize(this.fs(12))
-              .fontColor($r('app.color.text_secondary'))
-            AppTextInput({ placeholder: '请输入合并后的文库名称', text: this.mergeInput, onChangeCallback: (v: string) => {
-              this.mergeInput = v;
-            } })
-            Row({ space: 12 }) {
-              Button('取消')
-                .layoutWeight(1)
-                .backgroundColor($r('app.color.bg_card'))
-                .fontColor($r('app.color.text_primary'))
-                .onClick(() => {
-                  this.showMerge = false;
-                })
-              Button('合并')
-                .layoutWeight(1)
-                .backgroundColor($r('app.color.primary'))
-                .fontColor($r('app.color.text_on_primary'))
-                .onClick(() => this.doMerge())
-            }
-          }
-          .padding(20)
-          .backgroundColor($r('app.color.bg_card'))
-          .borderRadius(12)
-          .margin({ left: 24, right: 24 })
-        }
-        .width('100%')
-        .height('100%')
-        .backgroundColor('#80000000')
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          this.showMerge = false;
-        })
-      }
     }
     .width('100%')
     .height('100%')
