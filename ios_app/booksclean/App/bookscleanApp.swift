@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// 测试开关：true 时跳过内购校验、永久解锁全部功能（仅用于功能自测，发版务必置 false）。
+let DISABLE_IAP = true
+
 @main
 struct bookscleanApp: App {
     @StateObject private var preferences = Preferences.shared
@@ -13,7 +16,7 @@ struct bookscleanApp: App {
     var body: some Scene {
         WindowGroup {
             if preferences.privacyAgreed {
-                if preferences.unlocked {
+                if preferences.unlocked || DISABLE_IAP {
                     ContentView()
                         .environmentObject(router)
                         .environmentObject(preferences)
