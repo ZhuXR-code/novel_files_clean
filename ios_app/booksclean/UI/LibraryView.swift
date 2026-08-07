@@ -1439,7 +1439,8 @@ struct FilePreviewView: View {
             return nil
         }
         if mode == "tail" {
-            let offset = max(0, data.count - maxBytes)
+            // Swift Int 减法下溢会 trap；当 data.count < maxBytes 时直接用 0。
+            let offset = data.count > maxBytes ? data.count - maxBytes : 0
             return data.subdata(in: offset..<data.count)
         } else {
             return data.count > maxBytes ? data.subdata(in: 0..<maxBytes) : data

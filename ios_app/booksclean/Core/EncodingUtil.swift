@@ -124,22 +124,16 @@ enum EncodingUtil {
     /// - 真 UTF-8 中文：UTF-8 分支 CJK 高，且其字节必过 `looksLikeUtf8` → +0.25 红利，确保优先；
     /// - 真 GBK/GB18030：UTF-8 分支静默丢字节后 CJK 极低，GB18030 分支 CJK 高 → 选 GB18030；
     /// - 纯 ASCII/英文：各候选 CJK≈0，UTF-8 凭红利胜出，保持保真。
-    /// - 提前短路：若 UTF-8 校验通过且 CJK 占比够高，直接返回，省掉 GB18030 的整次解码。
     /// 返回 (解码文本, 实际使用的编码名)。全部失败返回 ("", "")。
     static func decodeStrict(data: Data, candidates: [String]) -> (String, String) {
         var best = ("", "", -1.0)
-        // 只需判定一次：整段字节是否是合法 UTF-8（裁掉尾部残字节后判定更准）
-        let utf8Safe = trimIncompleteTail(data, encodingName: "UTF-8")
-        let isUtf8 = looksLikeUtf8(utf8Safe)
         for name in candidates {
             let enc = stringEncoding(named: name)
             let safe = trimIncompleteTail(data, encodingName: name)
             guard let s = String(data: safe, encoding: enc), !s.isEmpty else { continue }
             var score = cjkScalarRatio(s)
-            if name == "UTF-8" && isUtf8 {
+            if name == "UTF-8" && looksLikeUtf8(safe) {
                 score += 0.25 // 真 UTF-8 字节流红利，避免被 GB18030 误解码抢走
-                // 合法 UTF-8 且中文密度正常：无需再试其它编码，直接返回（大幅缩短加载时间）
-                if score >= 0.35 { return (s, name) }
             }
             if score > best.2 {
                 best = (s, name, score)
