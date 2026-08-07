@@ -4,7 +4,6 @@ struct HomeView: View {
     @EnvironmentObject var router: Router
     @State private var runs: [ScanRun] = []
     @State private var markedFiles: Int = 0
-    @State private var showingFolderPicker = false
     @State private var runToDelete: ScanRun? = nil
     @State private var selecting: Bool = false
     @State private var selectedRunIds: Set<Int64> = []
@@ -35,15 +34,18 @@ struct HomeView: View {
 
                 FSSection("快速开始") {
                     VStack(spacing: 10) {
-                        PrimaryButton(title: "选择文件夹开始扫描") { showingFolderPicker = true }
+                        PrimaryButton(title: "扫描配置") { router.navigate(.configList) }
+                        Text("进入扫描配置列表：选择已有的配置执行扫描，或新增配置选择文件夹。")
+                            .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
 
                 // 方法说明（对齐安卓两种扫描方式）
                 FSSection("两种扫描方式") {
                     VStack(alignment: .leading, spacing: 12) {
-                        methodRow(number: "1", title: "选择文件夹扫描",
-                                  desc: "直接选择本地文件夹，解析文件名并标记重复、广告、水印等文件。")
+                        methodRow(number: "1", title: "从扫描配置开始",
+                                  desc: "在扫描配置列表中选择已有配置执行扫描，或新增配置选择文件夹、设置类型与排除项。")
                         Divider()
                         methodRow(number: "2", title: "从文库清理",
                                   desc: "选择已有的扫描文库，对其中的文件进行去重与清理。")
@@ -75,7 +77,7 @@ struct HomeView: View {
                     .padding(.bottom, 4)
 
                     if runs.isEmpty {
-                        Text("暂无扫描记录，点击上方按钮选择文件夹开始。")
+                        Text("暂无扫描记录，可在「扫描配置」中新增配置开始扫描。")
                             .foregroundColor(.fsSecondaryLabel).padding(.vertical, 8)
                     } else {
                         ForEach(runs) { run in
@@ -162,22 +164,6 @@ struct HomeView: View {
             }
         }
         .onAppear { reload() }
-        .sheet(isPresented: $showingFolderPicker) {
-            FolderPicker { url in
-                showingFolderPicker = false
-                let bookmark = makeBookmark(url) ?? ""
-                let name = url.lastPathComponent
-                // 选完文件夹不直接开始扫描，而是先存一个带目录的配置并进入扫描配置页，
-                // 让用户确认扫描模式/类型/排除项后再开始（对齐安卓的交互顺序）。
-                var cfg = ScanConfig()
-                cfg.name = name
-                cfg.folderName = name
-                cfg.folderUri = bookmark
-                cfg.fileTypes = "txt"
-                let newId = FileRepository.shared.saveScanConfig(cfg)
-                router.navigate(.configEdit(id: newId))
-            }
-        }
         .alert("删除文库", isPresented: Binding(
             get: { runToDelete != nil },
             set: { if !$0 { runToDelete = nil } }

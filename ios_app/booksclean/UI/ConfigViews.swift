@@ -15,6 +15,16 @@ struct ConfigListView: View {
                             .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
                     }
                     Spacer()
+                    Button {
+                        beginScan(c)
+                    } label: {
+                        Label("开始扫描", systemImage: "play.fill")
+                            .fsFont(.caption).foregroundColor(.fsPrimary)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.fsPrimary))
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(c.folderUri.isEmpty)
                     Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
                 }
                 .contentShape(Rectangle())
@@ -56,6 +66,8 @@ struct ConfigEditView: View {
     @State private var recursive = true
     @State private var exactHash = false
     @State private var excludedNames: [String] = []
+    @State private var excludedTitles = ""          // 排除的原始书名，逗号/换行分隔
+    @State private var excludedTitleKeywords = ""    // 排除的书名词汇，逗号/换行分隔
     @State private var scanMode = "quick"
     @State private var showingFolderPicker = false
     @State private var showingExcludePicker = false
@@ -118,6 +130,26 @@ struct ConfigEditView: View {
                 Text("排除的文件夹")
             } footer: {
                 Text("按文件夹「名称」匹配，扫描时会跳过同名目录。")
+            }
+
+            Section {
+                TextField("书名完全相等才跳过，多个用逗号或换行分隔", text: $excludedTitles)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+            } header: {
+                Text("排除的原始书名")
+            } footer: {
+                Text("书名与这里列出的某一书名完全相同，扫描时跳过该文件。")
+            }
+
+            Section {
+                TextField("书名包含该词汇即跳过，多个用逗号或换行分隔", text: $excludedTitleKeywords)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+            } header: {
+                Text("排除的书名词汇")
+            } footer: {
+                Text("书名里包含这里列出的任一词汇，扫描时跳过该文件。")
             }
 
             Section("最小文件大小 (KB)") {
@@ -187,6 +219,8 @@ struct ConfigEditView: View {
             if selectedTypes.isEmpty { selectedTypes = ["txt"] }
             excludedNames = c.excludedFolders.split(separator: ",")
                 .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            excludedTitles = c.excludedTitles
+            excludedTitleKeywords = c.excludedTitleKeywords
             minSizeText = String(c.minSizeKb)
             recursive = c.recursive
             exactHash = c.exactHash
@@ -217,6 +251,8 @@ struct ConfigEditView: View {
         c.recursive = recursive
         c.exactHash = exactHash
         c.excludedFolders = excludedNames.joined(separator: ",")
+        c.excludedTitles = excludedTitles
+        c.excludedTitleKeywords = excludedTitleKeywords
         c.scanMode = scanMode
         return c
     }
