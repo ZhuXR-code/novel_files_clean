@@ -1519,7 +1519,11 @@ struct ScrollableText: UIViewRepresentable {
     let state: PreviewScrollState
 
     func makeUIView(context: Context) -> UIScrollView {
-        let scroll = UIScrollView()
+        // 使用自定义子类：layoutSubviews 在 SwiftUI 完成首帧 layout 后会自动回调,
+        // 这是比"updateUIView + DispatchQueue.main.async"更可靠的渲染触发点——
+        // 之前的异步重试闭包会在 SwiftUI 重新计算 body 的间隙被 dismantleUIView
+        // 直接回收(weak scroll == nil),导致大量文件预览拿到文本却永不渲染(黑屏)。
+        let scroll = PreviewScrollView()
         scroll.backgroundColor = .systemBackground
         scroll.showsVerticalScrollIndicator = false
         scroll.showsHorizontalScrollIndicator = false
@@ -1548,7 +1552,23 @@ struct ScrollableText: UIViewRepresentable {
         coord.state = state
         coord.scroll = scroll
         coord.textView = tv
+        // 把渲染入口挂到 scroll 上,layoutSubviews 自动调用
+        scroll.onFirstValidLayout = { [weak coord] s in
+            guard let coord = coord, !coord.cancelled else { return }
+            let pendingText = coord.pendingText ?? ""
+            let pendingFont = coord.pendingFontPt > 0 ? coord.pendingFontPt : fontPt
+            let pendingMode = coord.pendingMode ?? mode
+            coord.pendingText = nil
+            coord.pendingFontPt = 0
+            coord.pendingMode = nil
+            ScrollableText.applyLayout(scroll: s, coord: coord,
+                                       text: pendingText, fontPt: pendingFont, mode: pendingMode)
+        }
         state.scrollView = scroll
+        // 缓存首次渲染所需的文本/字号/mode,等 layoutSubviews 拿到真实 bounds 后填入
+        coord.pendingText = text
+        coord.pendingFontPt = fontPt
+        coord.pendingMode = mode
         FileRepository.shared.logOperation(level: "D", tag: "预览UI", message: "makeUIView 创建 scroll+tv mode=\(mode)")
         return scroll
     }
@@ -1567,48 +1587,51 @@ struct ScrollableText: UIViewRepresentable {
                 coord.textView = scroll.subviews.compactMap { $0 as? UITextView }.first
             }
             if coord.scroll == nil { coord.scroll = scroll }
+            // 把渲染入口重新挂回,避免新 scroll 不触发
+            if let previewScroll = scroll as? PreviewScrollView {
+                previewScroll.onFirstValidLayout = { [weak coord] s in
+                    guard let coord = coord, !coord.cancelled else { return }
+                    let pendingText = coord.pendingText ?? ""
+                    let pendingFont = coord.pendingFontPt > 0 ? coord.pendingFontPt : fontPt
+                    let pendingMode = coord.pendingMode ?? mode
+                    coord.pendingText = nil
+                    coord.pendingFontPt = 0
+                    coord.pendingMode = nil
+                    ScrollableText.applyLayout(scroll: s, coord: coord,
+                                               text: pendingText, fontPt: pendingFont, mode: pendingMode)
+                }
+            }
         }
         // 视图已卸载（返回上个页面 / 切换文件）：context 可能已失效，立即退出，避免访问
         // 已离屏或重用的 scrollView/UITextView 造成 EXC_BAD_ACCESS。
         // 典型场景：第一个文件 bounds=0 时排了 DispatchQueue.main.async 重入闭包，用户在
         // 下一帧前返回并打开第二个文件，旧闭包 fire 时访问已释放的 context/scroll 导致闪退。
         guard !coord.cancelled, coord.textView != nil else { return }
-        // SwiftUI 首次 layout 时 scroll.bounds 可能仍为 0，延迟到下一帧再渲染，避免首帧 tv 宽度为 0 文本不可见。
-        if scroll.bounds.width <= 0 || scroll.bounds.height <= 0 {
-            // 文本待渲染但 scroll 尚未 layout：调度到下一个 runloop，等 SwiftUI 完成 layout 后重试。
-            // 注意：闭包**绝不能捕获 context**（Context 内含 SwiftUI 内部存储，视图卸载后再访问其
-            // coordinator 会 EXC_BAD_ACCESS）。这里只捕获 weak scroll + 强引用 coordinator 对象本身。
-            // 同时限制重试次数，防止 bounds 长期为 0 时无限递归排队把主线程打爆。
-            // 注意：重试条件**不判断 lastText != text**——Coordinator 复用场景下 lastText 可能
-            // 与本次 text 相同（同一文件二次打开），此时若因 lastText 相同而放弃重试会永久黑屏。
-            if coord.layoutRetry < 30 {
-                coord.layoutRetry += 1
-                let pending = text
-                let pendingFont = fontPt
-                let pendingMode = mode
-                DispatchQueue.main.async { [weak scroll, weak coord] in
-                    guard let scroll = scroll, let coord = coord, !coord.cancelled else { return }
-                    ScrollableText.applyLayout(scroll: scroll, coord: coord,
-                                               text: pending, fontPt: pendingFont, mode: pendingMode)
-                }
-            }
-            return
+        // 把待渲染文本挂到 coord 上,layoutSubviews 兜底触发:
+        // 即便 updateUIView 这次 bounds=0,等 view tree 完成 layout 后 layoutSubviews 会再调一次。
+        coord.pendingText = text
+        coord.pendingFontPt = fontPt
+        coord.pendingMode = mode
+        // 快速路径:本次调用 scroll 已经有合法尺寸,直接渲染避免等下一帧。
+        // 渲染完成后清空 pending 缓存,避免后续 layoutSubviews 因尺寸微变再 fire 时回退到旧值。
+        if scroll.bounds.width > 0 && scroll.bounds.height > 0 {
+            coord.layoutRetry = 0
+            coord.pendingText = nil
+            coord.pendingFontPt = 0
+            coord.pendingMode = nil
+            ScrollableText.applyLayout(scroll: scroll, coord: coord, text: text, fontPt: fontPt, mode: mode)
         }
-        coord.layoutRetry = 0
-        ScrollableText.applyLayout(scroll: scroll, coord: coord, text: text, fontPt: fontPt, mode: mode)
     }
 
     /// 实际排版逻辑，脱离 `Context` 独立执行，便于异步重试时安全调用。
     private static func applyLayout(scroll: UIScrollView, coord: Coordinator,
                                     text: String, fontPt: CGFloat, mode: ScrollMode) {
         guard !coord.cancelled, let tv = coord.textView else { return }
+        // bounds 仍未合法则把待办再挂回,等 layoutSubviews 兜底
         if scroll.bounds.width <= 0 || scroll.bounds.height <= 0 {
-            guard coord.layoutRetry < 30 else { return }
-            coord.layoutRetry += 1
-            DispatchQueue.main.async { [weak scroll, weak coord] in
-                guard let scroll = scroll, let coord = coord, !coord.cancelled else { return }
-                ScrollableText.applyLayout(scroll: scroll, coord: coord, text: text, fontPt: fontPt, mode: mode)
-            }
+            coord.pendingText = text
+            coord.pendingFontPt = fontPt
+            coord.pendingMode = mode
             return
         }
         coord.layoutRetry = 0
@@ -1669,10 +1692,17 @@ struct ScrollableText: UIViewRepresentable {
     /// 视图从层级移除时 SwiftUI 调用：标记 coordinator 已取消，
     /// 使早先排队的 DispatchQueue.main.async 重入闭包（来自 bounds=0 的首帧）安全退出，
     /// 不再访问即将释放的 scrollView/UITextView，修复「预览第一个文件返回后开第二个文件闪退」。
+    /// 同时清空 layoutSubviews 兜底回调，避免旧 scroll 引用延寿到下一个文件。
     static func dismantleUIView(_ scroll: UIScrollView, coordinator: Coordinator) {
         coordinator.cancelled = true
         coordinator.textView = nil
         coordinator.scroll = nil
+        coordinator.pendingText = nil
+        coordinator.pendingFontPt = 0
+        coordinator.pendingMode = nil
+        if let previewScroll = scroll as? PreviewScrollView {
+            previewScroll.onFirstValidLayout = nil
+        }
     }
 
     class Coordinator: NSObject, UIScrollViewDelegate {
@@ -1687,6 +1717,12 @@ struct ScrollableText: UIViewRepresentable {
         var cancelled = false
         /// bounds 尚未 layout 时的重试计数，超过上限即放弃，防止无限递归排队卡死主线程。
         var layoutRetry = 0
+        /// 待渲染文本/字号/模式：updateUIView 或 layoutSubviews 触发时若已有则使用。
+        /// 用于将"等真实 bounds"的渲染推迟到 layoutSubviews(自定义 UIScrollView 子类的 hook),
+        /// 不再依赖 SwiftUI 何时再次调 updateUIView——后者在 NavigationStack 重用场景下不可靠。
+        var pendingText: String?
+        var pendingFontPt: CGFloat = 0
+        var pendingMode: ScrollMode?
 
         func publish(_ scroll: UIScrollView) {
             state?.contentSize = scroll.contentSize
@@ -1697,6 +1733,41 @@ struct ScrollableText: UIViewRepresentable {
             state?.contentSize = scrollView.contentSize
             state?.viewport = scrollView.bounds.size
             state?.offset = scrollView.contentOffset
+        }
+    }
+}
+
+/// 自定义 UIScrollView 子类：在 layoutSubviews 中检测到首次拿到非零 bounds 时
+/// 主动调用挂载的回调。这是修复"SwiftUI NavigationStack 重用场景下大量预览黑屏"的关键:
+/// `updateUIView(bounds=0x0)` 时调度的 DispatchQueue.main.async 重入闭包经常被
+/// SwiftUI 内部的 dismantle 时机抢断(weak scroll 已为 nil),导致文本永远不会被渲染。
+/// 自定义子类的 layoutSubviews 是 UIKit 自身的 hook,只要 scroll 真正被加到 view tree
+/// 并完成 AutoLayout,它一定会 fire 一次,渲染可靠性显著优于轮询 updateUIView。
+final class PreviewScrollView: UIScrollView {
+    /// 首次(或重新)拿到合法 bounds 时调一次,之后清空以避免重复触发
+    /// 同一次尺寸更新的多帧 layout。
+    var onFirstValidLayout: ((UIScrollView) -> Void)?
+    private var didFire = true   // 初始为 true:首次 addSubview 后第一次 0x0 不算
+    private var lastSize: CGSize = .zero
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let sz = bounds.size
+        // 仅当 bounds 从 0 跨越到非 0、或尺寸发生明显变化时触发,避免重复渲染。
+        let becameValid = (lastSize.width <= 0 || lastSize.height <= 0) && (sz.width > 0 && sz.height > 0)
+        let sizeChanged = abs(sz.width - lastSize.width) > 0.5 || abs(sz.height - lastSize.height) > 0.5
+        lastSize = sz
+        if becameValid || (didFire && sizeChanged) {
+            didFire = false
+            onFirstValidLayout?(self)
+        }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // 加入 window 后 SwiftUI 才完成最终 layout;此时 bounds 也基本就绪,兜底再触发一次。
+        if window != nil {
+            didFire = true
         }
     }
 }
