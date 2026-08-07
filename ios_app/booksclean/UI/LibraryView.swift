@@ -1263,7 +1263,7 @@ struct FilePreviewView: View {
         .navigationTitle(file?.fileName ?? "预览")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            LogUtil.i("预览", "body onAppear，进入预览页 id=\(fileId)")
+            FileRepository.shared.logOperation(level: "I", tag: "预览", message: "进入预览页 id=\(fileId) mode=\(modeState == .all ? "all" : (modeState == .head ? "head" : "tail"))")
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -1278,14 +1278,14 @@ struct FilePreviewView: View {
     }
 
     private func load() async {
-        LogUtil.i("预览", "load() 开始 id=\(fileId)")
+        FileRepository.shared.logOperation(level: "I", tag: "预览", message: "load() 开始 id=\(fileId)")
         guard let f = FileRepository.shared.getById(fileId) else {
-            LogUtil.e("预览", "文件不存在 id=\(fileId)")
+            FileRepository.shared.logOperation(level: "E", tag: "预览", message: "文件不存在 id=\(fileId)")
             text = "文件不存在"
             return
         }
         file = f
-        LogUtil.i("预览", "load() 取到文件 \(f.fileName) encoding=\(f.encoding)")
+        FileRepository.shared.logOperation(level: "I", tag: "预览", message: "取到文件 \(f.fileName) encoding=\(f.encoding) size=\(f.size)")
         text = "加载中…"
         totalLines = 0
         let m = modeState
@@ -1297,11 +1297,18 @@ struct FilePreviewView: View {
             FilePreviewView.readFileContent(f, mode: m)
         }.value
         // 页面可能已被切换/返回，重入的旧任务不应覆盖新内容
-        guard fileId == f.id, modeState == m else { return }
+        guard fileId == f.id, modeState == m else {
+            FileRepository.shared.logOperation(level: "W", tag: "预览", message: "load() 页面已切换，丢弃旧结果 id=\(fileId)")
+            return
+        }
         let shown = result.1 ?? result.0
         text = shown
         totalLines = result.2
-        LogUtil.i("预览", "load() 拿到文本 len=\(shown.count) 准备挂载 UIKit")
+        if let hint = result.1 {
+            FileRepository.shared.logOperation(level: "E", tag: "预览", message: "读取失败 id=\(fileId) hint=\(hint)")
+        } else {
+            FileRepository.shared.logOperation(level: "I", tag: "预览", message: "拿到文本 len=\(shown.count) lines≈\(result.2) 准备挂载 UIKit")
+        }
         uiKitReady = true
     }
 
@@ -1310,12 +1317,15 @@ struct FilePreviewView: View {
     /// 声明为 `nonisolated static`，确保可在后台线程调用，不隐式跳回主 actor。
     nonisolated static func readFileContent(_ f: ScannedFile, mode: String) -> (String, String?, Int) {
         let tag = "FilePreview"
+        FileRepository.shared.logOperation(level: "D", tag: "预览读取", message: "readFileContent 开始 id=\(f.id) mode=\(mode) path=\(f.path)")
         guard let run = FileRepository.shared.getScanRun(f.scanRunId) else {
+            FileRepository.shared.logOperation(level: "E", tag: "预览读取", message: "扫描记录不存在 scanRunId=\(f.scanRunId)")
             LogUtil.e(tag, "scan run not found: \(f.scanRunId)")
             return ("", "扫描记录不存在（可能已被删除），请重新扫描", 0)
         }
         // f.path 是 file:// 形式的绝对 URL 字符串，必须用 URL(string:) 解析
         guard let url = URL(string: f.path) else {
+            FileRepository.shared.logOperation(level: "E", tag: "预览读取", message: "文件路径无效 \(f.path)")
             LogUtil.e(tag, "invalid file path: \(f.path)")
             return ("", "文件路径无效：\(f.path)", 0)
         }
@@ -1324,6 +1334,7 @@ struct FilePreviewView: View {
         var accessed = false
         if let resolved = resolved {
             if resolved.isStale {
+                FileRepository.shared.logOperation(level: "W", tag: "预览读取", message: "文件夹书签过期 folder=\(resolved.url.lastPathComponent)")
                 LogUtil.d(tag, "bookmark is stale for folder \(resolved.url.path)")
                 // 书签过期：仍尝试 startAccessing（部分情况下系统会续期），但大概率失败
                 accessed = resolved.url.startAccessingSecurityScopedResource()
@@ -1333,11 +1344,13 @@ struct FilePreviewView: View {
             } else {
                 accessed = resolved.url.startAccessingSecurityScopedResource()
                 if !accessed {
+                    FileRepository.shared.logOperation(level: "W", tag: "预览读取", message: "无法访问文件夹（权限被拒绝）folder=\(resolved.url.lastPathComponent)")
                     LogUtil.d(tag, "failed to start accessing security scoped resource for folder \(resolved.url)")
                     return ("", "无法访问文件夹（权限被拒绝），请重新扫描并授权", 0)
                 }
             }
         } else {
+            FileRepository.shared.logOperation(level: "W", tag: "预览读取", message: "书签解析失败，尝试直读 \(url.lastPathComponent)")
             LogUtil.d(tag, "bookmark resolve failed, will try direct read for \(url.lastPathComponent)")
         }
         defer {
@@ -1376,6 +1389,7 @@ struct FilePreviewView: View {
             var (text, usedName) = EncodingUtil.decodeStrict(data: data, candidates: candidates)
             if !text.isEmpty {
                 if usedName != enc {
+                    FileRepository.shared.logOperation(level: "W", tag: "预览读取", message: "编码回退 stored=\(enc) used=\(usedName) file=\(url.lastPathComponent)")
                     LogUtil.d(tag, "preview fallback decoding: \(url.lastPathComponent) stored=\(enc) used=\(usedName)")
                 }
                 // 换行规整：文件可能含 Windows 换行 \r\n 或经典 Mac \r，统一为 \n，
@@ -1403,6 +1417,7 @@ struct FilePreviewView: View {
                     if text.count > hardLimit {
                         text = String(text.prefix(hardLimit))
                         lineNote = "\n\n…（内容过长，预览已截断）"
+                        FileRepository.shared.logOperation(level: "W", tag: "预览读取", message: "触发硬上限 120000 字符 file=\(url.lastPathComponent)")
                     }
                 }
 
@@ -1413,9 +1428,11 @@ struct FilePreviewView: View {
                 let lineCount = full.reduce(into: 1) { acc, ch in if ch == "\n" { acc += 1 } }
                 return (full, nil, lineCount)
             }
+            FileRepository.shared.logOperation(level: "E", tag: "预览读取", message: "解码失败 tried=\(candidates.joined(separator: "/")) file=\(url.lastPathComponent)")
             LogUtil.e(tag, "string decoding failed for \(url.lastPathComponent), tried=\(candidates.joined(separator: ","))")
             return ("", "文件编码解析失败（已尝试 \(candidates.joined(separator: "/"))，均解码失败）", 0)
         }
+        FileRepository.shared.logOperation(level: "E", tag: "预览读取", message: "读数据失败（权限/IO）file=\(url.lastPathComponent)")
         return ("", "无法读取文件数据（可能缺少文件夹访问权限，请重新扫描以刷新授权）", 0)
     }
 
@@ -1435,6 +1452,7 @@ struct FilePreviewView: View {
         LogUtil.d(tag, "FileHandle failed for \(url.lastPathComponent), trying Data(contentsOf:)")
         // 回退：整读（仅用于小文件或沙盒内可直接访问的文件）
         guard let data = try? Data(contentsOf: url) else {
+            FileRepository.shared.logOperation(level: "E", tag: "预览读取", message: "FileHandle+Data 均失败 file=\(url.lastPathComponent)")
             LogUtil.e(tag, "Data(contentsOf:) also failed for \(url.lastPathComponent)")
             return nil
         }
