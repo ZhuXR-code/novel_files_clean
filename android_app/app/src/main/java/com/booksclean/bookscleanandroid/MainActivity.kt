@@ -119,6 +119,8 @@ fun AppNavigation() {
                         putExtra("min_size_kb", config.minSizeKb)
                         putExtra("recursive", config.recursive)
                         putExtra("excluded_folders", config.excludedFolders)
+                        putExtra("excluded_titles", config.excludedTitles)
+                        putExtra("excluded_title_keywords", config.excludedTitleKeywords)
                         putExtra("config_name", config.name)
                         putExtra("folder_name", config.folderName)
                         putExtra("scan_mode", config.scanMode.ifBlank { "quick" })

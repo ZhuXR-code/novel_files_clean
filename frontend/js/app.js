@@ -375,6 +375,8 @@ function showAddConfigModal() {
     document.querySelector('#fileTypesGroup input[value="txt"]').checked = true;
     document.getElementById('customFileType').value = '';
     document.getElementById('cfgExcludedFolders').value = '';
+    document.getElementById('cfgExcludedTitles').value = '';
+    document.getElementById('cfgExcludedTitleKeywords').value = '';
     document.getElementById('cfgParseOnScan').checked = true;  // 新增配置默认开启同步解析
     // 默认快速扫描模式
     const quickRadio = document.querySelector('input[name="cfgScanMode"][value="quick"]');
@@ -395,6 +397,8 @@ function editConfig(id) {
     });
     document.getElementById('customFileType').value = '';
     document.getElementById('cfgExcludedFolders').value = cfg.excluded_folders || '';
+    document.getElementById('cfgExcludedTitles').value = cfg.excluded_titles || '';
+    document.getElementById('cfgExcludedTitleKeywords').value = cfg.excluded_title_keywords || '';
     document.getElementById('cfgParseOnScan').checked = cfg.parse_on_scan !== false;  // 未明确关闭即视为开启
     // 设置扫描模式
     const scanMode = cfg.scan_mode || 'quick';
@@ -425,6 +429,8 @@ async function saveConfig() {
         folder_path: folderPath,
         file_types: types.join(','),
         excluded_folders: document.getElementById('cfgExcludedFolders').value.trim(),
+        excluded_titles: document.getElementById('cfgExcludedTitles').value.trim(),
+        excluded_title_keywords: document.getElementById('cfgExcludedTitleKeywords').value.trim(),
         scan_mode: (() => { const r = document.querySelector('input[name="cfgScanMode"]:checked'); return r ? r.value : 'quick'; })(),
         parse_on_scan: document.getElementById('cfgParseOnScan').checked,
     };

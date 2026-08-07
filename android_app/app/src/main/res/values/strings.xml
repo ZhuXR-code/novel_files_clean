@@ -248,6 +248,10 @@
     <string name="excluded_folders_hint">点击右上角 + 选择要排除的文件夹，可添加多个；点标签上的 × 可移除</string>
     <string name="add_excluded_folder">添加</string>
     <string name="remove_excluded_folder">移除该排除文件夹</string>
+    <string name="excluded_titles">排除的原始书名</string>
+    <string name="excluded_titles_hint">书名完全相等才跳过，多个用逗号或换行分隔</string>
+    <string name="excluded_title_keywords">排除的书名词汇</string>
+    <string name="excluded_title_keywords_hint">书名包含该词汇即跳过，多个用逗号或换行分隔</string>
     <string name="save_config">保存配置</string>
     <string name="delete_config">删除配置</string>
     <string name="delete_config_confirm">确定删除该扫描配置吗？已扫描的文件记录不受影响。</string>

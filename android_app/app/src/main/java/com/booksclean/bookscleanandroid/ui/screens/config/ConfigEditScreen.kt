@@ -77,6 +77,8 @@ fun ConfigEditScreen(
     var selectedTypes by remember { mutableStateOf(setOf("txt")) }
     var customType by remember { mutableStateOf("") }
     var excludedNames by remember { mutableStateOf(listOf<String>()) }
+    var excludedTitles by remember { mutableStateOf("") }       // 排除的原始书名，多个逗号/换行分隔
+    var excludedTitleKeywords by remember { mutableStateOf("") } // 排除的书名词汇，多个逗号/换行分隔
     var minSize by remember { mutableStateOf("0") }
     var recursive by remember { mutableStateOf(true) }
     var scanMode by remember { mutableStateOf("quick") }
@@ -98,6 +100,8 @@ fun ConfigEditScreen(
                 recursive = cfg.recursive
                 scanMode = cfg.scanMode.ifEmpty { "quick" }
                 exactHash = cfg.exactHash
+                excludedTitles = cfg.excludedTitles
+                excludedTitleKeywords = cfg.excludedTitleKeywords
                 LogUtil.d("ConfigEditScreen", "已载入配置 name=${cfg.name} types=${cfg.fileTypes} folder=$folderName")
             } ?: LogUtil.w("ConfigEditScreen", "未找到配置 configId=$configId")
         } else {
@@ -303,6 +307,28 @@ fun ConfigEditScreen(
                 }
             }
 
+            // 排除的原始书名：书名完全相等才跳过（逗号/换行分隔）
+            OutlinedTextField(
+                value = excludedTitles,
+                onValueChange = { excludedTitles = it },
+                label = { Text(stringResource(R.string.excluded_titles)) },
+                placeholder = { Text(stringResource(R.string.excluded_titles_hint)) },
+                minLines = 2,
+                maxLines = 4,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // 排除的书名词汇：书名包含该词汇即跳过（逗号/换行分隔）
+            OutlinedTextField(
+                value = excludedTitleKeywords,
+                onValueChange = { excludedTitleKeywords = it },
+                label = { Text(stringResource(R.string.excluded_title_keywords)) },
+                placeholder = { Text(stringResource(R.string.excluded_title_keywords_hint)) },
+                minLines = 2,
+                maxLines = 4,
+                modifier = Modifier.fillMaxWidth()
+            )
+
             // 最小体积
             OutlinedTextField(
                 value = minSize,
@@ -393,6 +419,8 @@ fun ConfigEditScreen(
                         recursive = recursive,
                         exactHash = exactHash,
                         excludedFolders = excludedNames.joinToString(","),
+                        excludedTitles = excludedTitles,
+                        excludedTitleKeywords = excludedTitleKeywords,
                         scanMode = scanMode
                     )
                     LogUtil.i("ConfigEditScreen", "保存配置 ${if (isEdit) "更新" else "新建"} name=${cfg.name} types=$typesStr folder=$folderName mode=$scanMode")

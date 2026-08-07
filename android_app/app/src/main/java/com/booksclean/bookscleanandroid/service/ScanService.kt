@@ -59,6 +59,10 @@ class ScanService : Service() {
             val recursive = intent.getBooleanExtra("recursive", true)
             // 需要排除的子文件夹名称（逗号分隔）
             val excludedFolders = intent.getStringExtra("excluded_folders") ?: ""
+            // 排除的原始书名：书名完全相等才跳过（逗号/换行分隔）
+            val excludedTitles = intent.getStringExtra("excluded_titles") ?: ""
+            // 排除的书名词汇：书名包含该词汇即跳过（逗号/换行分隔）
+            val excludedTitleKeywords = intent.getStringExtra("excluded_title_keywords") ?: ""
             // 扫描模式："quick"=快速扫描(不检测编码)，"deep"=深度扫描(检测编码)
             val scanMode = intent.getStringExtra("scan_mode") ?: "quick"
             // 内容哈希：仅深度扫描时有效，对文件内容计算哈希值
@@ -84,7 +88,7 @@ class ScanService : Service() {
             )
 
             startForeground(NOTIFICATION_ID, createNotification(getString(R.string.scan_preparing)))
-            startScanning(treeUri, fileTypes, minSizeKb, recursive, excludedFolders, configName, folderName, scanMode, exactHash)
+            startScanning(treeUri, fileTypes, minSizeKb, recursive, excludedFolders, excludedTitles, excludedTitleKeywords, configName, folderName, scanMode, exactHash)
         } else if (intent?.action == ACTION_STOP_SCAN) {
             stopScanning()
         }
@@ -97,6 +101,8 @@ class ScanService : Service() {
         minSizeKb: Int,
         recursive: Boolean,
         excludedFolders: String,
+        excludedTitles: String,
+        excludedTitleKeywords: String,
         configName: String,
         folderName: String,
         scanMode: String,
@@ -136,6 +142,20 @@ class ScanService : Service() {
                 val hasScanRules = scanRules.isNotEmpty()
                 val hasParseRules = parseRules.isNotEmpty()
 
+                // 解析“排除原始书名 / 排除书名词汇”：按逗号或换行切分，去空白、去空项。
+                // 命中任一项的书名在解析后剔除（等同该文件被跳过，不入库）。
+                val excludedTitleSet = excludedTitles
+                    .split(',', '\n')
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                    .toSet()
+                val excludedTitleKeywordList = excludedTitleKeywords
+                    .split(',', '\n')
+                    .map { it.trim() }
+                    .filter { it.isNotEmpty() }
+                val hasTitleExclude = excludedTitleSet.isNotEmpty() || excludedTitleKeywordList.isNotEmpty()
+
+
                 if (total == 0) {
                     app.repository.setRunFileCount(runId, 0)
                     ScanStateManager.update(
@@ -171,6 +191,12 @@ class ScanService : Service() {
                             if (!isActive || ScanStateManager.stopRequested.value) return@launch
                             val entry = fileList[idx]
                             val entity = parseOne(entry, runId, scanRules, parseRules, hasScanRules, hasParseRules, scanMode, exactHash)
+                            // 命中“排除原始书名 / 排除书名词汇”的文件：解析后剔除，不入库（等同扫描跳过）
+                            if (hasTitleExclude && titleExcluded(entity.title, excludedTitleSet, excludedTitleKeywordList)) {
+                                val d = done.incrementAndGet()
+                                reportParseProgress(d, total, entity.fileName, lastState)
+                                continue
+                            }
                             val d = done.incrementAndGet()
                             reportParseProgress(d, total, entity.fileName, lastState)
                             updateNotificationThrottled(
@@ -258,6 +284,25 @@ class ScanService : Service() {
                 stopSelf()
             }
         }
+    }
+
+    /**
+     * 判断某书名是否命中“排除原始书名 / 排除书名词汇”。
+     * - excludedTitleSet：精确书名集合，完全相同才剔除；
+     * - excludedTitleKeywordList：书名词汇列表，书名包含任一词汇即剔除。
+     * 两者为“或”关系（命中任一即排除）。title 为空时不算命中。
+     */
+    private fun titleExcluded(
+        title: String,
+        excludedTitleSet: Set<String>,
+        excludedTitleKeywordList: List<String>
+    ): Boolean {
+        if (title.isEmpty()) return false
+        if (excludedTitleSet.contains(title)) return true
+        for (kw in excludedTitleKeywordList) {
+            if (title.contains(kw)) return true
+        }
+        return false
     }
 
     /**

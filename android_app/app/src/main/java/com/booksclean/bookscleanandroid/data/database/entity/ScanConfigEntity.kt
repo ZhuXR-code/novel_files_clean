@@ -32,6 +32,12 @@ data class ScanConfigEntity(
     val exactHash: Boolean = false,
     @ColumnInfo(name = "excluded_folders")
     val excludedFolders: String = "",
+    /** 排除的原始书名，多个用逗号/换行分隔，书名完全相等才跳过。 */
+    @ColumnInfo(name = "excluded_titles", defaultValue = "''")
+    val excludedTitles: String = "",
+    /** 排除的书名词汇，多个用逗号/换行分隔，书名包含该词汇即跳过。 */
+    @ColumnInfo(name = "excluded_title_keywords", defaultValue = "''")
+    val excludedTitleKeywords: String = "",
     /** "quick"=快速扫描(不检测编码), "deep"=深度扫描(检测编码)。默认 quick。 */
     @ColumnInfo(name = "scan_mode", defaultValue = "'quick'")
     val scanMode: String = "quick"

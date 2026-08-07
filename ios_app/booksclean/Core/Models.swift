@@ -35,6 +35,8 @@ struct ScanConfig: Identifiable, Hashable {
     var recursive: Bool = true
     var exactHash: Bool = false
     var excludedFolders: String = ""
+    var excludedTitles: String = ""        // 排除的原始书名，多个逗号/换行分隔，书名完全相等才跳过
+    var excludedTitleKeywords: String = "" // 排除的书名词汇，多个逗号/换行分隔，书名包含该词汇即跳过
     var scanMode: String = "quick"       // "quick" | "deep"
 }
 

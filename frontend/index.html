@@ -501,6 +501,14 @@
                     <input type="text" id="cfgExcludedFolders" placeholder="如: node_modules, .git, __pycache__">
                 </div>
                 <div class="form-group">
+                    <label>排除的原始书名 <small>(逗号/换行分隔，书名完全相等才跳过)</small></label>
+                    <textarea id="cfgExcludedTitles" rows="2" placeholder="如: 某某小说全集&#10;某书第一卷"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>排除的书名词汇 <small>(逗号/换行分隔，书名里含有该词汇即跳过)</small></label>
+                    <textarea id="cfgExcludedTitleKeywords" rows="2" placeholder="如: 番外&#10;草稿&#10;未完结"></textarea>
+                </div>
+                <div class="form-group">
                     <label><input type="checkbox" id="cfgParseOnScan" checked> 扫描时同步进行工程类解析 <small>(勾选后扫描完成会自动解析文件名提取书名/作者，合集与勾选重复立即可用；默认开启)</small></label>
                 </div>
                 <div class="form-group">
@@ -618,6 +626,6 @@
         <button class="back-nav-btn" id="backToBottomBtn" title="回到底部" onclick="scrollToBottom()">↓</button>
     </div>
 
-    <script src="/static/js/app.js?v=20260803a"></script>
+    <script src="/static/js/app.js?v=20260807a"></script>
 </body>
 </html>

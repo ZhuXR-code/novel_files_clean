@@ -36,6 +36,8 @@ final class DatabaseManager {
         addColumnIfMissing("dup_rule_configs", "sort_order", "INTEGER NOT NULL DEFAULT 0")
         addColumnIfMissing("dup_rule_configs", "created_at", "INTEGER NOT NULL DEFAULT 0")
         addColumnIfMissing("dup_rule_configs", "updated_at", "INTEGER NOT NULL DEFAULT 0")
+        addColumnIfMissing("scan_config", "excluded_titles", "TEXT NOT NULL DEFAULT ''")
+        addColumnIfMissing("scan_config", "excluded_title_keywords", "TEXT NOT NULL DEFAULT ''")
     }
 
     private func addColumnIfMissing(_ table: String, _ column: String, _ definition: String) {
@@ -752,7 +754,7 @@ final class DatabaseManager {
 
     // MARK: - scan_config
     func getScanConfigs() -> [ScanConfig] {
-        fetchAll("SELECT id,name,folder_uri,folder_name,file_types,min_size_kb,recursive,exact_hash,excluded_folders,scan_mode FROM scan_config ORDER BY id DESC").map { r in
+        fetchAll("SELECT id,name,folder_uri,folder_name,file_types,min_size_kb,recursive,exact_hash,excluded_folders,excluded_titles,excluded_title_keywords,scan_mode FROM scan_config ORDER BY id DESC").map { r in
             var c = ScanConfig()
             c.id = (r[0] as? Int64) ?? 0
             c.name = (r[1] as? String) ?? ""
@@ -763,7 +765,9 @@ final class DatabaseManager {
             c.recursive = (r[6] as? Int64).map { $0 != 0 } ?? true
             c.exactHash = (r[7] as? Int64).map { $0 != 0 } ?? false
             c.excludedFolders = (r[8] as? String) ?? ""
-            c.scanMode = (r[9] as? String) ?? "quick"
+            c.excludedTitles = (r[9] as? String) ?? ""
+            c.excludedTitleKeywords = (r[10] as? String) ?? ""
+            c.scanMode = (r[11] as? String) ?? "quick"
             return c
         }
     }
@@ -774,12 +778,12 @@ final class DatabaseManager {
 
     func saveScanConfig(_ c: ScanConfig) -> Int64 {
         if c.id > 0 {
-            execute("UPDATE scan_config SET name=?,folder_uri=?,folder_name=?,file_types=?,min_size_kb=?,recursive=?,exact_hash=?,excluded_folders=?,scan_mode=? WHERE id=?",
-                    [c.name, c.folderUri, c.folderName, c.fileTypes, c.minSizeKb, c.recursive ? 1 : 0, c.exactHash ? 1 : 0, c.excludedFolders, c.scanMode, c.id])
+            execute("UPDATE scan_config SET name=?,folder_uri=?,folder_name=?,file_types=?,min_size_kb=?,recursive=?,exact_hash=?,excluded_folders=?,excluded_titles=?,excluded_title_keywords=?,scan_mode=? WHERE id=?",
+                    [c.name, c.folderUri, c.folderName, c.fileTypes, c.minSizeKb, c.recursive ? 1 : 0, c.exactHash ? 1 : 0, c.excludedFolders, c.excludedTitles, c.excludedTitleKeywords, c.scanMode, c.id])
             return c.id
         } else {
-            return executeReturnId("INSERT INTO scan_config (name,folder_uri,folder_name,file_types,min_size_kb,recursive,exact_hash,excluded_folders,scan_mode) VALUES (?,?,?,?,?,?,?,?,?)",
-                                   [c.name, c.folderUri, c.folderName, c.fileTypes, c.minSizeKb, c.recursive ? 1 : 0, c.exactHash ? 1 : 0, c.excludedFolders, c.scanMode])
+            return executeReturnId("INSERT INTO scan_config (name,folder_uri,folder_name,file_types,min_size_kb,recursive,exact_hash,excluded_folders,excluded_titles,excluded_title_keywords,scan_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                                   [c.name, c.folderUri, c.folderName, c.fileTypes, c.minSizeKb, c.recursive ? 1 : 0, c.exactHash ? 1 : 0, c.excludedFolders, c.excludedTitles, c.excludedTitleKeywords, c.scanMode])
         }
     }
 

@@ -262,6 +262,7 @@ def init_database():
     # 迁移：为 scan_configs 表添加 parse_on_scan 列（扫描时同步工程类解析）
     _migrate_scan_config_parse_on_scan()
     _migrate_scan_config_scan_mode()
+    _migrate_scan_config_excluded_titles()
     # 迁移：为 scan_results 表添加 checked 列（勾选重复持久化）
     _migrate_scan_results_checked()
     # 迁移：为 file_metadata 表添加拼音列和编码列
@@ -410,6 +411,8 @@ def _migrate_column_comments():
                     ('folder_path', 'VARCHAR(500)', '扫描文件夹路径'),
                     ('file_types', 'VARCHAR(200)', '文件类型，多个用逗号分隔'),
                     ('excluded_folders', 'TEXT', '排除的文件夹，多个用逗号分隔'),
+                    ('excluded_titles', 'TEXT', '排除的原始书名，多个用逗号/换行分隔，书名完全相等才跳过'),
+                    ('excluded_title_keywords', 'TEXT', '排除的书名词汇，多个用逗号/换行分隔，书名包含该词汇即跳过'),
                     ('created_at', 'DATETIME', '创建时间'),
                     ('updated_at', 'DATETIME', '更新时间'),
                 ],
@@ -643,6 +646,36 @@ def _migrate_scan_config_scan_mode():
         logger.info('迁移: 添加列 scan_configs.scan_mode')
     except Exception as e:
         logger.warning(f'scan_configs scan_mode 迁移警告: {e}')
+
+
+def _migrate_scan_config_excluded_titles():
+    """迁移：为 scan_configs 表添加 excluded_titles / excluded_title_keywords 两列。
+
+    - excluded_titles：排除的原始书名（精确匹配），多个逗号/换行分隔。
+    - excluded_title_keywords：排除的书名词汇（书名包含即跳过）。
+    旧库升级时补列，保持向后兼容。
+    """
+    try:
+        from sqlalchemy import inspect as sa_inspect
+        insp = sa_inspect(engine)
+        if 'scan_configs' not in insp.get_table_names():
+            return
+        existing_cols = {c['name'] for c in insp.get_columns('scan_configs')}
+        with engine.begin() as conn:
+            if 'excluded_titles' not in existing_cols:
+                if IS_SQLITE:
+                    conn.execute(text("ALTER TABLE scan_configs ADD COLUMN excluded_titles TEXT"))
+                else:
+                    conn.execute(text("ALTER TABLE scan_configs ADD COLUMN excluded_titles TEXT COMMENT '排除的原始书名，多个用逗号/换行分隔，书名完全相等才跳过'"))
+                logger.info('迁移: 添加列 scan_configs.excluded_titles')
+            if 'excluded_title_keywords' not in existing_cols:
+                if IS_SQLITE:
+                    conn.execute(text("ALTER TABLE scan_configs ADD COLUMN excluded_title_keywords TEXT"))
+                else:
+                    conn.execute(text("ALTER TABLE scan_configs ADD COLUMN excluded_title_keywords TEXT COMMENT '排除的书名词汇，多个用逗号/换行分隔，书名包含该词汇即跳过'"))
+                logger.info('迁移: 添加列 scan_configs.excluded_title_keywords')
+    except Exception as e:
+        logger.warning(f'scan_configs excluded_titles 迁移警告: {e}')
 
 
 def _migrate_file_metadata_encoding():
@@ -1315,6 +1348,8 @@ def list_configs(db: Session = Depends(get_db)):
             'folder_path': c.folder_path,
             'file_types': c.file_types,
             'excluded_folders': c.excluded_folders or '',
+            'excluded_titles': c.excluded_titles or '',
+            'excluded_title_keywords': c.excluded_title_keywords or '',
             'parse_on_scan': bool(c.parse_on_scan),
             'scan_mode': (c.scan_mode or 'quick'),
             'created_at': c.created_at.isoformat() if c.created_at else None,
@@ -1335,6 +1370,8 @@ def create_config(data: dict, db: Session = Depends(get_db)):
         folder_path=data['folder_path'],
         file_types=data.get('file_types', 'txt'),
         excluded_folders=data.get('excluded_folders', ''),
+        excluded_titles=data.get('excluded_titles', ''),
+        excluded_title_keywords=data.get('excluded_title_keywords', ''),
         parse_on_scan=parse_on_scan if isinstance(parse_on_scan, bool) else str(parse_on_scan).lower() in ('1', 'true', 'yes', 'on'),
         scan_mode=scan_mode,
     )
@@ -1366,6 +1403,10 @@ def update_config(config_id: int, data: dict, db: Session = Depends(get_db)):
         config.file_types = data['file_types']
     if 'excluded_folders' in data:
         config.excluded_folders = data.get('excluded_folders', '')
+    if 'excluded_titles' in data:
+        config.excluded_titles = data.get('excluded_titles', '')
+    if 'excluded_title_keywords' in data:
+        config.excluded_title_keywords = data.get('excluded_title_keywords', '')
     if 'parse_on_scan' in data:
         v = data['parse_on_scan']
         config.parse_on_scan = v if isinstance(v, bool) else str(v).lower() in ('1', 'true', 'yes', 'on')
@@ -1884,6 +1925,52 @@ def clear_config_results(config_id: int, with_files: bool = Query(False), db: Se
     }
 
 
+def _cfg_title_excludes(db, config_id):
+    """读取某扫描配置的“排除原始书名 / 排除书名词汇”，返回 (精确书名集合, 书名词汇列表)。
+
+    - 精确书名：excluded_titles，书名完全相同才排除。
+    - 书名词汇：excluded_title_keywords，书名包含该词汇即排除。
+    两者为“或”关系（命中任一即排除）。按逗号/换行切分，去空白、丢弃空项。
+    """
+    exact = set()
+    keywords = []
+    if config_id is None:
+        return exact, keywords
+    cfg = db.query(ScanConfig).filter(ScanConfig.id == config_id).first()
+    if cfg is None:
+        return exact, keywords
+    if getattr(cfg, 'excluded_titles', None):
+        for t in re.split(r'[,\n，\r]', str(cfg.excluded_titles)):
+            t = t.strip()
+            if t:
+                exact.add(t)
+    if getattr(cfg, 'excluded_title_keywords', None):
+        for k in re.split(r'[,\n，\r]', str(cfg.excluded_title_keywords)):
+            k = k.strip()
+            if k:
+                keywords.append(k)
+    return exact, keywords
+
+
+def _apply_cfg_title_excludes(query, db, config_id, keyword_op='notin'):
+    """在列表/合集查询上追加配置级书名排除过滤。
+
+    keyword_op='notin' 表示词汇也按精确排除（本工程不使用）；
+    书名词汇采用“包含即排除”，因此用 notlike 逐个条件拼接。
+    """
+    exact, keywords = _cfg_title_excludes(db, config_id)
+    if exact:
+        query = query.filter(
+            func.coalesce(FileMetadata.novel_name, '').notin_(list(exact))
+        )
+    for kw in keywords:
+        # 书名包含该词汇即排除：novel_name NOT LIKE '%kw%'
+        query = query.filter(
+            ~func.coalesce(FileMetadata.novel_name, '').like('%' + kw + '%')
+        )
+    return query
+
+
 @app.get('/api/results')
 def list_results(
     config_id: Optional[int] = Query(None),
@@ -1956,6 +2043,9 @@ def list_results(
              base_query = base_query.filter(
                  func.coalesce(FileMetadata.novel_name, '').notin_(exclude_list)
              )
+
+    # 扫描配置级别的“排除原始书名 / 排除书名词汇”：命中任一项的书名在结果列表中跳过
+    _apply_cfg_title_excludes(base_query, db, config_id, keyword_op='notlike')
 
     if checked_filter == 'checked':
         base_query = base_query.filter(ScanResult.checked == True)
@@ -2125,6 +2215,13 @@ def list_groups(
         if exclude_list:
             group_query = group_query.filter(FileGroup.novel_name.notin_(exclude_list))
 
+    # 扫描配置级别的“排除原始书名 / 排除书名词汇”
+    _exact, _kw = _cfg_title_excludes(db, config_id)
+    if _exact:
+        group_query = group_query.filter(FileGroup.novel_name.notin_(list(_exact)))
+    for _k in _kw:
+        group_query = group_query.filter(~FileGroup.novel_name.like('%' + _k + '%'))
+
     # 子查询：计算每个分组的作者重复数量（COUNT(author) - COUNT(DISTINCT author)）
     author_dup_sub = db.query(
         func.coalesce(FileMetadata.novel_name, '').label('group_name'),
@@ -2274,6 +2371,14 @@ def select_duplicates(
         exclude_list = [n.strip() for n in exclude_names.split(',') if n.strip()]
         if exclude_list:
             name_query = name_query.filter(FileGroup.novel_name.notin_(exclude_list))
+
+    # 扫描配置级别的“排除原始书名 / 排除书名词汇”
+    _exact, _kw = _cfg_title_excludes(db, config_id)
+    if _exact:
+        name_query = name_query.filter(FileGroup.novel_name.notin_(list(_exact)))
+    for _k in _kw:
+        name_query = name_query.filter(~FileGroup.novel_name.like('%' + _k + '%'))
+
     valid_names = set(n[0] for n in name_query.all())
     collections_processed = len(valid_names)
 

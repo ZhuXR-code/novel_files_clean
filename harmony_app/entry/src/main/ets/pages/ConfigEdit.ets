@@ -21,6 +21,8 @@ struct ConfigEdit {
   @State recursive: boolean = true;
   @State exactHash: boolean = false;
   @State excludedFolders: string = '';
+  @State excludedTitles: string = '';          // 排除的原始书名，逗号/换行分隔
+  @State excludedTitleKeywords: string = '';    // 排除的书名词汇，逗号/换行分隔
   @State saving: boolean = false;
   // D组 #11 扫描模式：quick=快速(不计算哈希) / deep=精确(计算哈希)
   @State scanMode: string = 'quick';
@@ -41,6 +43,8 @@ struct ConfigEdit {
         this.recursive = cfg.recursive;
         this.exactHash = cfg.exactHash;
         this.excludedFolders = cfg.excludedFolders;
+        this.excludedTitles = cfg.excludedTitles;
+        this.excludedTitleKeywords = cfg.excludedTitleKeywords;
         this.scanMode = cfg.exactHash ? 'deep' : 'quick';
       }
     } else {
@@ -157,6 +161,8 @@ struct ConfigEdit {
     cfg.recursive = this.recursive;
     cfg.exactHash = this.exactHash;
     cfg.excludedFolders = this.excludedFolders.trim();
+    cfg.excludedTitles = this.excludedTitles.trim();
+    cfg.excludedTitleKeywords = this.excludedTitleKeywords.trim();
     try {
       if (this.configId > 0) {
         await ScanConfigDao.update(cfg);
@@ -337,6 +343,24 @@ struct ConfigEdit {
               }
               .width('100%')
             }
+          }
+          .alignItems(HorizontalAlign.Start).width('100%')
+          .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)
+
+          // 排除的原始书名（书名完全相同才跳过）
+          Column({ space: 6 }) {
+            Text('排除的原始书名(逗号/换行分隔，书名完全相同才跳过)').fontSize(14).fontColor($r('app.color.text_secondary'))
+              .alignSelf(ItemAlign.Start)
+            AppTextInput({ text: this.excludedTitles, placeholder: '如 某某小说全集', onChangeCallback: (v: string) => (this.excludedTitles = v) })
+          }
+          .alignItems(HorizontalAlign.Start).width('100%')
+          .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)
+
+          // 排除的书名词汇（书名包含该词汇即跳过）
+          Column({ space: 6 }) {
+            Text('排除的书名词汇(逗号/换行分隔，书名包含该词汇即跳过)').fontSize(14).fontColor($r('app.color.text_secondary'))
+              .alignSelf(ItemAlign.Start)
+            AppTextInput({ text: this.excludedTitleKeywords, placeholder: '如 番外;草稿', onChangeCallback: (v: string) => (this.excludedTitleKeywords = v) })
           }
           .alignItems(HorizontalAlign.Start).width('100%')
           .backgroundColor($r('app.color.bg_card')).borderRadius(10).padding(12)

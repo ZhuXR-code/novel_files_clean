@@ -131,6 +131,9 @@ export class RdbHelper {
         exact_hash INTEGER NOT NULL DEFAULT 0,
         excluded_folders TEXT NOT NULL DEFAULT ''
       )`, 'scan_config');
+    // 旧库升级：补齐排除书名两列（新库 CREATE 已含）。重复执行 ALTER 报 "duplicate column" 由 safe 吞掉，不中断。
+    await safe("ALTER TABLE scan_config ADD COLUMN excluded_titles TEXT NOT NULL DEFAULT ''", 'scan_config.excluded_titles');
+    await safe("ALTER TABLE scan_config ADD COLUMN excluded_title_keywords TEXT NOT NULL DEFAULT ''", 'scan_config.excluded_title_keywords');
 
     await safe(`
       CREATE TABLE IF NOT EXISTS scan_run (

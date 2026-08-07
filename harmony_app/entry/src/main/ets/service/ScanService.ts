@@ -322,6 +322,9 @@ export class ScanService {
       }
     };
 
+    // 解析“排除原始书名 / 排除书名词汇”：命中任一项的书名在解析后剔除（等同该文件被跳过，不入库）
+    const titleExcludes = ScanService.parseTitleExcludes(config);
+
     while (currentLevel.length > 0 && !ScanService.stopped) {
       const nextLevel: string[] = [];
       for (const dir of currentLevel) {
@@ -354,14 +357,54 @@ export class ScanService {
           if (ScanService.stopped) {
             break;
           }
-          const childUri: string = dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`;
+          // fileIo.listFile 对文档树/文件 URI 的返回值有两种形态：
+          //   1) 子项「完整 URI」（含 scheme，如 file:///.../Books/sub）——官方文档主形态；
+          //   2) 子项「纯文件名」（如 "sub"）——对真实文件系统路径文件 URI 的返回。
+          // 之前一律按纯文件名做 `${dir}/${name}` 字符串拼接，当 name 已是完整 URI 时
+          // 会拼出 `${docTreeUri}/file:///.../sub` 这种非法 URI，fileIo.stat 抛异常被
+          // catch 跳过，子目录永远进不了 nextLevel，递归只跑第一层就结束——即「递归
+          // 扫描没有生效」。这里先归一化为正确的子项 URI。
+          let childUri: string;
+          if (name.includes('://')) {
+            childUri = name; // listFile 已返回完整子项 URI，直接用
+          } else if (name.startsWith('/')) {
+            childUri = `file://${name}`; // 真实绝对路径，补 scheme
+          } else {
+            // 纯文件名：优先用 FileUri 基于父 URI 正确构造层级 URI（文档树 URI 不能简单拼接）
+            try {
+              const parentObj = new fileUri.FileUri(dir);
+              const basePath: string = parentObj.path ?? '';
+              if (basePath.length > 0) {
+                const subPath: string = basePath.endsWith('/') ? `${basePath}${name}` : `${basePath}/${name}`;
+                childUri = new fileUri.FileUri(subPath).toString();
+              } else {
+                childUri = dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`;
+              }
+            } catch (e) {
+              childUri = dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`;
+            }
+          }
+
           let stat: fileIo.Stat | null = null;
           try {
             stat = await fileIo.stat(childUri);
           } catch (e) {
             continue;
           }
-          if (stat.isDirectory()) {
+          // 判定目录：以 stat.isDirectory() 为主；文档树 URI 子项 stat 不可靠时，
+          // 用「listFile 能成功返回数组」作为目录的兜底判据，确保递归能下钻。
+          let isDir: boolean = stat.isDirectory();
+          if (!isDir) {
+            try {
+              const probe: string[] = await fileIo.listFile(childUri);
+              if (Array.isArray(probe) && probe.length >= 0) {
+                isDir = true;
+              }
+            } catch (e) {
+              // listFile 失败说明不是可遍历目录，维持 isDir=false
+            }
+          }
+          if (isDir) {
             if (config.recursive && !ScanService.isExcluded(name, config.excludedFolders)) {
               nextLevel.push(childUri);
             }
@@ -403,6 +446,12 @@ export class ScanService {
             // stat.mtime 为最后修改时间；不同 API 版本可能是秒或毫秒，统一归一化为毫秒
             const rawMtime: number = stat.mtime ? Number(stat.mtime) : 0;
             rec.fileDate = rawMtime > 0 ? (rawMtime < 1e12 ? rawMtime * 1000 : rawMtime) : 0;
+            // 命中“排除原始书名 / 排除书名词汇”的文件：解析后剔除，不入库（等同扫描跳过）
+            if (ScanService.titleExcluded(rec.title, titleExcludes.exact, titleExcludes.keywords)) {
+              processed++;
+              reportProgress(name);
+              continue;
+            }
             batch.push(rec);
             found++;
             if (batch.length >= ScanService.BATCH_SIZE) {
@@ -536,6 +585,40 @@ export class ScanService {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     return list.includes(name);
+  }
+
+  /**
+   * 判断某书名是否命中「排除原始书名 / 排除书名词汇」。
+   * - exactList：精确书名列表，完全相同才剔除；
+   * - keywordList：书名词汇列表，书名包含任一词汇即剔除。
+   * 两者为「或」关系（命中任一即排除）。title 为空时不算命中。
+   */
+  private static titleExcluded(title: string, exactList: string[], keywordList: string[]): boolean {
+    if (!title || title.length === 0) {
+      return false;
+    }
+    if (exactList.includes(title)) {
+      return true;
+    }
+    for (const kw of keywordList) {
+      if (kw.length > 0 && title.includes(kw)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** 把排除书名配置（逗号/换行分隔）解析为精确书名集合与书名词汇列表。 */
+  private static parseTitleExcludes(config: ScanConfig): { exact: string[]; keywords: string[] } {
+    const splitExcludes = (raw: string): string[] =>
+      (raw ?? '')
+        .split(/[,\n，\r]/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+    return {
+      exact: splitExcludes(config.excludedTitles),
+      keywords: splitExcludes(config.excludedTitleKeywords)
+    };
   }
 
   private static matchExt(ext: string, fileTypes: string): boolean {

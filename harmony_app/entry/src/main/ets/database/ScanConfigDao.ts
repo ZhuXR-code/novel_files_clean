@@ -45,6 +45,8 @@ export class ScanConfigDao {
     c.recursive = ScanConfigDao.colNum(rs, 'recursive') === 1;
     c.exactHash = ScanConfigDao.colNum(rs, 'exact_hash') === 1;
     c.excludedFolders = ScanConfigDao.colStr(rs, 'excluded_folders');
+    c.excludedTitles = ScanConfigDao.colStr(rs, 'excluded_titles');
+    c.excludedTitleKeywords = ScanConfigDao.colStr(rs, 'excluded_title_keywords');
     return c;
   }
 
@@ -57,7 +59,9 @@ export class ScanConfigDao {
       min_size_kb: c.minSizeKb,
       recursive: c.recursive ? 1 : 0,
       exact_hash: c.exactHash ? 1 : 0,
-      excluded_folders: c.excludedFolders
+      excluded_folders: c.excludedFolders,
+      excluded_titles: c.excludedTitles,
+      excluded_title_keywords: c.excludedTitleKeywords
     };
   }
 

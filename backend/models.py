@@ -55,6 +55,8 @@ class ScanConfig(Base):
     folder_path = Column(String(500), nullable=False, comment='扫描文件夹路径')
     file_types = Column(String(200), nullable=False, default='txt', comment='文件类型，多个用逗号分隔')
     excluded_folders = Column(Text, nullable=True, comment='排除的文件夹，多个用逗号分隔')
+    excluded_titles = Column(Text, nullable=True, comment='排除的原始书名，多个用逗号/换行分隔，书名完全相等才跳过')
+    excluded_title_keywords = Column(Text, nullable=True, comment='排除的书名词汇，多个用逗号/换行分隔，书名包含该词汇即跳过')
     parse_on_scan = Column(Boolean, nullable=False, default=True, comment='扫描时是否同步执行工程类解析（文件名/摘要），默认开启')
     scan_mode = Column(String(20), nullable=False, default='quick', comment='扫描模式: quick=快速扫描(仅文件名解析), deep=深度扫描(含编码检测)')
     created_at = Column(DateTime, server_default=func.now(), comment='创建时间')

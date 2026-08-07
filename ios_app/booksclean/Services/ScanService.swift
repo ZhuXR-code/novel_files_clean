@@ -39,6 +39,20 @@ final class ScanService {
         let minSize = Int64(config.minSizeKb) * 1024
         let excluded = Set(config.excludedFolders.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
 
+        // 解析“排除原始书名 / 排除书名词汇”：按逗号或换行切分，去空白、去空项。
+        // 命中任一项的书名在解析后剔除（等同该文件被跳过，不入库）。
+        let excludedTitles = Set((config.excludedTitles ?? "")
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .flatMap { $0.split(separator: "\n") }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty })
+        let excludedTitleKeywords = (config.excludedTitleKeywords ?? "")
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .flatMap { $0.split(separator: "\n") }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let hasTitleExclude = !excludedTitles.isEmpty || !excludedTitleKeywords.isEmpty
+
         // 收集 + 解析阶段（流式分批，避免一次性把 20w+ 文件 URL/元信息全量驻留内存导致 OOM）。
         // collect 每收集 BATCH 个文件就回调一次，本函数在回调内就地解析并批量落库，随后释放该批。
         let scanRules = FileRepository.shared.getEnabledRules(scope: KeywordReplace.SCOPE_SCAN)
@@ -62,6 +76,10 @@ final class ScanService {
                 let entity = self.parseItem(url: item.url, name: item.name, size: item.size, date: item.date,
                                             runId: runId, scanRules: useScan ? scanRules : [], parseRules: useParse ? parseRules : [],
                                             deep: deep, exactHash: config.exactHash, now: now)
+                // 命中“排除原始书名 / 排除书名词汇”的文件：解析后剔除，不入库（等同扫描跳过）
+                if hasTitleExclude && Self.titleExcluded(entity.title, exact: excludedTitles, keywords: excludedTitleKeywords) {
+                    continue
+                }
                 buffer.append(entity)
                 scanned += 1
                 if buffer.count >= 100 {
@@ -152,6 +170,19 @@ final class ScanService {
     }
 
     // MARK: - 单文件解析
+    /// 判断某书名是否命中“排除原始书名 / 排除书名词汇”。
+    /// - exact：精确书名集合，完全相同才剔除；
+    /// - keywords：书名词汇列表，书名包含任一词汇即剔除。
+    /// 两者为“或”关系（命中任一即排除）。title 为空时不算命中。
+    static func titleExcluded(_ title: String, exact: Set<String>, keywords: [String]) -> Bool {
+        if title.isEmpty { return false }
+        if exact.contains(title) { return true }
+        for kw in keywords {
+            if title.contains(kw) { return true }
+        }
+        return false
+    }
+
     private func parseItem(url: URL, name: String, size: Int64, date: Int64, runId: Int64,
                            scanRules: [KeywordReplaceRule], parseRules: [KeywordReplaceRule],
                            deep: Bool, exactHash: Bool, now: Int64) -> ScannedFile {
@@ -208,7 +239,21 @@ final class ScanService {
     }
 
     private func readFileData(_ url: URL) -> Data? {
-        try? Data(contentsOf: url, options: .alwaysMapped)
+        // 关键：不能用 Data(contentsOf: .alwaysMapped) 直接 mmap。
+        // security-scoped 容器文件在扫描并发池线程上用 mmap 映射出的 NSData 桥接对象，
+        // 其底层 buffer 与 Swift Data 视图长度可能不一致，Insecure.MD5.hash 逐字节访问时
+        // 会触发 Data.subscript 的 _preconditionFailure（SIGTRAP），表现为勾选「计算内容指纹」闪退。
+        // 改为逐块读取并拼接到独立 owned Data，彻底隔离脏桥接，避免越界 trap。
+        guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? fh.close() }
+        var out = Data()
+        let chunk = 256 * 1024
+        while true {
+            let piece = fh.readData(ofLength: chunk)
+            guard !piece.isEmpty else { break }
+            out.append(piece.subdata(in: 0..<piece.count))
+        }
+        return out
     }
 
     /// 内容指纹（MD5，整文件）：与安卓端 computeContentHash 一致（整文件内容计算 MD5 十六进制小写）。

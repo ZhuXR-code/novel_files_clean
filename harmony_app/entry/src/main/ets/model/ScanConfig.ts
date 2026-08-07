@@ -13,4 +13,6 @@ export class ScanConfig {
   recursive: boolean = true;
   exactHash: boolean = false;
   excludedFolders: string = '';
+  excludedTitles: string = '';          // 排除的原始书名，多个逗号/换行分隔，书名完全相等才跳过
+  excludedTitleKeywords: string = '';    // 排除的书名词汇，多个逗号/换行分隔，书名包含该词汇即跳过
 }
