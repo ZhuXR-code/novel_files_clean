@@ -26,8 +26,8 @@ struct bookscleanApp: App {
                         .task {
                             // 启动即校验是否已买断（恢复/换设备自动解锁）
                             LogUtil.i("App", "未解锁，开始校验买断状态（恢复/换设备自动解锁）")
-                            await IAPManager.observeTransactions()
-                            await IAPManager.refreshUnlockedState()
+                            IAPManager.observeTransactions()
+                            let _ = await IAPManager.refreshUnlockedState()
                             LogUtil.i("App", "买断状态校验完成 unlocked=\(preferences.unlocked)")
                         }
                 }

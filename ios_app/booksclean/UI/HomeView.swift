@@ -55,7 +55,7 @@ struct HomeView: View {
                     .padding(.vertical, 4)
                 }
 
-                FSSection {
+                FSSection("扫描文库") {
                     HStack {
                         Text("文库列表")
                             .fsFont(.headline)
