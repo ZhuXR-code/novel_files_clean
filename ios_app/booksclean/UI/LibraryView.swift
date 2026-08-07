@@ -1354,14 +1354,16 @@ struct FilePreviewView: View {
 
         // 编码尝试链（去重保序）：
         //   1) 扫描阶段记录的存储编码（早期可能误判为 UTF-8）
-        //   2) GB18030（中文 txt 最常见的编码，优先于 UTF-8 兜底，避免 UTF-8 静默丢字节乱码）
-        //   3) UTF-8
+        //   2) UTF-16LE / UTF-16BE（Windows 记事本「Unicode」另存的中文 txt 极常见，必须纳入，
+        //      否则 UTF-16 字节流被 GB18030/UTF-8 解码必产生乱码）
+        //   3) GB18030（中文 txt 最常见的编码，优先于 UTF-8 兜底，避免 UTF-8 静默丢字节乱码）
+        //   4) UTF-8
         // 使用 EncodingUtil.decodeStrict：以「CJK 内容占比」为核心判据选择最合理解码；
         // 真 UTF-8 字节流因其 CJK 占比高且通过 looksLikeUtf8 校验而带红利，仍会被优先选中。
         // 覆盖典型场景：扫描仅采样 8KB，文件前段是 ASCII 序章被判为 UTF-8，
         // 中文内容出现在样本外，预览时整文件按错误编码解码会乱码——此处自动校正。
         var candidates: [String] = []
-        for name in [enc, "GB18030", "UTF-8"] where !candidates.contains(name) {
+        for name in [enc, "UTF-16LE", "UTF-16BE", "GB18030", "GBK", "UTF-8"] where !candidates.contains(name) {
             candidates.append(name)
         }
 
@@ -1533,19 +1535,40 @@ struct ScrollableText: UIViewRepresentable {
         tv.textContainerInset = .zero
         tv.textContainer.lineFragmentPadding = 0
         scroll.addSubview(tv)
-        context.coordinator.state = state
-        context.coordinator.scroll = scroll
-        context.coordinator.textView = tv
+        let coord = context.coordinator
+        // 关键：SwiftUI 在 NavigationStack pop 后再 push 同类型视图时**可能复用 Coordinator**
+        // （旧 Coordinator 已被 dismantleUIView 置 cancelled=true / textView=nil）。
+        // 若不重置，updateUIView 首行 guard 直接 return、永不渲染 → 二次打开黑屏。
+        // 这里统一重置全部渲染状态，保证新创建的 UITextView 一定会被 applyText 设置文本。
+        coord.cancelled = false
+        coord.lastText = nil
+        coord.lastFontPt = 0
+        coord.layoutRetry = 0
+        coord.state = state
+        coord.scroll = scroll
+        coord.textView = tv
         state.scrollView = scroll
         return scroll
     }
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
+        let coord = context.coordinator
+        // 自愈：SwiftUI 在 pop 后再次 push 同类型视图时**可能复用 Coordinator 与 UIKit 视图**
+        // （只调 updateUIView、不调 makeUIView）。此时 coord 仍是 dismantleUIView 标记过的
+        // 旧状态（cancelled=true / textView=nil），若直接 return 则**二次打开永久黑屏**。
+        // 从 scroll 现有 subviews 找回 UITextView 恢复绑定，并清除 cancelled，让渲染继续。
+        if coord.cancelled || coord.textView == nil {
+            coord.cancelled = false
+            coord.layoutRetry = 0
+            if coord.textView == nil {
+                coord.textView = scroll.subviews.compactMap { $0 as? UITextView }.first
+            }
+            if coord.scroll == nil { coord.scroll = scroll }
+        }
         // 视图已卸载（返回上个页面 / 切换文件）：context 可能已失效，立即退出，避免访问
         // 已离屏或重用的 scrollView/UITextView 造成 EXC_BAD_ACCESS。
         // 典型场景：第一个文件 bounds=0 时排了 DispatchQueue.main.async 重入闭包，用户在
         // 下一帧前返回并打开第二个文件，旧闭包 fire 时访问已释放的 context/scroll 导致闪退。
-        let coord = context.coordinator
         guard !coord.cancelled, coord.textView != nil else { return }
         // SwiftUI 首次 layout 时 scroll.bounds 可能仍为 0，延迟到下一帧再渲染，避免首帧 tv 宽度为 0 文本不可见。
         if scroll.bounds.width <= 0 || scroll.bounds.height <= 0 {
@@ -1553,7 +1576,9 @@ struct ScrollableText: UIViewRepresentable {
             // 注意：闭包**绝不能捕获 context**（Context 内含 SwiftUI 内部存储，视图卸载后再访问其
             // coordinator 会 EXC_BAD_ACCESS）。这里只捕获 weak scroll + 强引用 coordinator 对象本身。
             // 同时限制重试次数，防止 bounds 长期为 0 时无限递归排队把主线程打爆。
-            if coord.lastText != text && coord.layoutRetry < 30 {
+            // 注意：重试条件**不判断 lastText != text**——Coordinator 复用场景下 lastText 可能
+            // 与本次 text 相同（同一文件二次打开），此时若因 lastText 相同而放弃重试会永久黑屏。
+            if coord.layoutRetry < 30 {
                 coord.layoutRetry += 1
                 let pending = text
                 let pendingFont = fontPt
@@ -1591,7 +1616,9 @@ struct ScrollableText: UIViewRepresentable {
     private static func applyText(tv: UITextView, scroll: UIScrollView, coord: Coordinator,
                                   text: String, fontPt: CGFloat, mode: ScrollMode) {
         // 文本或字号未变化时跳过重设富文本与布局，避免每次 body 重算都同步重建大段 NSAttributedString 阻塞主线程。
-        guard coord.lastText != text || coord.lastFontPt != fontPt else { return }
+        // 但 Coordinator 复用场景下（同一文件二次打开）lastText 可能仍等于 text，而 UITextView 是
+        // makeUIView 新建的空文本，此时必须强制重设（tv.text 为 nil 或与目标不一致即视为未渲染）。
+        if coord.lastText == text && coord.lastFontPt == fontPt && tv.text == text { return }
         coord.lastText = text
         coord.lastFontPt = fontPt
         let font = UIFont.systemFont(ofSize: fontPt)

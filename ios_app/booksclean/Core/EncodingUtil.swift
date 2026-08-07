@@ -86,6 +86,17 @@ enum EncodingUtil {
         func keep(_ count: Int) -> Data {
             count >= n ? data : Data(bytes[0..<max(0, count)])
         }
+        if encodingName == "UTF-16LE" || encodingName == "UTF-16BE" {
+            // UTF-16 必须按 2 字节对齐；末尾若为孤立高代理（后缺低代理），String 解码会失败，一并砍掉。
+            var keep = (n / 2) * 2
+            if keep >= 2 {
+                let hi: Int = encodingName == "UTF-16LE"
+                    ? (Int(bytes[keep - 2]) | (Int(bytes[keep - 1]) << 8))
+                    : ((Int(bytes[keep - 2]) << 8) | Int(bytes[keep - 1]))
+                if (0xD800...0xDBFF).contains(hi) { keep -= 2 } // 孤立高代理
+            }
+            return keep >= n ? data : Data(bytes[0..<max(0, keep)])
+        }
         if encodingName == "UTF-8" {
             // 回退最多 3 字节找到最后一个序列起始字节，判断该序列是否完整
             var i = n - 1
