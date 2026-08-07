@@ -296,9 +296,35 @@ struct DeleteProgressView: View {
         let interval = 64
         var lastReported = 0
         for (i, f) in files.enumerated() {
-            if physical, let u = URL(string: f.path) {
-                do { try FileManager.default.removeItem(at: u); deleted += 1 }
-                catch { failed += 1; LogUtil.e("Delete", "删除失败 \(f.fileName): \(error)"); FileRepository.shared.logOperation(level: "W", tag: "删除", message: "删除文件失败：\(f.fileName)（\(error.localizedDescription)）") }
+            if physical {
+                // 把 DB 中的 path 规整成可操作的 file URL：
+                // - 若已是 file:// 形式的 file URL，直接用
+                // - 否则当作沙盒外绝对路径，包装成 file URL
+                // 早期实现依赖 `URL(string: f.path)` 隐式推断，无前缀路径会被当作
+                // 相对 URL,leading to silent skip（整个 if 分支不进入、try/catch 都不跑），
+                // 进而导致 deleted=0/failed=0 但 ids.count=3 的“UI 0/0”bug。
+                let urlOpt: URL? = {
+                    if let u = URL(string: f.path), u.isFileURL { return u }
+                    return URL(fileURLWithPath: f.path)
+                }()
+                if let u = urlOpt {
+                    do {
+                        try FileManager.default.removeItem(at: u)
+                        deleted += 1
+                    } catch {
+                        failed += 1
+                        LogUtil.e("Delete", "删除失败 \(f.fileName): \(error)")
+                        FileRepository.shared.logOperation(level: "W", tag: "删除", message: "删除文件失败：\(f.fileName)（\(error.localizedDescription)）")
+                    }
+                } else {
+                    // URL 拼接都失败，按"失败"计入并在日志/数据库记一条
+                    failed += 1
+                    LogUtil.e("Delete", "路径无法解析为 file URL path=\(f.path)")
+                    FileRepository.shared.logOperation(level: "W", tag: "删除", message: "路径无法解析为 file URL：\(f.path)")
+                }
+            } else {
+                // 仅删记录：从用户视角也算"成功"，不能默默留在 0 / 共 N 显示成“啥都没干”
+                deleted += 1
             }
             let done = i + 1
             if done - lastReported >= interval {
