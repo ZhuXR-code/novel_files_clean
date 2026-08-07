@@ -23,7 +23,7 @@ import com.bookscleanandroid.app.util.LogUtil
         ScannedFileEntity::class, ScanConfigEntity::class, ScanRunEntity::class,
         KeywordReplaceRuleEntity::class, DupRuleConfigEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -245,6 +245,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v13 -> v14：scanned_file 为 content_hash 建索引。
+         * 加速“按内容哈希相同标记/勾选较早”的 GROUP BY content_hash 与自连接查询（10w 级文件尤为明显）。
+         * 历史版本曾在 v6->v7 时 DROP 过同名索引，此处用 IF NOT EXISTS 重建，幂等。
+         */
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_scanned_file_content_hash ON scanned_file(content_hash)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -252,7 +263,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also {

@@ -100,6 +100,64 @@ interface ScannedFileDao {
     suspend fun markDuplicatesByNameSql(runId: Long): Int
 
     /**
+     * 按内容哈希相同、但修改时间更早的文件标记。
+     * 同一 content_hash 组内仅保留“最新修改时间”的那一条（file_date 优先，回退 created_at，相同则取最大 id）不标记，
+     * 其余更早的全部标记 marked=1。仅作用于已计算哈希（content_hash <> ''）的文件。
+     */
+    @Query("""
+        UPDATE scanned_file
+        SET marked = 1
+        WHERE scan_run_id = :runId
+          AND content_hash <> ''
+          AND id NOT IN (
+            SELECT k.id FROM (
+                SELECT content_hash,
+                       MAX(COALESCE(file_date, created_at)) AS maxdate,
+                       MAX(id) AS keep_id
+                FROM scanned_file
+                WHERE scan_run_id = :runId AND content_hash <> ''
+                GROUP BY content_hash
+            ) g
+            JOIN scanned_file k
+              ON k.scan_run_id = :runId
+             AND k.content_hash = g.content_hash
+             AND COALESCE(k.file_date, k.created_at) = g.maxdate
+             AND k.id = g.keep_id
+          )
+    """)
+    suspend fun markDuplicatesByHashSql(runId: Long): Int
+
+    /**
+     * 按内容哈希相同、但修改时间更早的文件勾选。逻辑同 markDuplicatesByHashSql，仅置 checked=1。
+     */
+    @Query("""
+        UPDATE scanned_file
+        SET checked = 1
+        WHERE scan_run_id = :runId
+          AND content_hash <> ''
+          AND id NOT IN (
+            SELECT k.id FROM (
+                SELECT content_hash,
+                       MAX(COALESCE(file_date, created_at)) AS maxdate,
+                       MAX(id) AS keep_id
+                FROM scanned_file
+                WHERE scan_run_id = :runId AND content_hash <> ''
+                GROUP BY content_hash
+            ) g
+            JOIN scanned_file k
+              ON k.scan_run_id = :runId
+             AND k.content_hash = g.content_hash
+             AND COALESCE(k.file_date, k.created_at) = g.maxdate
+             AND k.id = g.keep_id
+          )
+    """)
+    suspend fun checkDuplicatesByHashSql(runId: Long): Int
+
+    /** 该文库是否已扫描内容哈希（存在非空 content_hash 的文件）。 */
+    @Query("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id = :runId AND content_hash <> ''")
+    suspend fun hasContentHash(runId: Long): Int
+
+    /**
      * 分页查询：WHERE/ORDER BY 由 Repository 依据筛选/搜索/排序动态拼装。
      * 返回 PagingSource 让 Paging3 以 LIMIT/OFFSET 分批加载，避免一次性把 10w 行读进内存。
      */

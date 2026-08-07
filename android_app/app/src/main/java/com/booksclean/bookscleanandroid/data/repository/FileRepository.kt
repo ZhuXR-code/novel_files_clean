@@ -76,6 +76,18 @@ class FileRepository(
         runDao.deleteById(runId)
     }
 
+    /**
+     * 合并多个文库为一个新文库。
+     * sourceIds 为待合并的文库 id（≥2），newName 为用户指定的新文库名称。
+     * 合并后：所有源文库的文件（保留勾选/标记/书名/作者等全部状态）归入新文库，
+     * 相同 path 跨文库自动去重（每个 path 保留一条）；源文库被删除。
+     * 返回新建文库的 id。
+     */
+    suspend fun mergeRuns(sourceIds: List<Long>, newName: String): Long {
+        require(sourceIds.size >= 2) { "合并文库至少需要选择 2 个" }
+        return runDao.mergeRuns(sourceIds, newName, System.currentTimeMillis())
+    }
+
     suspend fun getById(id: Long): ScannedFileEntity? = dao.getById(id)
     suspend fun getByIds(ids: List<Long>): List<ScannedFileEntity> = dao.getByIds(ids)
     suspend fun getMarked(): List<ScannedFileEntity> = dao.getMarked()
@@ -202,6 +214,28 @@ class FileRepository(
     suspend fun markDuplicatesByName(runId: Long): Int {
         val n = dao.markDuplicatesByNameSql(runId)
         LogUtil.i("Repo", "markDuplicatesByName marked $n files (run=$runId)")
+        return n
+    }
+
+    /**
+     * 按“内容哈希相同、修改时间更早”标记重复文件。
+     * 同一 hash 组内仅保留最新修改（file_date 优先，回退 created_at，相同取最大 id）的那条不标记，
+     * 其余更早的标记 marked=1。返回本次标记的条数；若该文库未扫描内容哈希则返回 -1（提示用户）。
+     */
+    suspend fun markDuplicatesByHash(runId: Long): Int {
+        if (dao.hasContentHash(runId) == 0) return -1
+        val n = dao.markDuplicatesByHashSql(runId)
+        LogUtil.i("Repo", "markDuplicatesByHash marked $n files (run=$runId)")
+        return n
+    }
+
+    /**
+     * 按“内容哈希相同、修改时间更早”勾选重复文件。逻辑同 markDuplicatesByHash，仅置 checked=1。
+     */
+    suspend fun checkDuplicatesByHash(runId: Long): Int {
+        if (dao.hasContentHash(runId) == 0) return -1
+        val n = dao.checkDuplicatesByHashSql(runId)
+        LogUtil.i("Repo", "checkDuplicatesByHash checked $n files (run=$runId)")
         return n
     }
 

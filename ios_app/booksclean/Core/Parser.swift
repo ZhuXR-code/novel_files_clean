@@ -86,6 +86,15 @@ enum Parser {
 
     /// 从文件名（不含扩展名）解析出 书名 / 作者 / 进度 / 来源。
     static func parseFileName(_ rawName: String) -> ParsedName {
+        do {
+            return try parseFileNameOrThrow(rawName)
+        } catch {
+            LogUtil.e("Parser", "解析文件名异常 rawName=\(rawName): \(error.localizedDescription)")
+            return ParsedName(title: rawName, author: "", progress: "", source: "")
+        }
+    }
+
+    private static func parseFileNameOrThrow(_ rawName: String) throws -> ParsedName {
         var name = rawName
         // 仅剥离真正的扩展名（白名单），对齐安卓 Parser.kt 的 EXT_RE / PC 的 _EXT_RE。
         // 不能用 lastIndex(of: ".") 截断最后一个点——无扩展名但含点的书名

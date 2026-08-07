@@ -122,6 +122,7 @@ fun AppNavigation() {
                         putExtra("config_name", config.name)
                         putExtra("folder_name", config.folderName)
                         putExtra("scan_mode", config.scanMode.ifBlank { "quick" })
+                        putExtra("exact_hash", config.exactHash)
                     }
                     ctx.startForegroundService(intent)
                     navController.navigate(NavRoutes.SCAN_PROGRESS)

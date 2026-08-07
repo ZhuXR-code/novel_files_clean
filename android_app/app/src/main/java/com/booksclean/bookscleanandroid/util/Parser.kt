@@ -1,5 +1,7 @@
 package com.bookscleanandroid.app.util
 
+import com.bookscleanandroid.app.util.LogUtil
+
 /**
  * 文件名解析结果。作者 / 进度 / 来源 可能为空。
  *
@@ -95,6 +97,15 @@ object Parser {
      * 从文件名（不含扩展名）解析出 书名 / 作者 / 进度 / 来源。
      */
     fun parseFileName(rawName: String): ParsedName {
+        return try {
+            parseFileNameOrThrow(rawName)
+        } catch (e: Exception) {
+            LogUtil.e("Parser", "解析文件名异常 rawName=$rawName: ${e.message}")
+            ParsedName(rawName, "", "", "")
+        }
+    }
+
+    private fun parseFileNameOrThrow(rawName: String): ParsedName {
         var name = rawName
         name = EXT_RE.replace(name, "")
         name = name.trim()

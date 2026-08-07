@@ -1,7 +1,9 @@
 import Foundation
 
 /// 扫描得到的单个文件（对应 Android `ScannedFileEntity` / PC `scanned_file` 表）。
-struct ScannedFile: Identifiable {
+/// 标记 `Sendable`：预览等场景需把它传入后台 `Task.detached` 做文件读取/解码，
+/// 全部成员均为值类型，跨并发域传递安全。
+struct ScannedFile: Identifiable, Sendable {
     var id: Int64 = 0
     var path: String = ""
     var fileName: String = ""

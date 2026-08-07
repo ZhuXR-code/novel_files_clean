@@ -34,7 +34,8 @@ data class LastScanConfig(
     val excludedFolders: String,
     val configName: String,
     val folderName: String,
-    val scanMode: String = "quick"
+    val scanMode: String = "quick",
+    val exactHash: Boolean = false
 )
 
 object ScanStateManager {

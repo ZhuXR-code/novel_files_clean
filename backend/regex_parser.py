@@ -341,6 +341,7 @@ def _detect_encoding(file_path: str) -> str:
                 encoding = 'gb18030'
             return encoding or 'utf-8'
     except Exception:
+        logger.debug('编码探测失败，回退 utf-8')
         return 'utf-8'
 
 
@@ -662,7 +663,8 @@ def _parse_file_content_for_metadata(file_path: str, file_name: str) -> Optional
                     if not line:
                         break
                     lines.append(line)
-    except Exception:
+    except Exception as e:
+        logger.debug('读取文件预览失败，返回空预览: %s', e)
         return None
 
     content = '\n'.join(lines)

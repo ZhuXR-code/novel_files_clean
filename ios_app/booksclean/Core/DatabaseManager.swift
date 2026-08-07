@@ -73,6 +73,7 @@ final class DatabaseManager {
             """,
             "CREATE INDEX IF NOT EXISTS idx_sf_run ON scanned_file(scan_run_id);",
             "CREATE INDEX IF NOT EXISTS idx_sf_created ON scanned_file(created_at);",
+            "CREATE INDEX IF NOT EXISTS idx_sf_hash ON scanned_file(content_hash);",
             """
             CREATE TABLE IF NOT EXISTS scan_config (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -637,6 +638,78 @@ final class DatabaseManager {
         return max(after - before, 0)
     }
 
+    // MARK: - 按「内容哈希相同、修改时间更早」标记/勾选重复（对齐安卓 markDuplicatesByHashSql / checkDuplicatesByHashSql）
+    /// 同一 content_hash 组内仅保留「最新修改时间」的那一条（file_date 优先，回退 created_at，相同则取最大 id）不标记/不勾选，
+    /// 其余更早的全部 marked=1（或 checked=1）。仅作用于已扫描内容哈希（content_hash <> ''）的文件。
+    /// 若该文库未扫描内容哈希（无非空 content_hash）返回 -1，由上层提示用户先开启内容哈希重新扫描。
+
+    /// 该文库是否已扫描内容哈希（存在非空 content_hash 的文件）。
+    func hasContentHash(runId: Int64) -> Int {
+        count("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id=? AND content_hash <> ''", [runId])
+    }
+
+    /// 标记内容哈希相同、修改时间更早的文件。返回本次标记条数（无哈希返回 -1）。
+    @discardableResult
+    func markDuplicatesByHash(runId: Int64) -> Int {
+        guard hasContentHash(runId: runId) > 0 else { return -1 }
+        let sql = """
+            UPDATE scanned_file
+            SET marked = 1
+            WHERE scan_run_id = ?
+              AND content_hash <> ''
+              AND id NOT IN (
+                SELECT k.id FROM (
+                    SELECT content_hash,
+                           MAX(COALESCE(file_date, created_at)) AS maxdate,
+                           MAX(id) AS keep_id
+                    FROM scanned_file
+                    WHERE scan_run_id = ? AND content_hash <> ''
+                    GROUP BY content_hash
+                ) g
+                JOIN scanned_file k
+                  ON k.scan_run_id = ?
+                 AND k.content_hash = g.content_hash
+                 AND COALESCE(k.file_date, k.created_at) = g.maxdate
+                 AND k.id = g.keep_id
+              )
+        """
+        let before = countMarked(runId: runId)
+        execute(sql, [runId, runId, runId])
+        let after = countMarked(runId: runId)
+        return max(after - before, 0)
+    }
+
+    /// 勾选内容哈希相同、修改时间更早的文件。逻辑同 markDuplicatesByHash，仅置 checked=1。
+    @discardableResult
+    func checkDuplicatesByHash(runId: Int64) -> Int {
+        guard hasContentHash(runId: runId) > 0 else { return -1 }
+        let sql = """
+            UPDATE scanned_file
+            SET checked = 1
+            WHERE scan_run_id = ?
+              AND content_hash <> ''
+              AND id NOT IN (
+                SELECT k.id FROM (
+                    SELECT content_hash,
+                           MAX(COALESCE(file_date, created_at)) AS maxdate,
+                           MAX(id) AS keep_id
+                    FROM scanned_file
+                    WHERE scan_run_id = ? AND content_hash <> ''
+                    GROUP BY content_hash
+                ) g
+                JOIN scanned_file k
+                  ON k.scan_run_id = ?
+                 AND k.content_hash = g.content_hash
+                 AND COALESCE(k.file_date, k.created_at) = g.maxdate
+                 AND k.id = g.keep_id
+              )
+        """
+        let before = count("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id=? AND checked=1", [runId])
+        execute(sql, [runId, runId, runId])
+        let after = count("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id=? AND checked=1", [runId])
+        return max(after - before, 0)
+    }
+
     // MARK: - 分批按文件名找重复（20w+ 量级防 OOM）
     /// 用 SQL 子查询直接定位「同名且 >=2 个」的文件 id，分批游标返回，避免全表载入内存。
     func findDuplicateIdsByFileNameBatched(runId: Int64, chunkSize: Int = 5000) -> [Int64] {
@@ -753,6 +826,43 @@ final class DatabaseManager {
     func deleteScanRun(_ id: Int64) {
         execute("DELETE FROM scanned_file WHERE scan_run_id=?", [id])
         execute("DELETE FROM scan_run WHERE id=?", [id])
+    }
+
+    /// 合并多个文库为一个新文库（对齐安卓 ScanRunDao.mergeRuns）。
+    /// 流程：① 新建文库 ② 用 INSERT...SELECT 复制源文库文件（保留 marked/checked/content_hash 等全部状态，
+    /// 相同 path 靠唯一约束去重）③ 统计新文库文件数 ④ 删除源文库及其文件。
+    /// 要求 sourceIds.count >= 2，否则返回 -1。
+    @discardableResult
+    func mergeRuns(_ sourceIds: [Int64], newName: String) -> Int64 {
+        guard sourceIds.count >= 2 else { return -1 }
+        let placeholders = sourceIds.map { "?" }.joined(separator: ",")
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalName = name.isEmpty ? "合并文库" : name
+        execute("BEGIN TRANSACTION", [])
+        let newId = executeReturnId("INSERT INTO scan_run (name, created_at, status, file_count) VALUES (?, ?, 'done', 0)",
+                                    [finalName, Int64(Date().timeIntervalSince1970 * 1000)])
+        guard newId > 0 else {
+            execute("ROLLBACK", [])
+            return -1
+        }
+        let copyBind: [Any?] = [Int64(newId)] + sourceIds.map { $0 as Any? }
+        let ok = execute(
+            "INSERT INTO scanned_file (scan_run_id, path, file_name, file_size, title, author, progress, source, encoding, title_pinyin, author_pinyin, content_hash, ext, marked, checked, created_at, file_date) " +
+            "SELECT ?, path, file_name, file_size, title, author, progress, source, encoding, title_pinyin, author_pinyin, content_hash, ext, marked, checked, created_at, file_date " +
+            "FROM scanned_file WHERE scan_run_id IN (\(placeholders))",
+            copyBind
+        )
+        guard ok else {
+            execute("ROLLBACK", [])
+            return -1
+        }
+        let cntRows = fetchAll("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id = ?", [Int64(newId)])
+        let fileCount = (cntRows.first?.first as? Int64).map { Int($0) } ?? 0
+        execute("UPDATE scan_run SET file_count = ? WHERE id = ?", [fileCount, Int64(newId)])
+        execute("DELETE FROM scanned_file WHERE scan_run_id IN (\(placeholders))", sourceIds)
+        execute("DELETE FROM scan_run WHERE id IN (\(placeholders))", sourceIds)
+        execute("COMMIT", [])
+        return newId
     }
 
     // MARK: - keyword_replace_rules

@@ -31,6 +31,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
@@ -60,6 +61,8 @@ class ScanService : Service() {
             val excludedFolders = intent.getStringExtra("excluded_folders") ?: ""
             // 扫描模式："quick"=快速扫描(不检测编码)，"deep"=深度扫描(检测编码)
             val scanMode = intent.getStringExtra("scan_mode") ?: "quick"
+            // 内容哈希：仅深度扫描时有效，对文件内容计算哈希值
+            val exactHash = scanMode == "deep" && intent.getBooleanExtra("exact_hash", false)
             // 文库（本次扫描）名称与展示用文件夹名
             val configName = intent.getStringExtra("config_name") ?: ""
             val folderName = intent.getStringExtra("folder_name") ?: ""
@@ -75,12 +78,13 @@ class ScanService : Service() {
                     excludedFolders = excludedFolders,
                     configName = configName,
                     folderName = folderName,
-                    scanMode = scanMode
+                    scanMode = scanMode,
+                    exactHash = exactHash
                 )
             )
 
             startForeground(NOTIFICATION_ID, createNotification(getString(R.string.scan_preparing)))
-            startScanning(treeUri, fileTypes, minSizeKb, recursive, excludedFolders, configName, folderName, scanMode)
+            startScanning(treeUri, fileTypes, minSizeKb, recursive, excludedFolders, configName, folderName, scanMode, exactHash)
         } else if (intent?.action == ACTION_STOP_SCAN) {
             stopScanning()
         }
@@ -95,7 +99,8 @@ class ScanService : Service() {
         excludedFolders: String,
         configName: String,
         folderName: String,
-        scanMode: String
+        scanMode: String,
+        exactHash: Boolean
     ) {
         ScanStateManager.reset()
         scanJob = serviceScope.launch {
@@ -165,7 +170,7 @@ class ScanService : Service() {
                             // 检测取消（协程被 cancel）或进程内停止请求标志，二者任一即退出
                             if (!isActive || ScanStateManager.stopRequested.value) return@launch
                             val entry = fileList[idx]
-                            val entity = parseOne(entry, runId, scanRules, parseRules, hasScanRules, hasParseRules, scanMode)
+                            val entity = parseOne(entry, runId, scanRules, parseRules, hasScanRules, hasParseRules, scanMode, exactHash)
                             val d = done.incrementAndGet()
                             reportParseProgress(d, total, entity.fileName, lastState)
                             updateNotificationThrottled(
@@ -266,7 +271,8 @@ class ScanService : Service() {
         parseRules: List<KeywordReplaceRuleEntity>,
         hasScanRules: Boolean,
         hasParseRules: Boolean,
-        scanMode: String
+        scanMode: String,
+        exactHash: Boolean = false
     ): ScannedFileEntity {
         val rawName = entry.name
         val fileName = if (hasScanRules) (KeywordReplace.applyRules(rawName, scanRules) ?: rawName) else rawName
@@ -285,6 +291,9 @@ class ScanService : Service() {
         }
         // 文件日期：从扫描阶段收集的 lastModified（毫秒）
         val fileDate = if (entry.lastModified > 0) entry.lastModified else null
+        // 内容哈希：仅当启用时计算（深度扫描 + 勾选内容哈希）。
+        // 整体仍返回 ScannedFileEntity，但哈希读取走 IO 调度器，避免在大文件/SAF 上阻塞 CPU 解析线程池。
+        val contentHash = if (exactHash) computeContentHash(entry) else ""
         return ScannedFileEntity(
             path = entry.uri.toString(),
             fileName = fileName,
@@ -297,10 +306,31 @@ class ScanService : Service() {
             fileDate = fileDate,
             titlePinyin = ChineseConverter.toPinyin(title),
             authorPinyin = ChineseConverter.toPinyin(author),
-            contentHash = "",
+            contentHash = contentHash,
             ext = ext,
             scanRunId = runId
         )
+    }
+
+    /**
+     * 计算文件内容的 MD5 哈希（十六进制小写）。
+     * 用于“内容哈希相同但时间更早”的重复识别；读取失败时返回空串（不参与哈希去重）。
+     */
+    private fun computeContentHash(entry: FileEntry): String {
+        // 在 IO 调度器执行整文件读取，避免在大文件 / SAF（如 MuMu 共享文件夹）上阻塞 CPU 解析线程池。
+        return runBlocking(Dispatchers.IO) {
+            runCatching {
+                val md = java.security.MessageDigest.getInstance("MD5")
+                contentResolver.openInputStream(entry.uri)?.use { input ->
+                    val buf = ByteArray(256 * 1024)
+                    var read: Int
+                    while (input.read(buf).also { read = it } != -1) {
+                        md.update(buf, 0, read)
+                    }
+                } ?: return@runBlocking ""
+                md.digest().joinToString("") { "%02x".format(it) }
+            }.getOrDefault("")
+        }
     }
 
     /**

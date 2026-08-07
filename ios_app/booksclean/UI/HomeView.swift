@@ -6,6 +6,10 @@ struct HomeView: View {
     @State private var markedFiles: Int = 0
     @State private var showingFolderPicker = false
     @State private var runToDelete: ScanRun? = nil
+    @State private var selecting: Bool = false
+    @State private var selectedRunIds: Set<Int64> = []
+    @State private var showMergeAlert: Bool = false
+    @State private var mergeNameInput: String = "合并文库"
 
     // 统计汇总（对齐安卓：总文件数 / 标记文件数）。totalFiles 由内存中的 runs 计算，
     // markedFiles 在主线程外一次性聚合（避免每个文库各查一次 DB 卡住首屏）。
@@ -51,13 +55,33 @@ struct HomeView: View {
                     .padding(.vertical, 4)
                 }
 
-                FSSection("文库列表") {
+                FSSection {
+                    HStack {
+                        Text("文库列表")
+                            .fsFont(.headline)
+                        Spacer()
+                        if selecting && selectedRunIds.count >= 2 {
+                            Button {
+                                mergeNameInput = "合并文库"
+                                showMergeAlert = true
+                            } label: {
+                                Label("合并", systemImage: "rectangle.on.rectangle").foregroundColor(.fsPrimary)
+                            }
+                        }
+                    }
+                    .padding(.bottom, 4)
+
                     if runs.isEmpty {
                         Text("暂无扫描记录，点击上方按钮选择文件夹开始。")
                             .foregroundColor(.fsSecondaryLabel).padding(.vertical, 8)
                     } else {
                         ForEach(runs) { run in
-                            HStack {
+                            HStack(spacing: 10) {
+                                if selecting {
+                                    Image(systemName: selectedRunIds.contains(run.id) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(selectedRunIds.contains(run.id) ? .fsPrimary : .fsSecondaryLabel)
+                                        .fsFont(.title3)
+                                }
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(run.folderName.isEmpty ? run.name : run.folderName)
                                         .fsFont(.subheadline).fontWeight(.medium)
@@ -65,10 +89,22 @@ struct HomeView: View {
                                         .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
                                 }
                                 Spacer()
-                                Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
+                                if !selecting {
+                                    Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
+                                }
                             }
                             .contentShape(Rectangle())
-                            .onTapGesture { router.navigate(.library(runId: run.id)) }
+                            .onTapGesture {
+                                if selecting {
+                                    if selectedRunIds.contains(run.id) {
+                                        selectedRunIds.remove(run.id)
+                                    } else {
+                                        selectedRunIds.insert(run.id)
+                                    }
+                                } else {
+                                    router.navigate(.library(runId: run.id))
+                                }
+                            }
                             .contextMenu {
                                 // 注意：swipeActions 只在 List 中生效，这里是 ScrollView，故用长按菜单
                                 Button(role: .destructive) {
@@ -95,11 +131,24 @@ struct HomeView: View {
             }
             .padding()
         }
-        .navigationTitle("文包整理清理助手")
+        .navigationTitle(selecting ? "选择文库" : "文包整理清理助手")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                if selecting {
+                    Button("取消") { selecting = false; selectedRunIds.removeAll() }
+                }
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 14) {
+                    if !selecting {
+                        Button {
+                            selecting = true
+                            selectedRunIds.removeAll()
+                        } label: {
+                            Text("选择").foregroundColor(.fsPrimary)
+                        }
+                    }
                     Button { router.navigate(.help) } label: {
                         Image(systemName: "questionmark.circle").foregroundColor(.fsPrimary)
                     }
@@ -135,6 +184,25 @@ struct HomeView: View {
             if let run = runToDelete {
                 Text("确定要删除文库「\(run.name)」吗？该操作不可撤销，文库内的文件记录将被清除。")
             }
+        }
+        .alert("合并文库", isPresented: $showMergeAlert) {
+            TextField("合并后的文库名称", text: $mergeNameInput)
+            Button("取消", role: .cancel) { showMergeAlert = false }
+            Button("合并") {
+                let ids = Array(selectedRunIds)
+                showMergeAlert = false
+                let newId = FileRepository.shared.mergeRuns(ids, newName: mergeNameInput)
+                if newId > 0 {
+                    selecting = false
+                    selectedRunIds.removeAll()
+                    reload()
+                    router.navigate(.library(runId: newId))
+                } else {
+                    ToastUtil.show(message: "合并失败")
+                }
+            }
+        } message: {
+            Text("将把选中的 \(selectedRunIds.count) 个文库合并为一个新文库，保留全部文件与标记/勾选状态。")
         }
     }
 

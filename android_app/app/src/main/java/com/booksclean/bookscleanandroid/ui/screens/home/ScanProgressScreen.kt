@@ -146,6 +146,7 @@ fun ScanProgressScreen(onBack: () -> Unit, onFinished: () -> Unit) {
                                 putExtra("config_name", c.configName)
                                 putExtra("folder_name", c.folderName)
                                 putExtra("scan_mode", c.scanMode.ifBlank { "quick" })
+                                putExtra("exact_hash", c.exactHash)
                             }
                             context.startForegroundService(intent)
                         },

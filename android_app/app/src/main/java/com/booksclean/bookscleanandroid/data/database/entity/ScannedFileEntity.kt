@@ -12,6 +12,7 @@ import androidx.room.PrimaryKey
         Index("marked"),
         Index("checked"),
         Index("title"),
+        Index("content_hash"),
         Index("scan_run_id")
     ]
 )

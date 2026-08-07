@@ -57,7 +57,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -134,11 +136,14 @@ fun LibraryScreen(
     }
     val scanRuns by viewModel.scanRuns.collectAsStateWithLifecycle(initialValue = emptyList())
 
+    val onMerge: (List<Long>, String) -> Unit = { ids, name -> viewModel.mergeRuns(ids, name) }
+
     if (currentRunId == null) {
         RunListScreen(
             runs = scanRuns,
             onOpen = { viewModel.setCurrentRunId(it.id) },
             onDelete = { viewModel.deleteRun(it.id) },
+            onMerge = onMerge,
             onBack = onBack
         )
     } else {
@@ -159,11 +164,33 @@ private fun RunListScreen(
     runs: List<ScanRunEntity>,
     onOpen: (ScanRunEntity) -> Unit,
     onDelete: (ScanRunEntity) -> Unit,
+    onMerge: (List<Long>, String) -> Unit,
     onBack: () -> Unit
 ) {
     var toDelete by remember { mutableStateOf<ScanRunEntity?>(null) }
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var toMergeName by remember { mutableStateOf<String?>(null) }
+
     Scaffold(
-        topBar = { TopBar(title = stringResource(R.string.library), onBack = onBack) }
+        topBar = {
+            TopBar(
+                title = if (selectionMode) stringResource(R.string.merge_select_count, selectedIds.size)
+                else stringResource(R.string.library),
+                onBack = onBack
+            ) {
+                if (!selectionMode) {
+                    TextButton(onClick = { selectionMode = true }) {
+                        Text(stringResource(R.string.merge_runs))
+                    }
+                } else {
+                    TextButton(onClick = {
+                        selectionMode = false
+                        selectedIds = emptySet()
+                    }) { Text(stringResource(R.string.cancel)) }
+                }
+            }
+        }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -171,6 +198,29 @@ private fun RunListScreen(
                 .padding(padding)
                 .padding(16.dp)
         ) {
+            if (selectionMode) {
+                Text(
+                    stringResource(R.string.merge_runs_hint),
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                AppButton(
+                    onClick = {
+                        val first = runs.firstOrNull { it.id in selectedIds }
+                        toMergeName = first?.name?.takeIf { it.isNotBlank() } ?: "合并文库"
+                    },
+                    enabled = selectedIds.size >= 2,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                ) {
+                    Text(
+                        if (selectedIds.size >= 2) stringResource(R.string.merge_action, selectedIds.size)
+                        else stringResource(R.string.merge_runs_hint)
+                    )
+                }
+            }
             if (runs.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
@@ -185,13 +235,32 @@ private fun RunListScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(runs, key = { it.id }) { run ->
-                        CardItem(onClick = { onOpen(run) }) {
+                        val selected = selectedIds.contains(run.id)
+                        CardItem(
+                            onClick = {
+                                if (selectionMode) {
+                                    selectedIds = if (selected) selectedIds - run.id
+                                    else selectedIds + run.id
+                                } else {
+                                    onOpen(run)
+                                }
+                            }
+                        ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                if (selectionMode) {
+                                    Checkbox(
+                                        checked = selected,
+                                        onCheckedChange = {
+                                            selectedIds = if (it) selectedIds + run.id
+                                            else selectedIds - run.id
+                                        }
+                                    )
+                                }
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         run.name.ifBlank { stringResource(R.string.unnamed_config) },
@@ -221,12 +290,14 @@ private fun RunListScreen(
                                         modifier = Modifier.padding(top = 4.dp)
                                     )
                                 }
-                                IconButton(onClick = { toDelete = run }) {
-                                    Icon(
-                                        Icons.Filled.Delete,
-                                        contentDescription = stringResource(R.string.delete_run),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                if (!selectionMode) {
+                                    IconButton(onClick = { toDelete = run }) {
+                                        Icon(
+                                            Icons.Filled.Delete,
+                                            contentDescription = stringResource(R.string.delete_run),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -255,6 +326,46 @@ private fun RunListScreen(
                 AppOutlinedButton(onClick = { toDelete = null }) { Text(stringResource(R.string.cancel)) }
             }
         )
+    }
+
+    if (selectionMode && selectedIds.size >= 2 && toMergeName != null) {
+        val ids = selectedIds.toList()
+        val name = toMergeName!!
+        AlertDialog(
+            onDismissRequest = { toMergeName = null },
+            title = { Text(stringResource(R.string.merge_confirm_title)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.merge_confirm_msg, ids.size, name))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { toMergeName = it },
+                        label = { Text(stringResource(R.string.merge_new_name)) },
+                        placeholder = { Text(stringResource(R.string.merge_new_name_hint)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                AppButton(
+                    onClick = {
+                        onMerge(ids, name)
+                        toMergeName = null
+                        selectionMode = false
+                        selectedIds = emptySet()
+                    }
+                ) { Text(stringResource(R.string.confirm)) }
+            },
+            dismissButton = {
+                AppOutlinedButton(onClick = { toMergeName = null }) { Text(stringResource(R.string.cancel)) }
+            }
+        )
+    }
+
+    if (selectionMode && selectedIds.size == 1) {
+        // 仅选中 1 个时合并按钮已禁用（需 ≥2 个），此处无需额外处理
     }
 }
 
@@ -546,6 +657,10 @@ private fun RunFilesScreen(
                         }
     DropdownMenuItem(text = { Text(stringResource(R.string.mark_duplicates_name)) },
         onClick = { viewModel.markDuplicatesByName(); moreMenu = false })
+    DropdownMenuItem(text = { Text(stringResource(R.string.mark_by_hash)) },
+        onClick = { viewModel.markDuplicatesByHash(); moreMenu = false })
+    DropdownMenuItem(text = { Text(stringResource(R.string.check_by_hash)) },
+        onClick = { viewModel.selectDuplicatesByHash(); moreMenu = false })
     DropdownMenuItem(text = { Text(stringResource(R.string.clear_marked)) },
         onClick = { viewModel.clearMarked(); moreMenu = false })
     DropdownMenuItem(text = { Text(stringResource(R.string.clear_checked)) },

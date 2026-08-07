@@ -94,6 +94,15 @@
     <string name="mark_duplicates">勾选重复</string>
 
     <string name="mark_duplicates_name">按书名/作者相同标记</string>
+    <string name="scan_hash_label">内容哈希</string>
+    <string name="scan_hash_desc">对文件内容计算哈希值，用于按“内容相同”识别重复（仅深度扫描可用）。</string>
+    <string name="mark_by_hash">按内容哈希相同标记较早</string>
+    <string name="mark_by_hash_desc">标记内容哈希相同、但修改时间更早的文件（每组仅保留最新一个不标记）。</string>
+    <string name="check_by_hash">按内容哈希相同勾选较早</string>
+    <string name="check_by_hash_desc">勾选内容哈希相同、但修改时间更早的文件（每组仅保留最新一个不勾选）。</string>
+    <string name="toast_mark_by_hash">已按内容哈希标记 %1$d 个较早文件</string>
+    <string name="toast_check_by_hash">已按内容哈希勾选 %1$d 个较早文件</string>
+    <string name="toast_by_hash_no_hash">该文库未扫描内容哈希，无法按哈希识别重复</string>
     <string name="clear_marked">清除标记</string>
     <string name="select_all">全选</string>
     <string name="deselect_all">全不选</string>
@@ -145,6 +154,17 @@
     <string name="run_summary">%1$d 个文件 · %2$s</string>
     <string name="delete_run">删除文库</string>
     <string name="delete_run_confirm">将删除该文库及其全部文件，且不可恢复，确定？</string>
+
+    <!-- 合并文库 -->
+    <string name="merge_runs">合并文库</string>
+    <string name="merge_runs_hint">勾选 2 个及以上文库，合并为一个新文库</string>
+    <string name="merge_select_count">已选 %1$d 个</string>
+    <string name="merge_action">合并为「%1$d 个文库」</string>
+    <string name="merge_new_name">新文库名称</string>
+    <string name="merge_new_name_hint">为合并后的新书库命名</string>
+    <string name="merge_confirm_title">合并文库</string>
+    <string name="merge_confirm_msg">将把以下 %1$d 个文库合并为一个新文库「%2$s」，原文库将被删除，确定？</string>
+    <string name="merge_name_required">请输入新文库名称</string>
 
     <!-- 删除 -->
     <string name="delete_confirm_title">确认删除</string>

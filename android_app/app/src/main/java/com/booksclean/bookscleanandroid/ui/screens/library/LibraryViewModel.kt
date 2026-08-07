@@ -201,6 +201,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             _groupMinCount.value = prefs.groupMinCount.first()
             _groupMaxCount.value = prefs.groupMaxCount.first()
             _groupExcludeNames.value = prefs.groupExcludeNames.first()
+            _checkedSortToFront.value = prefs.checkedSortToFront.first()
         }
     }
 
@@ -331,7 +332,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     fun setFilter(f: FilterMode) { _filter.value = f; _currentPage.value = 0; reloadExpandedGroups() }
     fun setSort(s: SortMode) { LogUtil.i("LibVM", "setSort $s"); _sort.value = s; _currentPage.value = 0 }
-    fun toggleCheckedSortToFront() { _checkedSortToFront.value = !_checkedSortToFront.value; _currentPage.value = 0 }
+    fun toggleCheckedSortToFront() {
+        val next = !_checkedSortToFront.value
+        _checkedSortToFront.value = next
+        _currentPage.value = 0
+        viewModelScope.launch { prefs.setCheckedSortToFront(next) }
+    }
     fun setQuery(q: String) { _query.value = q; _currentPage.value = 0 }
     fun clearToast() { _toast.value = null }
 
@@ -573,6 +579,39 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * 按“内容哈希相同、修改时间更早”标记：每组仅保留最新修改的 1 个不标记，其余更早的标记。
+     * 若该文库未扫描内容哈希（content_hash 全空），提示用户先开启内容哈希重新扫描。
+     */
+    fun markDuplicatesByHash() {
+        val runId = _currentRunId.value ?: run { _toast.value = "请先进入某个文库"; return }
+        viewModelScope.launch(Dispatchers.IO) {
+            val n = repo.markDuplicatesByHash(runId)
+            _reloadSignal.value += 1
+            _toast.value = when {
+                n < 0 -> "该文库未扫描内容哈希，无法按哈希标记；请在深度扫描中开启“内容哈希”后重新扫描"
+                n > 0 -> "已按内容哈希标记 $n 个较早文件"
+                else -> "未发现内容哈希相同的重复文件"
+            }
+        }
+    }
+
+    /**
+     * 按“内容哈希相同、修改时间更早”勾选：逻辑同 markDuplicatesByHash，仅置 checked=1。
+     */
+    fun selectDuplicatesByHash() {
+        val runId = _currentRunId.value ?: run { _toast.value = "请先进入某个文库"; return }
+        viewModelScope.launch(Dispatchers.IO) {
+            val n = repo.checkDuplicatesByHash(runId)
+            _reloadSignal.value += 1
+            _toast.value = when {
+                n < 0 -> "该文库未扫描内容哈希，无法按哈希勾选；请在深度扫描中开启“内容哈希”后重新扫描"
+                n > 0 -> "已按内容哈希勾选 $n 个较早文件"
+                else -> "未发现内容哈希相同的重复文件"
+            }
+        }
+    }
+
     fun clearMarked() {
         val runId = _currentRunId.value ?: run { _toast.value = "请先进入某个文库"; return }
         viewModelScope.launch(Dispatchers.IO) {
@@ -634,6 +673,28 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             repo.deleteScanRun(runId)
             if (_currentRunId.value == runId) _currentRunId.value = null
             _toast.value = "已删除文库及其书籍记录（源文件已保留）"
+        }
+    }
+
+    /**
+     * 合并多个文库为一个新文库。
+     * sourceIds 为待合并文库 id（≥2），newName 为用户指定的新文库名称。
+     * 合并成功后自动进入新文库，新书库与普通文库功能完全对齐。
+     */
+    fun mergeRuns(sourceIds: List<Long>, newName: String) {
+        if (sourceIds.size < 2) {
+            _toast.value = "请至少选择 2 个文库进行合并"
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val newId = repo.mergeRuns(sourceIds, newName)
+                _currentRunId.value = newId
+                _toast.value = "已合并为「$newName」"
+            } catch (e: Exception) {
+                LogUtil.e("LibVM", "mergeRuns 失败: ${e.message}")
+                _toast.value = "合并失败：${e.message}"
+            }
         }
     }
 

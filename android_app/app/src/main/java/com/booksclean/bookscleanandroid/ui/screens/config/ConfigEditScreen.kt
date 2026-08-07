@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.unit.sp
@@ -53,6 +54,8 @@ import com.bookscleanandroid.app.ui.components.TopBar
 import com.bookscleanandroid.app.ui.components.AppButton
 import com.bookscleanandroid.app.ui.components.AppOutlinedButton
 import com.bookscleanandroid.app.util.FileUtil
+import com.bookscleanandroid.app.util.LogUtil
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 
 private val BUILTIN_TYPES = listOf("txt", "md", "pdf", "epub", "doc", "docx")
@@ -77,10 +80,12 @@ fun ConfigEditScreen(
     var minSize by remember { mutableStateOf("0") }
     var recursive by remember { mutableStateOf(true) }
     var scanMode by remember { mutableStateOf("quick") }
+    var exactHash by remember { mutableStateOf(false) }
 
     // 编辑已有配置：按 id 载入并反显
     LaunchedEffect(configId) {
         if (configId > 0) {
+            LogUtil.d("ConfigEditScreen", "载入配置 configId=$configId")
             viewModel.getById(configId)?.let { cfg ->
                 name = cfg.name
                 folderUri = cfg.folderUri
@@ -92,7 +97,9 @@ fun ConfigEditScreen(
                 minSize = cfg.minSizeKb.toString()
                 recursive = cfg.recursive
                 scanMode = cfg.scanMode.ifEmpty { "quick" }
-            }
+                exactHash = cfg.exactHash
+                LogUtil.d("ConfigEditScreen", "已载入配置 name=${cfg.name} types=${cfg.fileTypes} folder=$folderName")
+            } ?: LogUtil.w("ConfigEditScreen", "未找到配置 configId=$configId")
         } else {
             // 新建：用全局默认设置预填（来自设置页）
             prefs?.let {
@@ -114,7 +121,8 @@ fun ConfigEditScreen(
                 uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            LogUtil.w("ConfigEditScreen", "获取文件夹持久权限失败 uri=$uri: ${e.message}")
         }
         folderUri = uri.toString()
         // 反显为可阅读路径，例如 “内部存储/DCIM/Camera”
@@ -328,6 +336,29 @@ fun ConfigEditScreen(
                 }
             }
 
+            // 内容哈希（仅深度扫描可用）
+            AnimatedVisibility(visible = scanMode == "deep") {
+                Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = exactHash, onCheckedChange = { exactHash = it })
+                            Column(modifier = Modifier.padding(start = 4.dp)) {
+                                Text(
+                                    stringResource(R.string.scan_hash_label),
+                                    fontWeight = MaterialTheme.typography.titleSmall.fontWeight
+                                )
+                                Text(
+                                    stringResource(R.string.scan_hash_desc),
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // 递归
             Card(modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
                 Row(
@@ -344,22 +375,27 @@ fun ConfigEditScreen(
 
             AppButton(
                 onClick = {
-                    if (folderUri.isBlank()) return@AppButton
+                    if (folderUri.isBlank()) {
+                        LogUtil.w("ConfigEditScreen", "保存配置被忽略：未选择文件夹")
+                        return@AppButton
+                    }
                     val allTypes = (selectedTypes + customType.split(",").map { it.trim() }
                         .filter { it.isNotEmpty() }).filter { it.isNotEmpty() }
                     val typesStr = if (allTypes.isEmpty()) "txt" else allTypes.joinToString(",")
+                    val isEdit = configId > 0
                     val cfg = ScanConfigEntity(
-                        id = if (configId > 0) configId else 0,
+                        id = if (isEdit) configId else 0,
                         name = name.trim(),
                         folderUri = folderUri,
                         folderName = folderName,
                         fileTypes = typesStr,
                         minSizeKb = minSize.toIntOrNull() ?: 0,
                         recursive = recursive,
-                        exactHash = false,
+                        exactHash = exactHash,
                         excludedFolders = excludedNames.joinToString(","),
                         scanMode = scanMode
                     )
+                    LogUtil.i("ConfigEditScreen", "保存配置 ${if (isEdit) "更新" else "新建"} name=${cfg.name} types=$typesStr folder=$folderName mode=$scanMode")
                     viewModel.upsert(cfg) { onBack() }
                 },
                 enabled = folderUri.isNotBlank(),

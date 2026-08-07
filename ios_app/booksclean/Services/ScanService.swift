@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import CryptoKit
 
 /// 扫描服务（对齐 Android `ScanService`）：枚举用户选定的文件夹 → 解析书名/作者/进度/来源 → 落库。
 /// iOS 通过「文档选择器」选取文件夹，使用安全作用域书签持久化访问权限。
@@ -15,6 +16,7 @@ final class ScanService {
     /// 注意：@Published 状态统一切回主线程更新，避免后台线程发布导致 UI 异常。
     @discardableResult
     func scan(config: ScanConfig) async -> Int64 {
+        LogUtil.i("ScanService", "开始扫描 配置「\(config.name)」 文件夹=\(config.folderName) 类型=\(config.fileTypes) 模式=\(config.scanMode) 递归=\(config.recursive)")
         let sm = ScanStateManager.shared
         guard let folderURL = resolveBookmark(config.folderUri) else {
             await MainActor.run { sm.status = "error"; sm.errorMsg = "无法解析文件夹权限，请重新选择"; sm.finished = true }
@@ -85,6 +87,7 @@ final class ScanService {
         LogUtil.i("ScanService", "收集到 \(total) 个文件 run=\(runId)")
 
         if total == 0 {
+            LogUtil.w("ScanService", "文库为空，未找到匹配文件 run=\(runId) 类型=\(config.fileTypes)")
             FileRepository.shared.setRunFileCount(runId: runId, count: 0)
             await MainActor.run { sm.isScanning = false; sm.finished = true; sm.status = "empty" }
             return runId
@@ -113,7 +116,10 @@ final class ScanService {
     /// 返回累计收集到的匹配文件总数。
     private func collect(in dir: URL, recursive: Bool, types: Set<String>, minSize: Int64, excluded: Set<String>, batchSize: Int, onBatch: ([(url: URL, name: String, size: Int64, date: Int64)], Int) -> Void) -> Int {
         let fm = FileManager.default
-        guard let enumerator = fm.enumerator(at: dir, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles]) else { return 0 }
+        guard let enumerator = fm.enumerator(at: dir, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey], options: [.skipsHiddenFiles]) else {
+            LogUtil.e("ScanService", "枚举器创建失败（权限/路径无效） dir=\(dir.path)")
+            return 0
+        }
         var batch: [(url: URL, name: String, size: Int64, date: Int64)] = []
         batch.reserveCapacity(batchSize)
         var count = 0
@@ -160,12 +166,11 @@ final class ScanService {
         var encoding = ""
         var contentHash = ""
         if deep || exactHash {
-            // 取文件前 64KB 计算（与 PC 端一致）。仅取头部即可区分绝大多数不同文件，
-            // 若取太小（如 8KB）会因尾部差异未纳入而产生「误判为重复、误删不同文件」的风险。
+            // 深度扫描读取文件头用于编码识别；内容哈希若开启则读取完整内容计算 MD5（与安卓端一致：整文件 MD5）。
             if let sample = readSample(url, maxBytes: 64 * 1024) {
                 if deep { encoding = EncodingUtil.detectEncodingName(sample: sample) }
-                if exactHash { contentHash = computeContentHash(sample: sample) }
             }
+            if exactHash { contentHash = computeContentHash(url: url) }
         }
 
         return ScannedFile(
@@ -195,13 +200,15 @@ final class ScanService {
         return fh.readData(ofLength: maxBytes)
     }
 
-    /// 简单内容指纹（FNV-1a，仅用于精确内容去重开关）：取文件前 64KB 计算。
-    private func computeContentHash(sample: Data) -> String {
-        var hash: UInt64 = 1469598103934665603
-        for b in sample {
-            hash ^= UInt64(b)
-            hash = hash &* 1099511628211
-        }
-        return String(format: "%016llx", hash)
+    private func readFileData(_ url: URL) -> Data? {
+        try? Data(contentsOf: url, options: .alwaysMapped)
+    }
+
+    /// 内容指纹（MD5，整文件）：与安卓端 computeContentHash 一致（整文件内容计算 MD5 十六进制小写）。
+    /// 仅当开启「内容哈希」开关（精确内容去重）时调用，文件较大时读取整文件有一定 IO 开销（已在扫描并发池内执行）。
+    private func computeContentHash(url: URL) -> String {
+        guard let data = readFileData(url) else { return "" }
+        let digest = Insecure.MD5.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 }

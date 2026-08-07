@@ -28,6 +28,18 @@ final class FileRepository {
         LogUtil.i("Repo", "删除文库 run=\(runId)")
         logOperation(level: "W", tag: "其他", message: "删除文库 run=\(runId)")
     }
+    /// 合并多个文库为一个新文库（对齐安卓 LibraryViewModel.mergeRuns）。
+    /// 要求 sourceIds.count >= 2，否则返回 -1。
+    @discardableResult
+    func mergeRuns(_ sourceIds: [Int64], newName: String) -> Int64 {
+        guard sourceIds.count >= 2 else { return -1 }
+        let newId = db.mergeRuns(sourceIds, newName: newName)
+        if newId > 0 {
+            LogUtil.i("Repo", "合并文库 源=[\(sourceIds.map(String.init).joined(separator: ","))] -> 新=\(newId)")
+            logOperation(level: "I", tag: "其他", message: "合并文库 源=\(sourceIds.count)个 -> 新文库\(newId)")
+        }
+        return newId
+    }
     func getScanRuns() -> [ScanRun] { db.getScanRuns() }
     func getScanRun(_ id: Int64) -> ScanRun? { db.getScanRun(id) }
     /// 统计文库内已标记文件数（首页统计卡片）。
@@ -196,6 +208,34 @@ final class FileRepository {
         LogUtil.i("Repo", "按文件名相同标记 run=\(runId) 新标记=\(toMark.count)")
         if !toMark.isEmpty { logOperation(level: "I", tag: "标记", message: "按「文件名」相同标记重复，新增标记 \(toMark.count) 个文件（文库 \(runId)）") }
         return toMark.count
+    }
+
+    /// 按「内容哈希相同、修改时间更早」标记：每组仅保留最新修改的 1 个不标记，其余更早的标记。
+    /// 若该文库未扫描内容哈希（content_hash 全空）返回 -1，由上层提示用户先开启内容哈希重新扫描。
+    /// 对齐安卓 LibraryViewModel.markDuplicatesByHash。
+    @discardableResult
+    func markDuplicatesByHash(runId: Int64) -> Int {
+        let n = db.markDuplicatesByHash(runId: runId)
+        if n < 0 {
+            LogUtil.i("Repo", "按内容哈希标记 run=\(runId) 未扫描内容哈希，跳过")
+            return -1
+        }
+        LogUtil.i("Repo", "按内容哈希标记 run=\(runId) 新增标记=\(n)")
+        if n > 0 { logOperation(level: "I", tag: "标记", message: "按「内容哈希」相同标记较早重复，新增标记 \(n) 个文件（文库 \(runId)）") }
+        return n
+    }
+
+    /// 按「内容哈希相同、修改时间更早」勾选：逻辑同 markDuplicatesByHash，仅置 checked=1。
+    @discardableResult
+    func checkDuplicatesByHash(runId: Int64) -> Int {
+        let n = db.checkDuplicatesByHash(runId: runId)
+        if n < 0 {
+            LogUtil.i("Repo", "按内容哈希勾选 run=\(runId) 未扫描内容哈希，跳过")
+            return -1
+        }
+        LogUtil.i("Repo", "按内容哈希勾选 run=\(runId) 新增勾选=\(n)")
+        if n > 0 { logOperation(level: "I", tag: "勾选", message: "按「内容哈希」相同勾选较早重复，新增勾选 \(n) 个文件（文库 \(runId)）") }
+        return n
     }
 
     /// 重复组数：已勾选文件按 (作者, 书名) 规范化分组后，组内文件数 >= 2 的组数。

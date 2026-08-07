@@ -505,7 +505,7 @@ struct LibraryView: View {
                 Button {
                     selectDuplicates()
                 } label: { Image(systemName: "checkmark.circle") }
-                .help("一键勾选重复（按内容哈希相同）")
+                .help("一键勾选重复（按书名/作者相同）")
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -572,6 +572,32 @@ struct LibraryView: View {
                             let n = FileRepository.shared.markDuplicatesByName(runId: runId)
                             toast(n > 0 ? "已标记 \(n) 个书名/作者相同的重复文件" : "没有书名/作者相同的重复文件")
                             reload()
+                        }
+                    }
+                    // 按内容哈希相同（对齐安卓文库「更多操作」新增的两项：标记/勾选内容哈希相同但时间更早的文件）
+                    Menu("按内容哈希相同") {
+                        Button("标记内容哈希相同但较早的文件") {
+                            let n = FileRepository.shared.markDuplicatesByHash(runId: runId)
+                            if n < 0 {
+                                toast("该文库未扫描内容哈希，无法按哈希标记；请在深度扫描中开启「内容哈希」后重新扫描")
+                            } else if n > 0 {
+                                toast("已按内容哈希标记 \(n) 个较早文件")
+                            } else {
+                                toast("未发现内容哈希相同的重复文件")
+                            }
+                            reload()
+                        }
+                        Button("勾选内容哈希相同但较早的文件") {
+                            let n = FileRepository.shared.checkDuplicatesByHash(runId: runId)
+                            if n < 0 {
+                                toast("该文库未扫描内容哈希，无法按哈希勾选；请在深度扫描中开启「内容哈希」后重新扫描")
+                            } else if n > 0 {
+                                toast("已按内容哈希勾选 \(n) 个较早文件")
+                                reload()
+                            } else {
+                                toast("未发现内容哈希相同的重复文件")
+                                reload()
+                            }
                         }
                     }
                     // 批量操作（对齐安卓文库「更多」菜单）
@@ -810,7 +836,7 @@ struct LibraryView: View {
             DispatchQueue.main.async {
                 running = false
                 if dupIds.isEmpty {
-                    toast("当前筛选下没有重复文件（按内容哈希）")
+                    toast("当前筛选下没有重复文件（按书名/作者）")
                 } else {
                     reload()
                 }
@@ -1247,29 +1273,40 @@ struct FilePreviewView: View {
 
     private func load() async {
         guard let f = FileRepository.shared.getById(fileId) else {
-            await MainActor.run { text = "文件不存在" }
+            text = "文件不存在"
             return
         }
-        await MainActor.run { file = f }
-        let (content, errorHint) = await readFileContent(f, mode: modeState)
-        await MainActor.run {
-            text = errorHint ?? content
-            totalLines = text.split(separator: "\n", omittingEmptySubsequences: false).count
-        }
+        file = f
+        text = "加载中…"
+        totalLines = 0
+        let m = modeState
+        // 关键：FilePreviewView 是 SwiftUI View（隐式 @MainActor），`.task` 会继承主 actor。
+        // 若直接 await 读文件+解码，200KB 数据最多解码 3 次、逐字符统计 CJK 占比全在主线程执行，
+        // 会卡住 UI 数秒（表现为「预览加载时间长」），严重时触发 watchdog 强杀（闪退）。
+        // 因此显式丢到 detached 后台任务执行，仅把结果回主线程赋值。
+        let result = await Task.detached(priority: .userInitiated) {
+            FilePreviewView.readFileContent(f, mode: m)
+        }.value
+        // 页面可能已被切换/返回，重入的旧任务不应覆盖新内容
+        guard fileId == f.id, modeState == m else { return }
+        let shown = result.1 ?? result.0
+        text = shown
+        totalLines = result.2
     }
 
     /// 读取文件预览内容。优先使用扫描时保存的文件夹安全作用域书签；若书签失效，则尝试直接读取文件 URL（部分场景可访问）。
-    /// 返回 (content, errorHint) 元组；errorHint 为 nil 表示成功，非 nil 时 content 为 nil 应显示该提示。
-    private func readFileContent(_ f: ScannedFile, mode: String) async -> (String, String?) {
+    /// 返回 (content, errorHint, lineCount) 元组；errorHint 为 nil 表示成功，非 nil 时应显示该提示。
+    /// 声明为 `nonisolated static`，确保可在后台线程调用，不隐式跳回主 actor。
+    nonisolated static func readFileContent(_ f: ScannedFile, mode: String) -> (String, String?, Int) {
         let tag = "FilePreview"
         guard let run = FileRepository.shared.getScanRun(f.scanRunId) else {
             LogUtil.e(tag, "scan run not found: \(f.scanRunId)")
-            return ("", "扫描记录不存在（可能已被删除），请重新扫描")
+            return ("", "扫描记录不存在（可能已被删除），请重新扫描", 0)
         }
         // f.path 是 file:// 形式的绝对 URL 字符串，必须用 URL(string:) 解析
         guard let url = URL(string: f.path) else {
             LogUtil.e(tag, "invalid file path: \(f.path)")
-            return ("", "文件路径无效：\(f.path)")
+            return ("", "文件路径无效：\(f.path)", 0)
         }
 
         let resolved = resolveBookmarkURL(run.folderUri)
@@ -1280,13 +1317,13 @@ struct FilePreviewView: View {
                 // 书签过期：仍尝试 startAccessing（部分情况下系统会续期），但大概率失败
                 accessed = resolved.url.startAccessingSecurityScopedResource()
                 if !accessed {
-                    return ("", "文件夹访问授权已过期，请重新扫描以刷新授权")
+                    return ("", "文件夹访问授权已过期，请重新扫描以刷新授权", 0)
                 }
             } else {
                 accessed = resolved.url.startAccessingSecurityScopedResource()
                 if !accessed {
                     LogUtil.d(tag, "failed to start accessing security scoped resource for folder \(resolved.url)")
-                    return ("", "无法访问文件夹（权限被拒绝），请重新扫描并授权")
+                    return ("", "无法访问文件夹（权限被拒绝），请重新扫描并授权", 0)
                 }
             }
         } else {
@@ -1300,11 +1337,14 @@ struct FilePreviewView: View {
 
         // 检查文件是否存在
         guard FileManager.default.fileExists(atPath: url.path) else {
-            return ("", "文件不存在或已被移动：\(url.lastPathComponent)")
+            return ("", "文件不存在或已被移动：\(url.lastPathComponent)", 0)
         }
 
         let enc = f.encoding.isEmpty ? "UTF-8" : f.encoding
-        let maxBytes = 200 * 1024
+        // 按模式收敛读取量：菜单里 head=「前 50 行」、tail=「后 100 行」，
+        // 原先一律读 200KB 再全量解码+排版，是预览慢的直接原因。
+        // 50/100 行中文约 4~12KB，这里给足 64KB 余量即可，仅 all 模式才读满 200KB。
+        let maxBytes = (mode == "all") ? 200 * 1024 : 64 * 1024
 
         // 编码尝试链（去重保序）：
         //   1) 扫描阶段记录的存储编码（早期可能误判为 UTF-8）
@@ -1320,22 +1360,55 @@ struct FilePreviewView: View {
         }
 
         // 先尝试 FileHandle（可控偏移，支持 tail 模式）；失败则回退到 Data(contentsOf:)。
-        if let data = await readFileData(url: url, mode: mode, maxBytes: maxBytes, tag: tag) {
+        if let data = readFileData(url: url, mode: mode, maxBytes: maxBytes, tag: tag) {
             let truncatedSuffix = makeTruncatedSuffix(mode: mode, dataCount: data.count, maxBytes: maxBytes)
-            let (text, usedName) = EncodingUtil.decodeStrict(data: data, candidates: candidates)
+            var (text, usedName) = EncodingUtil.decodeStrict(data: data, candidates: candidates)
             if !text.isEmpty {
                 if usedName != enc {
                     LogUtil.d(tag, "preview fallback decoding: \(url.lastPathComponent) stored=\(enc) used=\(usedName)")
                 }
-                return (text + truncatedSuffix, nil)
+                // 换行规整：文件可能含 Windows 换行 \r\n 或经典 Mac \r，统一为 \n，
+                // 避免 TextKit 多算行高、纵向滚动条比例失真。
+                text = text.replacingOccurrences(of: "\r\n", with: "\n")
+                           .replacingOccurrences(of: "\r", with: "\n")
+
+                // 按模式裁到实际需要的行数（head=前 50 行、tail=后 100 行），
+                // 与菜单文案保持一致，同时把送进 UITextView 的文本量降到最低。
+                var lineNote = ""
+                if mode == "head" || mode == "tail" {
+                    let want = (mode == "head") ? 50 : 100
+                    var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+                    if lines.count > want {
+                        lines = (mode == "head") ? Array(lines.prefix(want)) : Array(lines.suffix(want))
+                        lineNote = (mode == "head")
+                            ? "\n\n…（仅显示前 \(want) 行，切换「全部内容」查看更多）"
+                            : "\n\n…（仅显示后 \(want) 行，切换「全部内容」查看更多）"
+                    }
+                    text = lines.joined(separator: "\n")
+                } else {
+                    // 仅「全部内容」模式可能达到十万字级，需做硬上限保护，
+                    // 避免 UITextView 排版/内存激增导致主线程卡死或闪退。
+                    let hardLimit = 120_000 // 字符数上限，约等于 200KB 中文的可视量
+                    if text.count > hardLimit {
+                        text = String(text.prefix(hardLimit))
+                        lineNote = "\n\n…（内容过长，预览已截断）"
+                    }
+                }
+
+                // head/tail 已自带行数说明，就不再重复贴字节截断说明
+                let suffix = lineNote.isEmpty ? truncatedSuffix : lineNote
+                let full = text + suffix
+                // 行数在后台一并算好，避免主线程再对大字符串 split 一次
+                let lineCount = full.reduce(into: 1) { acc, ch in if ch == "\n" { acc += 1 } }
+                return (full, nil, lineCount)
             }
             LogUtil.e(tag, "string decoding failed for \(url.lastPathComponent), tried=\(candidates.joined(separator: ","))")
-            return ("", "文件编码解析失败（已尝试 \(candidates.joined(separator: "/"))，均解码失败）")
+            return ("", "文件编码解析失败（已尝试 \(candidates.joined(separator: "/"))，均解码失败）", 0)
         }
-        return ("", "无法读取文件数据（可能缺少文件夹访问权限，请重新扫描以刷新授权）")
+        return ("", "无法读取文件数据（可能缺少文件夹访问权限，请重新扫描以刷新授权）", 0)
     }
 
-    private func readFileData(url: URL, mode: String, maxBytes: Int, tag: String) async -> Data? {
+    nonisolated private static func readFileData(url: URL, mode: String, maxBytes: Int, tag: String) -> Data? {
         if let fh = try? FileHandle(forReadingFrom: url) {
             defer { try? fh.close() }
             if mode == "tail" {
@@ -1362,7 +1435,7 @@ struct FilePreviewView: View {
         }
     }
 
-    private func makeTruncatedSuffix(mode: String, dataCount: Int, maxBytes: Int) -> String {
+    nonisolated private static func makeTruncatedSuffix(mode: String, dataCount: Int, maxBytes: Int) -> String {
         if mode == "tail" {
             return dataCount >= maxBytes ? "\n\n…（预览仅显示末尾 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
         } else {
@@ -1432,49 +1505,87 @@ struct ScrollableText: UIViewRepresentable {
         // 已离屏或重用的 scrollView/UITextView 造成 EXC_BAD_ACCESS。
         // 典型场景：第一个文件 bounds=0 时排了 DispatchQueue.main.async 重入闭包，用户在
         // 下一帧前返回并打开第二个文件，旧闭包 fire 时访问已释放的 context/scroll 导致闪退。
-        guard !context.coordinator.cancelled else { return }
-        guard let tv = context.coordinator.textView else { return }
+        let coord = context.coordinator
+        guard !coord.cancelled, coord.textView != nil else { return }
         // SwiftUI 首次 layout 时 scroll.bounds 可能仍为 0，延迟到下一帧再渲染，避免首帧 tv 宽度为 0 文本不可见。
         if scroll.bounds.width <= 0 || scroll.bounds.height <= 0 {
             // 文本待渲染但 scroll 尚未 layout：调度到下一个 runloop，等 SwiftUI 完成 layout 后重试。
-            // 用 [weak self/context 失效检测] 防止视图卸载后闭包仍修改已离屏的 scrollView。
-            if context.coordinator.lastText != text {
-                DispatchQueue.main.async { [weak scroll] in
-                    guard let scroll = scroll else { return }
-                    guard !context.coordinator.cancelled else { return }
-                    self.updateUIView(scroll, context: context)
+            // 注意：闭包**绝不能捕获 context**（Context 内含 SwiftUI 内部存储，视图卸载后再访问其
+            // coordinator 会 EXC_BAD_ACCESS）。这里只捕获 weak scroll + 强引用 coordinator 对象本身。
+            // 同时限制重试次数，防止 bounds 长期为 0 时无限递归排队把主线程打爆。
+            if coord.lastText != text && coord.layoutRetry < 30 {
+                coord.layoutRetry += 1
+                let pending = text
+                let pendingFont = fontPt
+                let pendingMode = mode
+                DispatchQueue.main.async { [weak scroll, weak coord] in
+                    guard let scroll = scroll, let coord = coord, !coord.cancelled else { return }
+                    ScrollableText.applyLayout(scroll: scroll, coord: coord,
+                                               text: pending, fontPt: pendingFont, mode: pendingMode)
                 }
             }
             return
         }
-        // 文本或字号未变化时跳过重设富文本与布局，避免每次 body 重算都同步重建大段 NSAttributedString 阻塞主线程。
-        if context.coordinator.lastText != text || context.coordinator.lastFontPt != fontPt {
-            context.coordinator.lastText = text
-            context.coordinator.lastFontPt = fontPt
-            let font = UIFont.systemFont(ofSize: fontPt)
-            tv.font = font
-            tv.textColor = .label
-            tv.attributedText = NSAttributedString(string: text, attributes: [
-                .font: font,
-                .foregroundColor: UIColor.label
-            ])
-            let inset: CGFloat = 12
-            let viewportW = scroll.bounds.width - inset * 2
-            let viewportH = scroll.bounds.height - inset * 2
-            if mode == .horizontal {
-                // 横向：高度固定为视口高度，宽度随内容自然展开
-                tv.frame = CGRect(x: inset, y: inset, width: viewportW, height: viewportH)
-                tv.sizeToFit()
-                tv.frame = CGRect(x: inset, y: inset, width: max(tv.frame.width, viewportW), height: viewportH)
-                scroll.contentSize = CGSize(width: tv.frame.width + inset * 2, height: scroll.bounds.height)
-            } else {
-                // 纵向：宽度固定为视口宽度，高度由 sizeToFit 算出
-                tv.frame = CGRect(x: inset, y: inset, width: viewportW, height: viewportH)
-                tv.sizeToFit()
-                scroll.contentSize = CGSize(width: scroll.bounds.width, height: tv.frame.height + inset * 2)
+        coord.layoutRetry = 0
+        ScrollableText.applyLayout(scroll: scroll, coord: coord, text: text, fontPt: fontPt, mode: mode)
+    }
+
+    /// 实际排版逻辑，脱离 `Context` 独立执行，便于异步重试时安全调用。
+    private static func applyLayout(scroll: UIScrollView, coord: Coordinator,
+                                    text: String, fontPt: CGFloat, mode: ScrollMode) {
+        guard !coord.cancelled, let tv = coord.textView else { return }
+        if scroll.bounds.width <= 0 || scroll.bounds.height <= 0 {
+            guard coord.layoutRetry < 30 else { return }
+            coord.layoutRetry += 1
+            DispatchQueue.main.async { [weak scroll, weak coord] in
+                guard let scroll = scroll, let coord = coord, !coord.cancelled else { return }
+                ScrollableText.applyLayout(scroll: scroll, coord: coord, text: text, fontPt: fontPt, mode: mode)
             }
+            return
         }
-        context.coordinator.publish(scroll)
+        coord.layoutRetry = 0
+        applyText(tv: tv, scroll: scroll, coord: coord, text: text, fontPt: fontPt, mode: mode)
+        coord.publish(scroll)
+    }
+
+    private static func applyText(tv: UITextView, scroll: UIScrollView, coord: Coordinator,
+                                  text: String, fontPt: CGFloat, mode: ScrollMode) {
+        // 文本或字号未变化时跳过重设富文本与布局，避免每次 body 重算都同步重建大段 NSAttributedString 阻塞主线程。
+        guard coord.lastText != text || coord.lastFontPt != fontPt else { return }
+        coord.lastText = text
+        coord.lastFontPt = fontPt
+        let font = UIFont.systemFont(ofSize: fontPt)
+        tv.font = font
+        tv.textColor = .label
+        // 用 plain text + font 而非 NSAttributedString：后者对十万字级文本要额外构建属性串，
+        // 主线程耗时显著且内存翻倍，是大文件预览卡顿/被系统杀掉的诱因之一。
+        tv.text = text
+        let inset: CGFloat = 12
+        let viewportW = max(1, scroll.bounds.width - inset * 2)
+        let viewportH = max(1, scroll.bounds.height - inset * 2)
+        if mode == .horizontal {
+            // 横向：高度固定为视口高度，宽度随内容自然展开。
+            // 不使用 sizeToFit()（会对全文做无限宽排版，超大文本极易卡死），
+            // 改用 TextKit 按需测量并对宽度设上限。
+            tv.textContainer.size = CGSize(width: CGFloat.greatestFiniteMagnitude, height: viewportH)
+            tv.textContainer.lineBreakMode = .byClipping
+            let measured = tv.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: viewportH))
+            let w = min(max(measured.width, viewportW), 20_000) // 上限防止 contentSize 溢出导致渲染异常
+            tv.frame = CGRect(x: inset, y: inset, width: w, height: viewportH)
+            scroll.contentSize = CGSize(width: w + inset * 2, height: scroll.bounds.height)
+        } else {
+            // 纵向：宽度固定为视口宽度。
+            // 不用 sizeThatFits 全量排版（12 万字符的 UITextView 一次性排版耗时百毫秒级、易卡主线程），
+            // 改用「行数 × 行高」估算内容高度——行高由字号决定、与内容无关，估算误差极小且瞬时完成。
+            tv.textContainer.size = CGSize(width: viewportW, height: CGFloat.greatestFiniteMagnitude)
+            tv.textContainer.lineBreakMode = .byWordWrapping
+            tv.frame = CGRect(x: inset, y: inset, width: viewportW, height: viewportH)
+            let lineHeight = font.lineHeight
+            let lineCount = max(text.isEmpty ? 1 : text.reduce(into: 1) { acc, ch in if ch == "\n" { acc += 1 } },
+                                Int((viewportH / max(lineHeight, 1)).rounded(.up)))
+            let h = CGFloat(lineCount) * lineHeight
+            scroll.contentSize = CGSize(width: scroll.bounds.width, height: h + inset * 2)
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -1501,6 +1612,8 @@ struct ScrollableText: UIViewRepresentable {
         /// 此后所有异步重入的 updateUIView 闭包立即退出，不再访问已离屏的 scrollView，
         /// 避免「第一个文件预览返回后又开第二个文件」时旧闭包导致的 EXC_BAD_ACCESS 闪退。
         var cancelled = false
+        /// bounds 尚未 layout 时的重试计数，超过上限即放弃，防止无限递归排队卡死主线程。
+        var layoutRetry = 0
 
         func publish(_ scroll: UIScrollView) {
             state?.contentSize = scroll.contentSize
