@@ -57,8 +57,14 @@ enum EncodingUtil {
             else if c >= 0xF0 && c <= 0xF4 { need = 3 }
             else { return false }
             if i + need >= count { return true }
-            for j in 1...need {
-                if (Int(b[i + j]) & 0xC0) != 0x80 { return false }
+            // 关键修复：need == 0（ASCII）时 1...0 是非法 ClosedRange，
+            // Swift 运行时会触发 "Range requires lowerBound <= upperBound" fatal error（brk 1 / EXC_BREAKPOINT），
+            // 表现为深度扫描读取任意含 ASCII 字节的文件即闪退。
+            // 必须 guard need > 0 才进入续字节校验循环。
+            if need > 0 {
+                for j in 1...need {
+                    if (Int(b[i + j]) & 0xC0) != 0x80 { return false }
+                }
             }
             i += need + 1
         }
