@@ -1236,21 +1236,22 @@ struct FilePreviewView: View {
             .background(Color.fsSecondaryBg)
 
             // 文本 + 自定义滑条（统一纵向滚动条）
-            ZStack(alignment: .topTrailing) {
-                if uiKitReady {
-                    ScrollableText(text: text, fontPt: fontPt,
-                                   mode: .vertical,
-                                   allLines: nil,
-                                   state: scrollState)
-                    // UIScrollView 作为 SwiftUI 子视图没有固有高度，必须显式撑满父级剩余空间，
-                    // 否则 scroll.bounds.height=0，updateUIView 拿不到可视区域，文本永远无法渲染（屏幕全黑）。
+            // 关键：UIKit 视图（UIViewRepresentable 固有尺寸为 0）必须直接放在 VStack 里，
+            // 由 .frame(maxHeight:.infinity) 占据 VStack 剩余空间 —— 这样 scroll.bounds 才是真实高度。
+            // 绝不能包在 ZStack 里：ZStack 高度由子视图最大固有尺寸决定，UIKit 视图固有尺寸 0
+            // 会导致 ZStack 塌缩为 0，scroll.bounds 永远为 0、重试耗尽、整页空白。
+            if uiKitReady {
+                ScrollableText(text: text, fontPt: fontPt,
+                               mode: .vertical,
+                               allLines: nil,
+                               state: scrollState)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    MiniScrollBar(state: scrollState,
-                                  axis: .vertical)
-                } else {
-                    Text("加载中…").foregroundColor(.fsSecondaryLabel)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-                }
+                    .overlay(alignment: .topTrailing) {
+                        MiniScrollBar(state: scrollState, axis: .vertical)
+                    }
+            } else {
+                Text("加载中…").foregroundColor(.fsSecondaryLabel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
         }
         .navigationTitle(file?.fileName ?? "预览")
@@ -1548,11 +1549,13 @@ struct ScrollableText: UIViewRepresentable {
         coord.scroll = scroll
         coord.textView = tv
         state.scrollView = scroll
+        FileRepository.shared.logOperation(level: "D", tag: "预览UI", message: "makeUIView 创建 scroll+tv mode=\(mode)")
         return scroll
     }
 
     func updateUIView(_ scroll: UIScrollView, context: Context) {
         let coord = context.coordinator
+        FileRepository.shared.logOperation(level: "D", tag: "预览UI", message: "updateUIView bounds=\(Int(scroll.bounds.width))x\(Int(scroll.bounds.height)) cancelled=\(coord.cancelled)")
         // 自愈：SwiftUI 在 pop 后再次 push 同类型视图时**可能复用 Coordinator 与 UIKit 视图**
         // （只调 updateUIView、不调 makeUIView）。此时 coord 仍是 dismantleUIView 标记过的
         // 旧状态（cancelled=true / textView=nil），若直接 return 则**二次打开永久黑屏**。
