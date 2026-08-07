@@ -116,34 +116,57 @@ enum EncodingUtil {
         return trailing % 2 == 1 ? keep(n - 1) : data
     }
 
-    /// 严格按候选顺序尝试解码，以「CJK 内容占比」为核心判据选择最合理的解码结果。
+    /// 严格按候选顺序尝试解码，以「CJK 内容占比 − 异常字符惩罚」为核心判据选择最合理的解码结果。
     ///
     /// 判定逻辑（解决 iOS Foundation UTF-8 静默丢字节、不产生 U+FFFD 导致乱码的问题）：
     /// - 每个候选先做「字符边界安全裁剪」，避免尾部半个汉字影响解码与评分；
     /// - 对所有成功解码的候选计算 CJK 占比（抽样，标量级遍历）；
-    /// - 真 UTF-8 中文：UTF-8 分支 CJK 高，且其字节必过 `looksLikeUtf8` → +0.25 红利，确保优先；
-    /// - 真 GBK/GB18030：UTF-8 分支静默丢字节后 CJK 极低，GB18030 分支 CJK 高 → 选 GB18030；
-    /// - 纯 ASCII/英文：各候选 CJK≈0，UTF-8 凭红利胜出，保持保真。
+    /// - 真 UTF-8 中文：UTF-8 分支 CJK 高且几乎无异常字符 → 胜出；
+    /// - 真 GBK/GB18030：UTF-8 分支静默丢字节后会产生大量「非 ASCII 非 CJK」的乱码字符（被惩罚），
+    ///   GB18030 分支 CJK 高且异常字符少 → 选 GB18030；
+    /// - 纯 ASCII/英文：各候选 CJK≈0、异常字符≈0，UTF-8 胜出（保真）。
+    /// 注意：早期版本给 UTF-8 加 +0.25 红利，反而让「GBK 误当 UTF-8 静默丢字节」的乱码方案胜出，
+    /// 已移除——纯按 CJK 占比与异常字符竞争即可正确区分。
     /// 返回 (解码文本, 实际使用的编码名)。全部失败返回 ("", "")。
     static func decodeStrict(data: Data, candidates: [String]) -> (String, String) {
         // 关键防护：来自 File Provider / 外部文件夹的 Data 常是桥接的 NSData（脏 buffer），
         // 其底层 length 与实际内存可能不一致，后续任何下标/复制访问都可能触发
         // Data.subscript 越界 trap（EXC_BREAKPOINT）导致闪退。
-        // 这里强制深拷贝成独立连续内存，切断与脏 buffer 的关联。
-        let owned = Data(data)
+        // subdata(in:) 会分配独立内存并复制，干净隔离脏 buffer（不同于 Data(data) 的 COW 只读共享）。
+        let owned = data.isEmpty ? data : data.subdata(in: 0..<data.count)
         var best = ("", "", -1.0)
         for name in candidates {
             let enc = stringEncoding(named: name)
             let safe = trimIncompleteTail(owned, encodingName: name)
             guard let s = String(data: safe, encoding: enc), !s.isEmpty else { continue }
             var score = cjkScalarRatio(s)
-            if name == "UTF-8" && looksLikeUtf8(safe) {
-                score += 0.25 // 真 UTF-8 字节流红利，避免被 GB18030 误解码抢走
-            }
+            // 异常字符惩罚：非 ASCII、非 CJK 的其它字符（乱码产物）越多，越不可能是正确编码。
+            let penalty = abnormalRatio(s)
+            score -= penalty * 0.8
             if score > best.2 {
                 best = (s, name, score)
             }
         }
         return (best.0, best.1)
+    }
+
+    /// 异常字符（乱码产物）占比：既不是 ASCII 可打印/空白、也不在常用 CJK 区的字符。
+    /// GBK 文件按 UTF-8 静默丢字节解码后，会产生大量落在私用区/特殊符号区的怪字符，此处用于惩罚。
+    private static func abnormalRatio(_ s: String) -> Double {
+        let sampleLimit = 20000
+        var total = 0
+        var abnormal = 0
+        for ch in s.unicodeScalars.prefix(sampleLimit) {
+            total += 1
+            let v = ch.value
+            let isAsciiPrintable = (v >= 0x20 && v < 0x7F) || v == 0x09 || v == 0x0A || v == 0x0D
+            let isCJK = (v >= 0x4E00 && v <= 0x9FFF) || (v >= 0x3400 && v <= 0x4DBF)
+                       || (v >= 0xF900 && v <= 0xFAFF) || (v >= 0x3000 && v <= 0x303F)
+                       || (v >= 0xFF00 && v <= 0xFFEF)
+            if !isAsciiPrintable && !isCJK {
+                abnormal += 1
+            }
+        }
+        return total == 0 ? 0 : Double(abnormal) / Double(total)
     }
 }

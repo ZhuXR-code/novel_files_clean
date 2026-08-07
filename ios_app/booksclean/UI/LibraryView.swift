@@ -1270,35 +1270,24 @@ struct FilePreviewView: View {
         .task { await load() }
     }
 
+    /// 预览读取串行队列：同一时刻只允许一个读取任务执行。
+    /// 并发执行多个 getById/readFileContent 会同时持有并释放安全作用域书签
+    /// （start/stopAccessingSecurityScopedResource 必须成对，并发会相互干扰，
+    /// 导致其中一方读到的 Data 在另一方 stop 后失效成脏 buffer → Data.subscript trap）。
+    private static let previewQueue = DispatchQueue(label: "booksclean.preview.load", qos: .userInitiated)
+
     private func load() async {
         FileRepository.shared.logOperation(level: "I", tag: "预览", message: "load() 开始 id=\(fileId)")
         let m = modeState
-        // 关键：getById / getScanRun / resolveBookmarkURL(URL(resolvingBookmarkData:)) 在文件位于
-        // File Provider / 外部文件夹时，会在主线程同步跨进程请求文件提供程序扩展，可能卡数秒，
-        // 直接触发 watchdog（0x8BADF00D）强杀。所以整段预备 + 读取 + 安全作用域 start/stop
-        // 全部放到 detached 后台线程执行，主线程只负责 UI 赋值。
-        // 注意：start/stopAccessingSecurityScopedResource 并不要求主线程，任意线程配对即可。
         let (fid, mmode) = (fileId, m)
-        let result = await Task.detached(priority: .userInitiated) { () -> (String, String?, Int, ScannedFile?) in
-            guard let f = FileRepository.shared.getById(fid) else {
-                FileRepository.shared.logOperation(level: "E", tag: "预览", message: "文件不存在 id=\(fid)")
-                return ("文件不存在", nil, 0, nil)
+        // 整段预备 + 读取 + 安全作用域 start/stop 串行执行，避免并发冲突；
+        // 主线程只负责 UI 赋值。
+        let result: (String, String?, Int, ScannedFile?) = await withCheckedContinuation { cont in
+            FilePreviewView.previewQueue.async {
+                let r = FilePreviewView.performLoad(fid: fid, mode: mmode)
+                cont.resume(returning: r)
             }
-            FileRepository.shared.logOperation(level: "I", tag: "预览", message: "取到文件 \(f.fileName) encoding=\(f.encoding) size=\(f.fileSize)")
-            guard let run = FileRepository.shared.getScanRun(f.scanRunId),
-                  let resolved = resolveBookmarkURL(run.folderUri) else {
-                FileRepository.shared.logOperation(level: "E", tag: "预览", message: "文件夹授权失效 id=\(fid)")
-                return ("无法访问文件夹（授权失效），请重新扫描以刷新授权", nil, 0, f)
-            }
-            let accessed = resolved.url.startAccessingSecurityScopedResource()
-            if !accessed {
-                FileRepository.shared.logOperation(level: "E", tag: "预览", message: "无法开启文件夹访问权限 id=\(fid)")
-                return ("无法访问文件夹（权限被拒绝），请重新扫描并授权", nil, 0, f)
-            }
-            defer { resolved.url.stopAccessingSecurityScopedResource() }
-            let r = FilePreviewView.readFileContent(f, mode: mmode)
-            return (r.0, r.1, r.2, f)
-        }.value
+        }
         // 页面可能已被切换/返回，重入的旧任务不应覆盖新内容
         guard fileId == fid, modeState == mmode else {
             FileRepository.shared.logOperation(level: "W", tag: "预览", message: "load() 页面已切换，丢弃旧结果 id=\(fileId)")
@@ -1314,6 +1303,28 @@ struct FilePreviewView: View {
             FileRepository.shared.logOperation(level: "I", tag: "预览", message: "拿到文本 len=\(shown.count) lines≈\(result.2) 准备挂载 UIKit")
         }
         uiKitReady = true
+    }
+
+    /// 在串行队列中执行完整读取流程（含安全作用域配对）。
+    private static func performLoad(fid: Int64, mode: String) -> (String, String?, Int, ScannedFile?) {
+        guard let f = FileRepository.shared.getById(fid) else {
+            FileRepository.shared.logOperation(level: "E", tag: "预览", message: "文件不存在 id=\(fid)")
+            return ("文件不存在", nil, 0, nil)
+        }
+        FileRepository.shared.logOperation(level: "I", tag: "预览", message: "取到文件 \(f.fileName) encoding=\(f.encoding) size=\(f.fileSize)")
+        guard let run = FileRepository.shared.getScanRun(f.scanRunId),
+              let resolved = resolveBookmarkURL(run.folderUri) else {
+            FileRepository.shared.logOperation(level: "E", tag: "预览", message: "文件夹授权失效 id=\(fid)")
+            return ("无法访问文件夹（授权失效），请重新扫描以刷新授权", nil, 0, f)
+        }
+        let accessed = resolved.url.startAccessingSecurityScopedResource()
+        if !accessed {
+            FileRepository.shared.logOperation(level: "E", tag: "预览", message: "无法开启文件夹访问权限 id=\(fid)")
+            return ("无法访问文件夹（权限被拒绝），请重新扫描并授权", nil, 0, f)
+        }
+        defer { resolved.url.stopAccessingSecurityScopedResource() }
+        let r = FilePreviewView.readFileContent(f, mode: mode)
+        return (r.0, r.1, r.2, f)
     }
 
     /// 读取文件预览内容。优先使用扫描时保存的文件夹安全作用域书签；若书签失效，则尝试直接读取文件 URL（部分场景可访问）。
@@ -1413,40 +1424,30 @@ struct FilePreviewView: View {
         // 扩展被强杀/未启动时会直接触发 Data.subscript 越界 trap（EXC_BREAKPOINT）导致闪退。
         // 因此优先用「直接 FileHandle / Data(contentsOf:)」读取——在已 startAccessingSecurityScopedResource
         // 的授权前提下，File Provider 已落盘的文件通常可直接读，无需 coordinator 介入。
-        let readRange: Range<Int> = (mode == "tail")
-            ? (0..<maxBytes)   // 末尾：先全取，后截
-            : (0..<maxBytes)
 
-        func slice(_ data: Data) -> Data {
+        // 物理拷贝：subdata(in:) 会**分配独立内存**并复制内容（不同于 Data(data) 的 COW 只读共享），
+        // 把所有来自外部脏 buffer（桥接 NSData）的数据隔离到干净的连续内存，避免后续任何
+        // Data.subscript / String(data:) 访问触发越界 trap。
+        func copyOwned(_ data: Data) -> Data {
             guard !data.isEmpty else { return data }
-            if mode == "tail" {
-                // Swift Int 减法下溢会 trap；当 data.count < maxBytes 时直接用 0。
-                let offset = data.count > maxBytes ? data.count - maxBytes : 0
-                return data.subdata(in: offset..<data.count)
-            } else {
-                return data.count > maxBytes ? data.subdata(in: 0..<maxBytes) : data
-            }
+            // tail 模式截断到末尾 maxBytes
+            let src: Data = (mode == "tail")
+                ? (data.count > maxBytes ? data.subdata(in: data.count - maxBytes..<data.count) : data)
+                : (data.count > maxBytes ? data.subdata(in: 0..<maxBytes) : data)
+            // 二次 subdata 强制物理拷贝，切断与原脏 buffer 的关联
+            return src.subdata(in: 0..<src.count)
         }
 
         // 1) 直接读（最快、最稳，适用于已授权可读的文件）
         if let fh = try? FileHandle(forReadingFrom: url) {
             defer { try? fh.close() }
-            if mode == "tail" {
-                let total = (try? fh.seekToEnd()) ?? 0
-                let from = max(0, Int(total) - maxBytes)
-                fh.seek(toFileOffset: UInt64(from))
-                if let d = try? fh.readData(ofLength: maxBytes), !d.isEmpty {
-                    return slice(d)
-                }
-            } else {
-                fh.seek(toFileOffset: 0)
-                if let d = try? fh.readData(ofLength: maxBytes), !d.isEmpty {
-                    return d
-                }
+            fh.seek(toFileOffset: 0)
+            if let d = try? fh.readData(ofLength: maxBytes), !d.isEmpty {
+                return copyOwned(d)
             }
         }
         if let d = try? Data(contentsOf: url), !d.isEmpty {
-            return slice(d)
+            return copyOwned(d)
         }
 
         // 2) 兜底：NSFileCoordinator（仅在直接读失败时尝试，用于极端场景）
@@ -1456,9 +1457,7 @@ struct FilePreviewView: View {
         coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordError) { coordinatedURL in
             if let fh = try? FileHandle(forReadingFrom: coordinatedURL) {
                 defer { try? fh.close() }
-                let total = (try? fh.seekToEnd()) ?? 0
-                let from = max(0, Int(total) - maxBytes)
-                fh.seek(toFileOffset: UInt64(from))
+                fh.seek(toFileOffset: 0)
                 result = try? fh.readData(ofLength: maxBytes)
             } else {
                 result = try? Data(contentsOf: coordinatedURL)
@@ -1473,7 +1472,7 @@ struct FilePreviewView: View {
             LogUtil.e(tag, "readFileData failed for \(url.lastPathComponent)")
             return nil
         }
-        return slice(data)
+        return copyOwned(data)
     }
 
     nonisolated private static func makeTruncatedSuffix(mode: String, dataCount: Int, maxBytes: Int) -> String {
