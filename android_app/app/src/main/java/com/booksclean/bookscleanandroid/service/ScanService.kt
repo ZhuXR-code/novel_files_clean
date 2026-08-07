@@ -251,30 +251,45 @@ class ScanService : Service() {
                 if (stopped) {
                     // 停止：保留已写入库的文件（消费者已 flush channel 中剩余记录），并回写已落库文件数
                     val dCount = done.get()
-                    app.repository.setRunFileCount(runId, dCount)
+                    val stoppedExcluded = excludedCount.get()
+                    val savedCount = (dCount - stoppedExcluded).coerceAtLeast(0)
+                    app.repository.setRunFileCount(runId, savedCount)
                     ScanStateManager.update(
                         ScanState(
                             isScanning = false, phase = "scanning",
                             progress = if (total > 0) (dCount * 100) / total else 0,
-                            scannedFiles = dCount, totalFiles = total,
-                            finished = true, status = "stopped"
+                            scannedFiles = savedCount, totalFiles = total,
+                            finished = true, status = "stopped",
+                            excludedFiles = stoppedExcluded
                         )
                     )
-                    updateNotificationNow(getString(R.string.scan_stopped, dCount))
-                    LogUtil.i("ScanService", "Scan stopped by user at $dCount/$total (run=$runId)")
+                    updateNotificationNow(getString(R.string.scan_stopped, savedCount))
+                    LogUtil.i(
+                        "ScanService",
+                        "Scan stopped by user at $dCount/$total, saved=$savedCount (run=$runId)"
+                    )
                 } else {
-                    val found = foundCount.get()
+                    // 实际入库文件数 = 已解析总数 - 被书名排除规则剔除数
                     val excluded = excludedCount.get()
+                    val savedCount = (done.get() - excluded).coerceAtLeast(0)
                     ScanStateManager.update(
                         ScanState(
                             isScanning = false, phase = "scanning", progress = 100,
-                            scannedFiles = found, totalFiles = total, finished = true,
+                            scannedFiles = savedCount, totalFiles = total, finished = true,
                             status = "completed", excludedFiles = excluded
                         )
                     )
-                    app.repository.setRunFileCount(runId, found)
-                    updateNotificationNow(getString(R.string.scan_completed, found))
-                    LogUtil.i("ScanService", "Scan finished: $found files (excluded=$excluded) (run=$runId)")
+                    app.repository.setRunFileCount(runId, savedCount)
+                    updateNotificationNow(
+                        if (excluded > 0)
+                            getString(R.string.scan_completed_with_excluded, savedCount, excluded)
+                        else
+                            getString(R.string.scan_completed, savedCount)
+                    )
+                    LogUtil.i(
+                        "ScanService",
+                        "Scan finished: $savedCount files (excluded=$excluded) (run=$runId)"
+                    )
                 }
             } catch (e: CancellationException) {
                 LogUtil.i("ScanService", "Scan cancelled")

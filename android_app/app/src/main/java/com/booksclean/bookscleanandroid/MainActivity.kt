@@ -146,7 +146,7 @@ fun AppNavigation() {
                 onBack = { navController.popBackStack() },
                 onFinished = {
                     // 把本次扫描的文库 id 传给文库页，直接进入已扫描结果列表（停止/完成后均保留）
-                    navController.navigate("library?runId=${ScanStateManager.runId}") {
+                    navController.navigate("library?runId=${ScanStateManager.runId.value}") {
                         popUpTo(NavRoutes.SCAN_PROGRESS) { inclusive = true }
                     }
                 }

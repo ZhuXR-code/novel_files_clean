@@ -170,7 +170,7 @@ object Parser {
         m = RE_TAG_NAME_ONLY.find(name)
         if (m != null) {
             val t = m.groupValues[1].trim()
-            if (t.length >= 2 && !Regex("""^[0-9\s.\-_#@!*&]+$""").matches(t) && "作者" !in t && "《" !in t) {
+            if (t.length >= 2 && !RE_ONLY_NUM_SYM.matches(t) && "作者" !in t && "《" !in t) {
                 return t to ""
             }
         }

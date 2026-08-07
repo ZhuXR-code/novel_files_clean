@@ -87,9 +87,8 @@ internal object DupRuleLogic {
             else -> return true
         } ?: ""
 
-        return try {
-            Regex(pattern).containsMatchIn(actual)
-        } catch (_: Exception) { false }
+        // 走编译缓存：同一 pattern 在 rows×rules 次匹配中只编译一次
+        return cachedRegex(pattern)?.containsMatchIn(actual) ?: false
     }
 
     // ===================== 内置规则（五则）评估所需的纯工具 =====================
@@ -99,6 +98,21 @@ internal object DupRuleLogic {
 
     /** 进度【严格】匹配「完结+数字番外」或「完结+番外数字」正则（用于规则 5）。 */
     private val FANWAI_RE = Regex("""^完结\+(?:(\d+(?:\.\d+)?)番外|番外(\d+(?:\.\d+)?))$""")
+
+    /**
+     * 纯数字进度正则（可选小数、可选尾随 %）。
+     * 必须提到顶层常量：progressValue 在 10w 级数据的 filter/maxOf 中被反复调用，
+     * 若在函数内 new Regex 会产生海量临时对象并重复编译，实测是勾选重复的主要热点。
+     */
+    private val NUMERIC_PROGRESS_RE = Regex("""^(\d+(?:\.\d+)?)\s*%?$""")
+
+    /** 自定义规则的正则编译缓存：同一 pattern 只编译一次（rows × rules 次匹配下收益显著）。 */
+    private val userRegexCache = java.util.concurrent.ConcurrentHashMap<String, Regex>()
+
+    /** 取缓存的 Regex；非法正则返回 null（调用方视为不匹配）。 */
+    private fun cachedRegex(pattern: String): Regex? = try {
+        userRegexCache.getOrPut(pattern) { Regex(pattern) }
+    } catch (_: Exception) { null }
 
     /** 判断字符串是否含有中文（CJK）字符。 */
     private fun hasCjk(s: String?): Boolean {
@@ -114,7 +128,7 @@ internal object DupRuleLogic {
     private fun progressValue(s: String?): Double? {
         val t = (s ?: "").trim()
         if (t.isEmpty() || hasCjk(t)) return null
-        val m = Regex("""^(\d+(?:\.\d+)?)\s*%?$""").matchEntire(t) ?: return null
+        val m = NUMERIC_PROGRESS_RE.matchEntire(t) ?: return null
         return m.groupValues[1].toDoubleOrNull()
     }
 
@@ -175,17 +189,25 @@ internal object DupRuleLogic {
                 }
             }
 
-            val numericFiles = S.filter { progressValue(it.progress) != null }
-            val chineseFiles = S.filter { hasCjk(it.progress) }
+            // 进度解析结果按行缓存一次：原实现在规则 2/3B 中对同一行重复解析 6 次以上，
+            // 10w 级数据下是明显热点。语义完全不变。
+            val numVals = HashMap<Long, Double>(S.size * 2)
+            val numericFiles = ArrayList<DuplicateRow>(S.size)
+            val chineseFiles = ArrayList<DuplicateRow>(S.size)
+            for (f in S) {
+                val pv = progressValue(f.progress)
+                if (pv != null) { numVals[f.id] = pv; numericFiles.add(f) }
+                if (hasCjk(f.progress)) chineseFiles.add(f)
+            }
 
             // ── 规则 2：纯数字进度对比 ──
             if ("rule2" in enabledBuiltinKeys) {
                 if (numericFiles.size >= 2) {
-                    val maxVal = numericFiles.maxOf { progressValue(it.progress)!! }
-                    val maxFiles = numericFiles.filter { progressValue(it.progress) == maxVal }
-                    maxFiles.forEach { nc.add(it.id) }
+                    val maxVal = numericFiles.maxOf { numVals.getValue(it.id) }
                     for (f in numericFiles) {
-                        if (progressValue(f.progress) != maxVal) {
+                        if (numVals.getValue(f.id) == maxVal) {
+                            nc.add(f.id)
+                        } else {
                             c.add(f.id)
                             fc.add(f.id)
                         }
@@ -203,8 +225,8 @@ internal object DupRuleLogic {
             // 其体积比这些「完结字样文件」中最小的还要小，说明它是残缺版，强制勾选删除。
             if ("rule3b" in enabledBuiltinKeys) {
                 if (numericFiles.isNotEmpty()) {
-                    val maxNumVal = numericFiles.maxOf { progressValue(it.progress)!! }
-                    val maxNumFiles = numericFiles.filter { progressValue(it.progress) == maxNumVal }
+                    val maxNumVal = numericFiles.maxOf { numVals.getValue(it.id) }
+                    val maxNumFiles = numericFiles.filter { numVals.getValue(it.id) == maxNumVal }
                     val completionFiles = S.filter { f -> COMPLETION_KW.any { kw -> f.fileName.contains(kw) } }
                     if (completionFiles.isNotEmpty()) {
                         val minCompletionSize = completionFiles.minOf { it.fileSize }
@@ -227,10 +249,16 @@ internal object DupRuleLogic {
 
             // ── 规则 5：完结+N番外/完结+番外N去重 ──
             if ("rule5" in enabledBuiltinKeys) {
-                val fanwai = S.filter { fanwaiValue(it.progress) != null }
+                val fanwaiVals = HashMap<Long, Double>()
+                val fanwai = ArrayList<DuplicateRow>()
+                for (f in S) {
+                    val fv = fanwaiValue(f.progress) ?: continue
+                    fanwaiVals[f.id] = fv
+                    fanwai.add(f)
+                }
                 if (fanwai.isNotEmpty()) {
-                    val maxN = fanwai.maxOf { fanwaiValue(it.progress)!! }
-                    val maxNIds = fanwai.filter { fanwaiValue(it.progress) == maxN }.map { it.id }.toSet()
+                    val maxN = fanwai.maxOf { fanwaiVals.getValue(it.id) }
+                    val maxNIds = fanwai.filter { fanwaiVals.getValue(it.id) == maxN }.map { it.id }.toSet()
                     for (f in fanwai) {
                         when {
                             f.id in maxNIds -> { nc.add(f.id); fc.remove(f.id) }

@@ -72,11 +72,17 @@ class OneClickCleanupViewModel(application: android.app.Application) :
         folderName: String,
         fileTypes: String
     ) {
-        if (scanStarted) return
+        // 仅在「本轮清理仍在进行中」时忽略重复点击；已结束(done/error/idle)必须允许再次发起，
+        // 否则用户从完成页返回首页再进来时，scanStarted 残留 true 会导致「开始清理」按钮完全失效。
+        if (scanStarted && _phase.value !in setOf("idle", "done", "error")) return
         scanStarted = true
         scanHandled = false
         deleteHandled = false
         pendingIds = emptyList()
+        // 清空上一轮的勾选/清单，避免再次清理时残留旧 runId 的文件 id
+        _selectedIds.value = emptySet()
+        _draftIds.value = emptySet()
+        _reviewItems.value = emptyList()
         _folderName.value = folderName
         _scanned.value = 0
         _duplicateCount.value = 0

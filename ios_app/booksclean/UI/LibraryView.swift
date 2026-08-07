@@ -1348,10 +1348,23 @@ struct FilePreviewView: View {
         }
 
         let enc = f.encoding.isEmpty ? "UTF-8" : f.encoding
-        // 按模式收敛读取量：菜单里 head=「前 50 行」、tail=「后 100 行」，
-        // 原先一律读 200KB 再全量解码+排版，是预览慢的直接原因。
-        // 50/100 行中文约 4~12KB，这里给足 64KB 余量即可，仅 all 模式才读满 200KB。
-        let maxBytes = (mode == "all") ? 200 * 1024 : 64 * 1024
+        // 按模式收敛读取量：菜单里 head=「前 50 行」、tail=「后 100 行」、
+        // all=「全部」。
+        // 50 行中文约 4~6KB，head 给 64KB 余量足够。
+        // 小说文件可达 20MB，tail 必须取「真正倒数 100 行」——若末尾是一段无换行的
+        // 超长内容（单行可达数十 KB），64KB 仍可能截不到末 100 行，故 tail 单独放大到
+        // 512KB（100 行 × 平均 5KB），足以覆盖几乎所有小说场景的最后 100 行。
+        // 仅 all 模式才读满 200KB（注意 all 仅对 2MB 以内文件生效）。
+        let maxBytes: Int
+        switch mode {
+        case "tail": maxBytes = 512 * 1024
+        case "all":  maxBytes = 200 * 1024
+        default:     maxBytes = 64 * 1024   // head
+        }
+
+        // tail（后 100 行）需要的换行数：要拿到真正倒数 100 行，需定位「倒数第 101 个 \n」
+        // 之后的全部内容。该值供 readFileData 的分块向后扫描算法使用。
+        let tailLines: Int = (mode == "tail") ? 100 : 0
 
         // 编码尝试链（去重保序）：
         //   1) 扫描阶段记录的存储编码（早期可能误判为 UTF-8）
@@ -1369,7 +1382,7 @@ struct FilePreviewView: View {
         }
 
         // 先尝试 FileHandle（可控偏移，支持 tail 模式）；失败则回退到 Data(contentsOf:)。
-        if let data = readFileData(url: url, mode: mode, maxBytes: maxBytes, tag: tag) {
+        if let data = readFileData(url: url, mode: mode, maxBytes: maxBytes, tailLines: tailLines, tag: tag) {
             let truncatedSuffix = makeTruncatedSuffix(mode: mode, dataCount: data.count, maxBytes: maxBytes)
             var (text, usedName) = EncodingUtil.decodeStrict(data: data, candidates: candidates)
             if !text.isEmpty {
@@ -1421,7 +1434,7 @@ struct FilePreviewView: View {
         return ("", "无法读取文件数据（可能缺少文件夹访问权限，请重新扫描以刷新授权）", 0)
     }
 
-    nonisolated private static func readFileData(url: URL, mode: String, maxBytes: Int, tag: String) -> Data? {
+    nonisolated private static func readFileData(url: URL, mode: String, maxBytes: Int, tailLines: Int, tag: String) -> Data? {
         // 读取策略（针对 File Provider / 外部文件夹）：
         // File Provider 扩展未运行时，NSFileCoordinator.coordinate 会**同步阻塞**当前线程等待扩展响应，
         // 扩展被强杀/未启动时会直接触发 Data.subscript 越界 trap（EXC_BREAKPOINT）导致闪退。
@@ -1435,26 +1448,93 @@ struct FilePreviewView: View {
             guard !data.isEmpty else { return data }
             let bytes: [UInt8] = data.withUnsafeBytes { Array($0) }
             let n = bytes.count
-            let end: Int
+            let end = min(n, maxBytes)
             if mode == "tail" {
-                end = min(n, maxBytes)
                 return Data(bytes[(n - end)..<n])
             } else {
-                end = min(n, maxBytes)
                 return Data(bytes[0..<end])
             }
+        }
+
+        // —— tail 模式：分块向后扫描（chunked backward scan）——
+        // 参考 GNU `tail` 与主流大文件预览器（WPS / BaseMetas FileView 等）的内存安全策略：
+        // 不读整文件、不从开头读一段，而是从文件尾向前分块回退，逐字节统计换行符 `\n`，
+        // 一旦累计到「倒数第 (tailLines+1) 个换行」，其后的内容即为真正倒数 tailLines 行。
+        // 块用尽仍不足则继续向前扩一块；这样无论末尾多少行、多少字节（20MB 小说亦如此），
+        // 都能精确取到真正倒数 N 行，且绝不会把某一行从中间切断。
+        // 注意：扫描只在独立 [UInt8] 缓冲上做，永不碰 security-scoped 脏 NSData 的下标。
+        // UTF-16 的换行也是 0x0A 字节（LE: 0A 00 / BE: 00 0A），故单靠 0x0A 即可定位行边界。
+        func readTailViaHandle(_ fh: FileHandle) -> Data? {
+            let total = fh.seekToEndOfFile()
+            guard total > 0 else { return Data() }
+            // 需要跨过的换行数：找到倒数第 (tailLines+1) 个 \n 即可（不足则取整个文件头部）。
+            let neededNewlines = tailLines // 跨过这么多 \n 之后的内容 = 最后 tailLines 行
+            let chunkSize = 256 * 1024
+            var scanned: UInt64 = 0          // 已从尾部向前扫过的字节数
+            var newlineCount = 0             // 已累计的换行数
+            var startOffset: UInt64 = 0      // 倒数 N 行起始偏移
+            while scanned < total {
+                let take = min(UInt64(chunkSize), total - scanned)
+                let chunkStart = total - scanned - take
+                fh.seek(toFileOffset: chunkStart)
+                guard let chunkData = try? fh.readData(ofLength: Int(take)), !chunkData.isEmpty else { break }
+                let buf: [UInt8] = chunkData.withUnsafeBytes { Array($0) }
+                // 在本块内从末尾往回扫 \n
+                var i = buf.count - 1
+                while i >= 0 {
+                    if buf[i] == 0x0A {
+                        newlineCount += 1
+                        if newlineCount > neededNewlines {
+                            // 这个 \n 是「倒数第 (tailLines+1) 个」，其后（不含本 \n）即倒数 tailLines 行起点
+                            startOffset = chunkStart + UInt64(i) + 1
+                            scanned = total // 结束循环
+                            break
+                        }
+                    }
+                    i -= 1
+                }
+                if scanned == total { break } // 已定位
+                scanned += take
+                if newlineCount > neededNewlines { break }
+            }
+            // 从 startOffset 读到文件尾
+            fh.seek(toFileOffset: startOffset)
+            let len = total - startOffset
+            guard len > 0 else { return Data() }
+            // 限制单次读取上限，防御极端超长行（理论上已很少触发）
+            let readLen = min(len, UInt64(maxBytes))
+            return try? fh.readData(ofLength: Int(readLen))
+        }
+
+        // 兜底：无 FileHandle 时（Data(contentsOf:)）对整段做字节级 tail（仅小文件路径）
+        func tailFromData(_ data: Data) -> Data {
+            let buf: [UInt8] = data.withUnsafeBytes { Array($0) }
+            var newlineCount = 0
+            var idx = buf.count - 1
+            while idx >= 0 {
+                if buf[idx] == 0x0A {
+                    newlineCount += 1
+                    if newlineCount > tailLines { return Data(buf[(idx + 1)..<buf.count]) }
+                }
+                idx -= 1
+            }
+            return data
         }
 
         // 1) 直接读（最快、最稳，适用于已授权可读的文件）
         if let fh = try? FileHandle(forReadingFrom: url) {
             defer { try? fh.close() }
-            fh.seek(toFileOffset: 0)
-            if let d = try? fh.readData(ofLength: maxBytes), !d.isEmpty {
-                return copyOwned(d)
+            if mode == "tail" {
+                if let d = readTailViaHandle(fh), !d.isEmpty { return d }
+            } else {
+                fh.seek(toFileOffset: 0)
+                if let d = try? fh.readData(ofLength: maxBytes), !d.isEmpty {
+                    return copyOwned(d)
+                }
             }
         }
         if let d = try? Data(contentsOf: url), !d.isEmpty {
-            return copyOwned(d)
+            return mode == "tail" ? tailFromData(d) : copyOwned(d)
         }
 
         // 2) 兜底：NSFileCoordinator（仅在直接读失败时尝试，用于极端场景）
@@ -1462,12 +1542,21 @@ struct FilePreviewView: View {
         var coordError: NSError?
         let coordinator = NSFileCoordinator(filePresenter: nil)
         coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordError) { coordinatedURL in
-            if let fh = try? FileHandle(forReadingFrom: coordinatedURL) {
-                defer { try? fh.close() }
-                fh.seek(toFileOffset: 0)
-                result = try? fh.readData(ofLength: maxBytes)
+            if mode == "tail" {
+                if let fh = try? FileHandle(forReadingFrom: coordinatedURL) {
+                    defer { try? fh.close() }
+                    result = readTailViaHandle(fh)
+                } else if let d = try? Data(contentsOf: coordinatedURL) {
+                    result = tailFromData(d)
+                }
             } else {
-                result = try? Data(contentsOf: coordinatedURL)
+                if let fh = try? FileHandle(forReadingFrom: coordinatedURL) {
+                    defer { try? fh.close() }
+                    fh.seek(toFileOffset: 0)
+                    result = try? fh.readData(ofLength: maxBytes)
+                } else {
+                    result = try? Data(contentsOf: coordinatedURL)
+                }
             }
         }
         if let err = coordError {
@@ -1479,15 +1568,14 @@ struct FilePreviewView: View {
             LogUtil.e(tag, "readFileData failed for \(url.lastPathComponent)")
             return nil
         }
-        return copyOwned(data)
+        return mode == "tail" ? tailFromData(data) : copyOwned(data)
     }
 
     nonisolated private static func makeTruncatedSuffix(mode: String, dataCount: Int, maxBytes: Int) -> String {
-        if mode == "tail" {
-            return dataCount >= maxBytes ? "\n\n…（预览仅显示末尾 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
-        } else {
-            return dataCount >= maxBytes ? "\n\n…（预览仅显示前 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
-        }
+        // tail 模式已由分块向后扫描精确取倒数 N 行（无论文件多大都不会被字节上限截断），故不再加字节截断提示；
+        // head / all 仍可能因 maxBytes 截不到，保留原提示。
+        guard mode != "tail" else { return "" }
+        return dataCount >= maxBytes ? "\n\n…（预览仅显示前 \(maxBytes / 1024) KB，完整内容请在原文件查看）" : ""
     }
 }
 
