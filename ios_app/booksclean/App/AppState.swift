@@ -72,7 +72,6 @@ enum Route: Hashable {
     case groupFiles(runId: Int64, title: String, author: String)
     case deleteConfirm(runId: Int64, ids: [Int64], physical: Bool)
     case deleteProgress(runId: Int64, ids: [Int64], physical: Bool)
-    case paywall
 }
 
 final class Router: ObservableObject {

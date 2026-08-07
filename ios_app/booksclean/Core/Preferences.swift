@@ -19,8 +19,6 @@ final class Preferences: ObservableObject {
     @Published var markedSortToFront: Bool { didSet { ud.set(markedSortToFront, forKey: "marked_sort_to_front"); LogUtil.d("Preferences", "设置 markedSortToFront=\(markedSortToFront)") } }
     @Published var kwSeedDone: Bool { didSet { ud.set(kwSeedDone, forKey: "kw_seed_done"); LogUtil.d("Preferences", "设置 kwSeedDone=\(kwSeedDone)") } }
     @Published var privacyAgreed: Bool { didSet { ud.set(privacyAgreed, forKey: "privacy_agreed"); LogUtil.i("Preferences", "设置 privacyAgreed=\(privacyAgreed)") } }
-    /// 买断制：是否已永久解锁全部功能。
-    @Published var unlocked: Bool { didSet { ud.set(unlocked, forKey: "bk_unlocked"); LogUtil.i("Preferences", "设置 unlocked=\(unlocked)") } }
 
     private let ud = UserDefaults.standard
 
@@ -37,8 +35,7 @@ final class Preferences: ObservableObject {
         markedSortToFront = ud.object(forKey: "marked_sort_to_front") as? Bool ?? true
         kwSeedDone = ud.bool(forKey: "kw_seed_done")
         privacyAgreed = ud.bool(forKey: "privacy_agreed")
-        unlocked = ud.bool(forKey: "bk_unlocked")
-        LogUtil.i("Preferences", "初始化完成：theme=\(themeMode) types=\(scanFileTypes) recursive=\(recursive) privacy=\(privacyAgreed) unlocked=\(unlocked)")
+        LogUtil.i("Preferences", "初始化完成：theme=\(themeMode) types=\(scanFileTypes) recursive=\(recursive) privacy=\(privacyAgreed)")
     }
 
     func setGroupFilter(minCount: Int, maxCount: Int, excludeNames: String) {
