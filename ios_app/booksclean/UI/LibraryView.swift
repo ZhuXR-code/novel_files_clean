@@ -1776,6 +1776,8 @@ final class PreviewScrollView: UIScrollView {
 struct MiniScrollBar: View {
     @ObservedObject var state: PreviewScrollState
     let axis: ScrollMode
+    /// 手指是否正在滑条上（按下）：触摸时滑条变宽、提升命中区可见性
+    @State private var active = false
 
     var body: some View {
         GeometryReader { geo in
@@ -1786,33 +1788,64 @@ struct MiniScrollBar: View {
             let thumbLen = max(28, viewLen * (viewLen / max(contentLen, 1)))
             let maxPos = max(0, viewLen - thumbLen)
             let thumbPos = CGFloat(ratio) * maxPos
+            // 滑条宽度：激活(手指按下)时变宽，方便拖动；平时 4pt 细条
+            let barW: CGFloat = active ? 12 : 4
+            // 命中区域宽度：比视觉滑条更宽，手指落在滑条附近即可按下拖动
+            let hitW: CGFloat = axis == .vertical ? 28 : max(28, thumbLen)
             ZStack {
                 if axis == .vertical {
+                    // 细轨道（一直可见）
                     Color.gray.opacity(0.25)
-                        .frame(width: 4, height: viewLen)
-                        .cornerRadius(2)
-                        .position(x: geo.size.width - 2, y: viewLen / 2)
-                    Color.gray.opacity(0.7)
-                        .frame(width: 4, height: thumbLen)
-                        .cornerRadius(2)
-                        .position(x: geo.size.width - 2, y: thumbPos + thumbLen / 2)
-                        .gesture(DragGesture().onChanged { v in
-                            let p = min(max(v.location.y - thumbLen / 2, 0), maxPos)
-                            state.scrollTo(ratio: maxPos > 0 ? p / maxPos : 0, axis: .vertical)
-                        })
+                        .frame(width: barW, height: viewLen)
+                        .cornerRadius(barW / 2)
+                        .position(x: geo.size.width - barW / 2, y: viewLen / 2)
+                    // 拇指
+                    Color.gray.opacity(active ? 0.85 : 0.6)
+                        .frame(width: barW, height: thumbLen)
+                        .cornerRadius(barW / 2)
+                        .position(x: geo.size.width - barW / 2, y: thumbPos + thumbLen / 2)
+                    // 透明命中区：覆盖滑条右侧一大片，手指在附近按下即可拖动
+                    Color.clear
+                        .frame(width: hitW, height: viewLen)
+                        .contentShape(Rectangle())
+                        .position(x: geo.size.width - hitW / 2, y: geo.size.height / 2)
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { v in
+                                    active = true
+                                    // 命中区 frame 顶边与 geo 顶边对齐，v.location.y 即轨道内坐标
+                                    let p = min(max(v.location.y - thumbLen / 2, 0), maxPos)
+                                    state.scrollTo(ratio: maxPos > 0 ? p / maxPos : 0, axis: .vertical)
+                                }
+                                .onEnded { _ in
+                                    active = false
+                                }
+                        )
                 } else {
                     Color.gray.opacity(0.25)
-                        .frame(width: viewLen, height: 4)
-                        .cornerRadius(2)
-                        .position(x: viewLen / 2, y: geo.size.height - 2)
-                    Color.gray.opacity(0.7)
-                        .frame(width: thumbLen, height: 4)
-                        .cornerRadius(2)
-                        .position(x: thumbPos + thumbLen / 2, y: geo.size.height - 2)
-                        .gesture(DragGesture().onChanged { v in
-                            let p = min(max(v.location.x - thumbLen / 2, 0), maxPos)
-                            state.scrollTo(ratio: maxPos > 0 ? p / maxPos : 0, axis: .horizontal)
-                        })
+                        .frame(width: viewLen, height: barW)
+                        .cornerRadius(barW / 2)
+                        .position(x: viewLen / 2, y: geo.size.height - barW / 2)
+                    Color.gray.opacity(active ? 0.85 : 0.6)
+                        .frame(width: thumbLen, height: barW)
+                        .cornerRadius(barW / 2)
+                        .position(x: thumbPos + thumbLen / 2, y: geo.size.height - barW / 2)
+                    Color.clear
+                        .frame(width: viewLen, height: hitW)
+                        .contentShape(Rectangle())
+                        .position(x: geo.size.width / 2, y: geo.size.height - hitW / 2)
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { v in
+                                    active = true
+                                    // 命中区 frame 左边与 geo 左边对齐，v.location.x 即轨道内坐标
+                                    let p = min(max(v.location.x - thumbLen / 2, 0), maxPos)
+                                    state.scrollTo(ratio: maxPos > 0 ? p / maxPos : 0, axis: .horizontal)
+                                }
+                                .onEnded { _ in
+                                    active = false
+                                }
+                        )
                 }
             }
         }
