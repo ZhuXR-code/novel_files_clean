@@ -246,9 +246,12 @@ export class ScanService {
     // 父目录不可访问（如文档卷未授权父目录）：回退为逐文件扫描选中列表。
     // 列表需持久化：selectedFileUris 是内存变量，重启丢失后 runScan 会错误地走
     // BFS 遍历不可访问的父目录导致「扫描失败」。
+    // 注意：必须返回空 folderUri（而非 parentDirUri），否则 runScan 会带着一个
+    // 不可访问的目录字符串去递归遍历，既扫不到文件又可能报错；空 folderUri 让
+    // runScan 明确走「逐文件」分支（依赖 selectedFileUris）。
     ScanService.saveFileFallback(uris);
     LogUtil.i('ScanService', `FILE 多选：共选 ${uris.length} 个文件，父目录不可遍历，逐文件扫描`);
-    return parentDirUri;
+    return '';
   }
 
   /**
@@ -295,12 +298,20 @@ export class ScanService {
     const scanRules: KeywordReplaceRule[] = await KeywordReplaceDao.getEnabledByScope(KeywordReplace.SCOPE_SCAN);
     const parseRules: KeywordReplaceRule[] = await KeywordReplaceDao.getEnabledByScope(KeywordReplace.SCOPE_PARSE);
 
-    // FILE 多选回退模式（低版本手机不支持 FOLDER 模式）：
-    // selectDirectory 已把用户选中的文件 URI 保存到 selectedFileUris（并持久化），
-    // 每个文件都已单独授权。直接逐文件处理，不再尝试 listFile 父目录，
-    // 避免 Operation not permitted；重启后内存列表为空时从持久化恢复。
-    if (ScanService.selectedFileUris.length > 0 || ScanService.restoreFileFallback()) {
-      return ScanService.runScanFromFiles(config, onProgress, run, runId, scanRules, parseRules);
+    // 模式判定（以「本次传入的 config.folderUri」为准，避免旧文件 URI 残留误触发）：
+    //  - folderUri 非空（FOLDER 模式选中目录，或 pickFiles 推导出可访问的父目录）
+    //    → 走目录递归遍历（BFS 逐层 listFile，子目录入队下一层）。
+    //  - folderUri 为空且存在已选文件列表（FILE 多选回退，父目录不可访问）
+    //    → 逐文件扫描 selectedFileUris（含内存列表，或从 Preferences 恢复）。
+    // 旧实现用 restoreFileFallback() 读 Preferences 的旧文件 URI 来决定模式，
+    // 会导致「这次明明选了目录、却因为历史残留文件 URI 而只扫那一个文件」的问题。
+    const hasDirMode: boolean = config.folderUri.length > 0;
+    if (!hasDirMode) {
+      if (ScanService.restoreFileFallback() || ScanService.selectedFileUris.length > 0) {
+        return ScanService.runScanFromFiles(config, onProgress, run, runId, scanRules, parseRules);
+      }
+      // 既无目录也无文件，报错提示
+      throw new Error('未选择任何扫描目标，请先选择目录或文件');
     }
 
     const batch: ScannedFile[] = [];

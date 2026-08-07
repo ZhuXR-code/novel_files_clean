@@ -16,13 +16,14 @@ final class ScanStateManager: ObservableObject {
     @Published var status = ""              // completed / stopped / error / empty
     @Published var errorMsg = ""
     @Published var runId: Int64 = -1
+    @Published var excludedFiles = 0       // 被书名排除规则跳过的文件数
 
     private var stopRequested = false
 
     func reset() {
         isScanning = false; phase = "idle"; totalFiles = 0; collectedFiles = 0
         scannedFiles = 0; progress = 0; currentFile = ""; finished = false
-        status = ""; errorMsg = ""; stopRequested = false
+        status = ""; errorMsg = ""; stopRequested = false; excludedFiles = 0
     }
 
     func requestStop() { stopRequested = true }

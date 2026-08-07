@@ -39,7 +39,7 @@ final class ScanService {
         let minSize = Int64(config.minSizeKb) * 1024
         let excluded = Set(config.excludedFolders.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
 
-        // 解析“排除原始书名 / 排除书名词汇”：按逗号或换行切分，去空白、去空项。
+        // 解析"排除原始书名 / 排除书名词汇"：按逗号或换行切分，去空白、去空项。
         // 命中任一项的书名在解析后剔除（等同该文件被跳过，不入库）。
         let excludedTitles = Set((config.excludedTitles ?? "")
             .split(separator: ",", omittingEmptySubsequences: false)
@@ -64,6 +64,7 @@ final class ScanService {
 
         var total = 0
         var scanned = 0
+        var excludedCount = 0
         var buffer: [ScannedFile] = []
         let batchSize = 5000
 
@@ -76,8 +77,9 @@ final class ScanService {
                 let entity = self.parseItem(url: item.url, name: item.name, size: item.size, date: item.date,
                                             runId: runId, scanRules: useScan ? scanRules : [], parseRules: useParse ? parseRules : [],
                                             deep: deep, exactHash: config.exactHash, now: now)
-                // 命中“排除原始书名 / 排除书名词汇”的文件：解析后剔除，不入库（等同扫描跳过）
+                // 命中"排除原始书名 / 排除书名词汇"的文件：解析后剔除，不入库（等同扫描跳过）
                 if hasTitleExclude && Self.titleExcluded(entity.title, exact: excludedTitles, keywords: excludedTitleKeywords) {
+                    excludedCount += 1
                     continue
                 }
                 buffer.append(entity)
@@ -116,14 +118,15 @@ final class ScanService {
         let totalForProgress = total
         await MainActor.run {
             sm.scannedFiles = done
+            sm.excludedFiles = excludedCount
             sm.progress = totalForProgress > 0 ? done * 100 / totalForProgress : 100
             sm.isScanning = false
             sm.finished = true
             sm.status = sm.shouldStop() ? "stopped" : "completed"
         }
-        LogUtil.i("ScanService", "扫描完成: \(scanned) 文件 run=\(runId)")
+        LogUtil.i("ScanService", "扫描完成: \(scanned) 文件 (排除=\(excludedCount)) run=\(runId)")
         let statusMsg = sm.shouldStop() ? "（已停止）" : ""
-        FileRepository.shared.logOperation(level: "I", tag: "扫描", message: "扫描完成：文库 \(runId) 共 \(scanned) 个文件\(statusMsg)")
+        FileRepository.shared.logOperation(level: "I", tag: "扫描", message: "扫描完成：文库 \(runId) 共 \(scanned) 个文件（排除 \(excludedCount) 个）\(statusMsg)")
         return runId
     }
 
@@ -170,10 +173,10 @@ final class ScanService {
     }
 
     // MARK: - 单文件解析
-    /// 判断某书名是否命中“排除原始书名 / 排除书名词汇”。
+    /// 判断某书名是否命中"排除原始书名 / 排除书名词汇"。
     /// - exact：精确书名集合，完全相同才剔除；
     /// - keywords：书名词汇列表，书名包含任一词汇即剔除。
-    /// 两者为“或”关系（命中任一即排除）。title 为空时不算命中。
+    /// 两者为"或"关系（命中任一即排除）。title 为空时不算命中。
     static func titleExcluded(_ title: String, exact: Set<String>, keywords: [String]) -> Bool {
         if title.isEmpty { return false }
         if exact.contains(title) { return true }
@@ -199,7 +202,7 @@ final class ScanService {
         if deep || exactHash {
             // 深度扫描读取文件头用于编码识别；内容哈希若开启则读取完整内容计算 MD5（与安卓端一致：整文件 MD5）。
             if let sample = readSample(url, maxBytes: 64 * 1024) {
-                if deep { encoding = EncodingUtil.detectEncodingName(sample: sample) }
+                if deep { encoding = EncodingUtil.detectEncodingAndBom(bytes: sample).0 }
             }
             if exactHash { contentHash = computeContentHash(url: url) }
         }
@@ -225,18 +228,17 @@ final class ScanService {
         )
     }
 
-    private func readSample(_ url: URL, maxBytes: Int) -> Data? {
+    private func readSample(_ url: URL, maxBytes: Int) -> [UInt8]? {
         guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? fh.close() }
         let data = fh.readData(ofLength: maxBytes)
         guard !data.isEmpty else { return nil }
         // 关键：FileHandle.readData 在 security-scoped 容器内文件上会返回对 NSData 的桥接 Data，
-        // 其 `count` 与底层 buffer 实际可访问长度可能不一致。后续对它的下标访问
-        // （如 detectEncodingAndBom 的 sample[0..2]）会触发 Data.subscript 的
-        // _preconditionFailure（SIGTRAP），表现为深度扫描闪退。
-        // 用 withUnsafeBytes 复制成独立 [UInt8] 再包回 Data，彻底脱离 NSData 桥接，避免越界 trap。
-        let bytes: [UInt8] = data.withUnsafeBytes { Array($0) }
-        return Data(bytes)
+        // 其 `count` 与底层 buffer 实际可访问长度可能不一致，对其直接下标会触发
+        // Data.subscript 的 _preconditionFailure（SIGTRAP），表现为深度扫描闪退。
+        // 此处用 withUnsafeBytes 顺序复制为独立的 [UInt8]（值类型、连续 owned 内存、绝无桥接），
+        // 后续所有编码探测均基于 [UInt8]，彻底隔离脏 buffer，避免越界 trap。
+        return data.withUnsafeBytes { Array($0) }
     }
 
     private func readFileData(_ url: URL) -> Data? {

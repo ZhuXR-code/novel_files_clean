@@ -65,9 +65,11 @@ struct ScanProgress {
       return;
     }
     // 权限预检（修复「点击扫描提示扫描失败」）：
-    // FILE 回退模式（逐文件扫描，每个文件已单独授权）无需目录权限，直接扫描；
-    // 目录授权失效时自动弹出重新授权确认框，成功后再继续，而不是直接报扫描失败。
-    if (!(ScanService.useFileFallback() || ScanService.restoreFileFallback())) {
+    // 目录模式（folderUri 非空）才需要校验目录访问权限；FILE 回退模式
+    // （folderUri 为空，selectedFileUris 承载已授权文件）无需目录权限，直接扫描。
+    // 注意：目录模式下不要调用 restoreFileFallback()，否则会把 Preferences 里
+    // 历史残留的文件 URI 读回内存，污染本次目录扫描的目标。
+    if (this.folderUri.length > 0) {
       const accessibleUri: string = await ScanService.tryAccessOrReauthorize(AppContext.get(), this.folderUri);
       if (accessibleUri.length === 0) {
         this.folderName = '';
@@ -99,17 +101,16 @@ struct ScanProgress {
       const res = await ScanService.runScan(cfg, (p: ScanProgressData) => {
         this.processed = p.processed;
         this.found = p.found;
+        if (p.excluded !== undefined) { this.excludedCount = p.excluded; }
         this.current = p.currentFile;
       });
       this.resultRunId = res.runId;
       this.stopped = res.stopped;
-      // 关键修复：runScan 的进度回调按 PROGRESS_INTERVAL=16 节流，
-      // 总数 < 16（如用户的 10 个文件）时回调从未触发，this.found / this.processed
-      // 仍停留在初始值 0，导致完成页显示"共扫描到 0 个文件"（数据库 file_count
-      // 已被 updateFileCount 正确更新为 10，故文库显示 10 个文件）。
-      // 这里用 runScan 返回的最终值兜底刷新 UI。
+      // 用 runScan 返回值兜底刷新 UI（进度回调按 PROGRESS_INTERVAL=16 节流，
+      // 小量文件时可能从未触发回调）
       this.found = res.total;
       this.processed = res.processed ?? this.processed;
+      this.excludedCount = (res as any).excluded ?? this.excludedCount;
       this.done = true;
       // 推送全局刷新信号，让首页/文库列表在扫描完成后立即显示新文库
       AppStorage.setOrCreate('libraryRefreshTick', Date.now());

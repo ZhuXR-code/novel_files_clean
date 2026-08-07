@@ -18,25 +18,37 @@ enum EncodingUtil {
         }
     }
 
-    /// 探测文件编码并返回 (编码显示名, 需跳过的 BOM 字节数)。sample 为文件前若干字节。
-    static func detectEncodingAndBom(sample: Data) -> (String, Int) {
-        // 隔离 security-scoped 文件 readData 返回的桥接 NSData（脏 buffer，count 与可访问
-        // 长度可能不一致，直接下标会触发 Data.subscript 的 _preconditionFailure/SIGTRAP，
-        // 表现为深度扫描闪退）。subdata 会分配独立内存并复制。
-        let s = sample.isEmpty ? sample : sample.subdata(in: 0..<sample.count)
-        let len = s.count
-        if len >= 3 && s[0] == 0xEF && s[1] == 0xBB && s[2] == 0xBF { return ("UTF-8", 3) }
-        if len >= 2 && s[0] == 0xFF && s[1] == 0xFE { return ("UTF-16LE", 2) }
-        if len >= 2 && s[0] == 0xFE && s[1] == 0xFF { return ("UTF-16BE", 2) }
-        return looksLikeUtf8(s) ? ("UTF-8", 0) : ("GB18030", 0)
+    /// 把外部来源的 Data 复制为独立 owned 的 [UInt8]（值类型、连续内存、绝无 NSData 桥接）。
+    /// 关键：security-scoped 容器文件经 FileHandle.readData 返回的 Data 可能为桥接 NSData，
+    /// 对其直接做随机下标会触发 Data.subscript 的 _preconditionFailure（SIGTRAP）闪退。
+    /// 此处用 withUnsafeBytes 顺序遍历复制，是唯一安全的隔离方式。
+    static func toBytes(_ data: Data) -> [UInt8] {
+        data.isEmpty ? [] : data.withUnsafeBytes { Array($0) }
     }
 
+    /// 探测文件编码并返回 (编码显示名, 需跳过的 BOM 字节数)。bytes 为文件前若干字节。
+    /// 入参必须为已隔离的 [UInt8]（见 toBytes），严禁直接传桥接 Data 下标访问。
+    static func detectEncodingAndBom(bytes: [UInt8]) -> (String, Int) {
+        let len = bytes.count
+        if len >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF { return ("UTF-8", 3) }
+        if len >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE { return ("UTF-16LE", 2) }
+        if len >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF { return ("UTF-16BE", 2) }
+        return looksLikeUtf8(bytes) ? ("UTF-8", 0) : ("GB18030", 0)
+    }
+
+    /// 兼容封装：内部先 toBytes 隔离脏 buffer 再探测。
+    static func detectEncodingAndBom(sample: Data) -> (String, Int) {
+        detectEncodingAndBom(bytes: toBytes(sample))
+    }
+
+    /// 兼容封装。
     static func detectEncodingName(sample: Data) -> String { detectEncodingAndBom(sample: sample).0 }
 
     /// 手写 UTF-8 合法性校验；采样末尾被截断的多字节序列不算错误。
-    static func looksLikeUtf8(_ b: Data) -> Bool {
+    static func looksLikeUtf8(_ b: [UInt8]) -> Bool {
         var i = 0
-        while i < b.count {
+        let count = b.count
+        while i < count {
             let c = Int(b[i])
             let need: Int
             if c < 0x80 { need = 0 }
@@ -44,7 +56,7 @@ enum EncodingUtil {
             else if c >= 0xE0 && c <= 0xEF { need = 2 }
             else if c >= 0xF0 && c <= 0xF4 { need = 3 }
             else { return false }
-            if i + need >= b.count { return true }
+            if i + need >= count { return true }
             for j in 1...need {
                 if (Int(b[i + j]) & 0xC0) != 0x80 { return false }
             }
@@ -81,25 +93,23 @@ enum EncodingUtil {
     /// 把 Data 在「字符边界安全」的前提下裁剪：丢弃末尾可能被截断的多字节序列。
     /// 预览按固定字节数截取（如 200KB）几乎必然切断一个 UTF-8/GB18030 汉字，
     /// 残字节会让 UTF-8 解码整体失败或让评分失真，表现为「预览末尾乱码 / 整篇选错编码」。
-    static func trimIncompleteTail(_ data: Data, encodingName: String) -> Data {
-        guard !data.isEmpty else { return data }
-        // 复制成独立的连续字节数组，避免对桥接 NSData（脏 buffer）直接下标访问触发 trap。
-        let bytes: [UInt8] = data.withUnsafeBytes { Array($0) }
+    static func trimIncompleteTail(_ bytes: [UInt8], encodingName: String) -> Data {
         let n = bytes.count
-        // 保留前 keep 个字节
+        // 保留前 keep 个字节（返回独立 Data，不再引用原 Data）
         func keep(_ count: Int) -> Data {
-            count >= n ? data : Data(bytes[0..<max(0, count)])
+            count >= n ? Data(bytes) : Data(bytes[0..<max(0, count)])
         }
+        if n == 0 { return Data() }
         if encodingName == "UTF-16LE" || encodingName == "UTF-16BE" {
             // UTF-16 必须按 2 字节对齐；末尾若为孤立高代理（后缺低代理），String 解码会失败，一并砍掉。
-            var keep = (n / 2) * 2
-            if keep >= 2 {
+            var keepCount = (n / 2) * 2
+            if keepCount >= 2 {
                 let hi: Int = encodingName == "UTF-16LE"
-                    ? (Int(bytes[keep - 2]) | (Int(bytes[keep - 1]) << 8))
-                    : ((Int(bytes[keep - 2]) << 8) | Int(bytes[keep - 1]))
-                if (0xD800...0xDBFF).contains(hi) { keep -= 2 } // 孤立高代理
+                    ? (Int(bytes[keepCount - 2]) | (Int(bytes[keepCount - 1]) << 8))
+                    : ((Int(bytes[keepCount - 2]) << 8) | Int(bytes[keepCount - 1]))
+                if (0xD800...0xDBFF).contains(hi) { keepCount -= 2 } // 孤立高代理
             }
-            return keep >= n ? data : Data(bytes[0..<max(0, keep)])
+            return keepCount >= n ? Data(bytes) : Data(bytes[0..<max(0, keepCount)])
         }
         if encodingName == "UTF-8" {
             // 回退最多 3 字节找到最后一个序列起始字节，判断该序列是否完整
@@ -107,18 +117,18 @@ enum EncodingUtil {
             let lower = max(0, n - 4)
             while i >= lower {
                 let c = bytes[i]
-                if c & 0x80 == 0 { return data }                 // ASCII 结尾，完整
+                if c & 0x80 == 0 { return Data(bytes) }          // ASCII 结尾，完整
                 if c & 0xC0 == 0xC0 {                            // 多字节序列起始字节
                     let need: Int
                     if c & 0xE0 == 0xC0 { need = 2 }
                     else if c & 0xF0 == 0xE0 { need = 3 }
                     else if c & 0xF8 == 0xF0 { need = 4 }
                     else { return keep(i) }                      // 非法起始，直接砍掉
-                    return (n - i) >= need ? data : keep(i)      // 字节不够即为截断
+                    return (n - i) >= need ? Data(bytes) : keep(i)  // 字节不够即为截断
                 }
                 i -= 1                                           // 0x80...0xBF 续字节，继续回退
             }
-            return data
+            return Data(bytes)
         }
         // GB18030/GBK：双字节序列首字节 0x81...0xFE。统计末尾连续的高位字节个数，
         // 奇数说明最后一个汉字只写了一半，需要砍掉 1 字节。
@@ -128,7 +138,7 @@ enum EncodingUtil {
             trailing += 1
             j -= 1
         }
-        return trailing % 2 == 1 ? keep(n - 1) : data
+        return trailing % 2 == 1 ? keep(n - 1) : Data(bytes)
     }
 
     /// 严格按候选顺序尝试解码，以「CJK 内容占比 − 异常字符惩罚」为核心判据选择最合理的解码结果。
@@ -145,14 +155,14 @@ enum EncodingUtil {
     /// 返回 (解码文本, 实际使用的编码名)。全部失败返回 ("", "")。
     static func decodeStrict(data: Data, candidates: [String]) -> (String, String) {
         // 关键防护：来自 File Provider / 外部文件夹的 Data 常是桥接的 NSData（脏 buffer），
-        // 其底层 length 与实际内存可能不一致，后续任何下标/复制访问都可能触发
+        // 其底层 length 与实际内存可能不一致，对其直接下标/复制会触发
         // Data.subscript 越界 trap（EXC_BREAKPOINT）导致闪退。
-        // subdata(in:) 会分配独立内存并复制，干净隔离脏 buffer（不同于 Data(data) 的 COW 只读共享）。
-        let owned = data.isEmpty ? data : data.subdata(in: 0..<data.count)
+        // 必须先用 toBytes 经 withUnsafeBytes 顺序复制为独立 [UInt8]，再全部基于 [UInt8] 处理。
+        let bytes = toBytes(data)
         var best = ("", "", -1.0)
         for name in candidates {
             let enc = stringEncoding(named: name)
-            let safe = trimIncompleteTail(owned, encodingName: name)
+            let safe = trimIncompleteTail(bytes, encodingName: name)
             guard let s = String(data: safe, encoding: enc), !s.isEmpty else { continue }
             var score = cjkScalarRatio(s)
             // 异常字符惩罚：非 ASCII、非 CJK 的其它字符（乱码产物）越多，越不可能是正确编码。

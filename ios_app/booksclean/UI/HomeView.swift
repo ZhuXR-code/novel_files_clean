@@ -308,7 +308,10 @@ extension ScanStateManager {
     }
     var statusText: String {
         switch status {
-        case "completed": return "共解析 \(scannedFiles) 个文件"
+        case "completed":
+            return excludedFiles > 0
+                ? "共解析 \(scannedFiles) 个文件（已排除 \(excludedFiles) 个）"
+                : "共解析 \(scannedFiles) 个文件"
         case "stopped": return "已处理 \(scannedFiles) / \(totalFiles) 个文件"
         case "empty": return "所选文件夹中没有匹配的文件类型"
         case "error": return errorMsg.isEmpty ? "发生错误" : errorMsg

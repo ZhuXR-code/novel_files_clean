@@ -1428,17 +1428,21 @@ struct FilePreviewView: View {
         // 因此优先用「直接 FileHandle / Data(contentsOf:)」读取——在已 startAccessingSecurityScopedResource
         // 的授权前提下，File Provider 已落盘的文件通常可直接读，无需 coordinator 介入。
 
-        // 物理拷贝：subdata(in:) 会**分配独立内存**并复制内容（不同于 Data(data) 的 COW 只读共享），
-        // 把所有来自外部脏 buffer（桥接 NSData）的数据隔离到干净的连续内存，避免后续任何
-        // Data.subscript / String(data:) 访问触发越界 trap。
+        // 物理拷贝：subdata(in:) 仍会走 Data.subscript，对 security-scoped 文件桥接的脏 NSData
+        // 直接下标会触发 _preconditionFailure（SIGTRAP）闪退。必须用 withUnsafeBytes 顺序复制为
+        // 独立 [UInt8] 再包回 Data，彻底隔离脏 buffer。
         func copyOwned(_ data: Data) -> Data {
             guard !data.isEmpty else { return data }
-            // tail 模式截断到末尾 maxBytes
-            let src: Data = (mode == "tail")
-                ? (data.count > maxBytes ? data.subdata(in: data.count - maxBytes..<data.count) : data)
-                : (data.count > maxBytes ? data.subdata(in: 0..<maxBytes) : data)
-            // 二次 subdata 强制物理拷贝，切断与原脏 buffer 的关联
-            return src.subdata(in: 0..<src.count)
+            let bytes: [UInt8] = data.withUnsafeBytes { Array($0) }
+            let n = bytes.count
+            let end: Int
+            if mode == "tail" {
+                end = min(n, maxBytes)
+                return Data(bytes[(n - end)..<n])
+            } else {
+                end = min(n, maxBytes)
+                return Data(bytes[0..<end])
+            }
         }
 
         // 1) 直接读（最快、最稳，适用于已授权可读的文件）
