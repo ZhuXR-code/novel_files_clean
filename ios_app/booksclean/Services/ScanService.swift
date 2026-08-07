@@ -197,7 +197,14 @@ final class ScanService {
     private func readSample(_ url: URL, maxBytes: Int) -> Data? {
         guard let fh = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? fh.close() }
-        return fh.readData(ofLength: maxBytes)
+        let data = fh.readData(ofLength: maxBytes)
+        guard !data.isEmpty else { return nil }
+        // 关键：FileHandle.readData 在 security-scoped 容器内文件上会返回对 NSData 的桥接 Data，
+        // 其 `count` 与底层 buffer 实际可访问长度可能不一致。后续对它的下标访问
+        // （如 detectEncodingAndBom 的 sample[0..2]）会触发 Data.subscript 的
+        // _preconditionFailure（SIGTRAP），表现为深度扫描闪退。
+        // 用 subdata 复制成独立 owned buffer 彻底隔离脏桥接，避免越界 trap。
+        return data.subdata(in: 0..<data.count)
     }
 
     private func readFileData(_ url: URL) -> Data? {

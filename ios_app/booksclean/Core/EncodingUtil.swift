@@ -20,11 +20,15 @@ enum EncodingUtil {
 
     /// 探测文件编码并返回 (编码显示名, 需跳过的 BOM 字节数)。sample 为文件前若干字节。
     static func detectEncodingAndBom(sample: Data) -> (String, Int) {
-        let len = sample.count
-        if len >= 3 && sample[0] == 0xEF && sample[1] == 0xBB && sample[2] == 0xBF { return ("UTF-8", 3) }
-        if len >= 2 && sample[0] == 0xFF && sample[1] == 0xFE { return ("UTF-16LE", 2) }
-        if len >= 2 && sample[0] == 0xFE && sample[1] == 0xFF { return ("UTF-16BE", 2) }
-        return looksLikeUtf8(sample) ? ("UTF-8", 0) : ("GB18030", 0)
+        // 隔离 security-scoped 文件 readData 返回的桥接 NSData（脏 buffer，count 与可访问
+        // 长度可能不一致，直接下标会触发 Data.subscript 的 _preconditionFailure/SIGTRAP，
+        // 表现为深度扫描闪退）。subdata 会分配独立内存并复制。
+        let s = sample.isEmpty ? sample : sample.subdata(in: 0..<sample.count)
+        let len = s.count
+        if len >= 3 && s[0] == 0xEF && s[1] == 0xBB && s[2] == 0xBF { return ("UTF-8", 3) }
+        if len >= 2 && s[0] == 0xFF && s[1] == 0xFE { return ("UTF-16LE", 2) }
+        if len >= 2 && s[0] == 0xFE && s[1] == 0xFF { return ("UTF-16BE", 2) }
+        return looksLikeUtf8(s) ? ("UTF-8", 0) : ("GB18030", 0)
     }
 
     static func detectEncodingName(sample: Data) -> String { detectEncodingAndBom(sample: sample).0 }

@@ -36,10 +36,6 @@ struct HomeView: View {
                 FSSection("快速开始") {
                     VStack(spacing: 10) {
                         PrimaryButton(title: "选择文件夹开始扫描") { showingFolderPicker = true }
-                        Button { router.navigate(.configList) } label: {
-                            Text("扫描配置").frame(maxWidth: .infinity).padding(.vertical, 10)
-                                .background(Color.fsTertiaryBg).cornerRadius(10)
-                        }
                     }
                 }
 
@@ -164,8 +160,15 @@ struct HomeView: View {
                 showingFolderPicker = false
                 let bookmark = makeBookmark(url) ?? ""
                 let name = url.lastPathComponent
-                let cfg = ScanConfig(name: name, folderUri: bookmark, folderName: name)
-                beginScan(cfg)
+                // 选完文件夹不直接开始扫描，而是先存一个带目录的配置并进入扫描配置页，
+                // 让用户确认扫描模式/类型/排除项后再开始（对齐安卓的交互顺序）。
+                var cfg = ScanConfig()
+                cfg.name = name
+                cfg.folderName = name
+                cfg.folderUri = bookmark
+                cfg.fileTypes = "txt"
+                let newId = FileRepository.shared.saveScanConfig(cfg)
+                router.navigate(.configEdit(id: newId))
             }
         }
         .alert("删除文库", isPresented: Binding(
