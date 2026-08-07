@@ -1408,23 +1408,58 @@ struct FilePreviewView: View {
     }
 
     nonisolated private static func readFileData(url: URL, mode: String, maxBytes: Int, tag: String) -> Data? {
-        // File Provider（iCloud/第三方文件管理器）文件必须在 NSFileCoordinator 内读取，
-        // 否则 FileHandle/Data 可能触发未捕获异常或被文件提供程序扩展强杀。
+        // 读取策略（针对 File Provider / 外部文件夹）：
+        // File Provider 扩展未运行时，NSFileCoordinator.coordinate 会**同步阻塞**当前线程等待扩展响应，
+        // 扩展被强杀/未启动时会直接触发 Data.subscript 越界 trap（EXC_BREAKPOINT）导致闪退。
+        // 因此优先用「直接 FileHandle / Data(contentsOf:)」读取——在已 startAccessingSecurityScopedResource
+        // 的授权前提下，File Provider 已落盘的文件通常可直接读，无需 coordinator 介入。
+        let readRange: Range<Int> = (mode == "tail")
+            ? (0..<maxBytes)   // 末尾：先全取，后截
+            : (0..<maxBytes)
+
+        func slice(_ data: Data) -> Data {
+            guard !data.isEmpty else { return data }
+            if mode == "tail" {
+                // Swift Int 减法下溢会 trap；当 data.count < maxBytes 时直接用 0。
+                let offset = data.count > maxBytes ? data.count - maxBytes : 0
+                return data.subdata(in: offset..<data.count)
+            } else {
+                return data.count > maxBytes ? data.subdata(in: 0..<maxBytes) : data
+            }
+        }
+
+        // 1) 直接读（最快、最稳，适用于已授权可读的文件）
+        if let fh = try? FileHandle(forReadingFrom: url) {
+            defer { try? fh.close() }
+            if mode == "tail" {
+                let total = (try? fh.seekToEnd()) ?? 0
+                let from = max(0, Int(total) - maxBytes)
+                fh.seek(toFileOffset: UInt64(from))
+                if let d = try? fh.readData(ofLength: maxBytes), !d.isEmpty {
+                    return slice(d)
+                }
+            } else {
+                fh.seek(toFileOffset: 0)
+                if let d = try? fh.readData(ofLength: maxBytes), !d.isEmpty {
+                    return d
+                }
+            }
+        }
+        if let d = try? Data(contentsOf: url), !d.isEmpty {
+            return slice(d)
+        }
+
+        // 2) 兜底：NSFileCoordinator（仅在直接读失败时尝试，用于极端场景）
         var result: Data?
         var coordError: NSError?
         let coordinator = NSFileCoordinator(filePresenter: nil)
         coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordError) { coordinatedURL in
             if let fh = try? FileHandle(forReadingFrom: coordinatedURL) {
                 defer { try? fh.close() }
-                if mode == "tail" {
-                    let total = (try? fh.seekToEnd()) ?? 0
-                    let offset = max(0, Int64(total) - Int64(maxBytes))
-                    fh.seek(toFileOffset: UInt64(offset))
-                    result = fh.readData(ofLength: maxBytes)
-                } else {
-                    fh.seek(toFileOffset: 0)
-                    result = fh.readData(ofLength: maxBytes)
-                }
+                let total = (try? fh.seekToEnd()) ?? 0
+                let from = max(0, Int(total) - maxBytes)
+                fh.seek(toFileOffset: UInt64(from))
+                result = try? fh.readData(ofLength: maxBytes)
             } else {
                 result = try? Data(contentsOf: coordinatedURL)
             }
@@ -1438,13 +1473,7 @@ struct FilePreviewView: View {
             LogUtil.e(tag, "readFileData failed for \(url.lastPathComponent)")
             return nil
         }
-        if mode == "tail" {
-            // Swift Int 减法下溢会 trap；当 data.count < maxBytes 时直接用 0。
-            let offset = data.count > maxBytes ? data.count - maxBytes : 0
-            return data.subdata(in: offset..<data.count)
-        } else {
-            return data.count > maxBytes ? data.subdata(in: 0..<maxBytes) : data
-        }
+        return slice(data)
     }
 
     nonisolated private static func makeTruncatedSuffix(mode: String, dataCount: Int, maxBytes: Int) -> String {
