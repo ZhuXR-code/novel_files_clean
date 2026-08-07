@@ -1642,16 +1642,19 @@ struct ScrollableText: UIViewRepresentable {
             scroll.contentSize = CGSize(width: w + inset * 2, height: scroll.bounds.height)
         } else {
             // 纵向：宽度固定为视口宽度。
-            // 不用 sizeThatFits 全量排版（12 万字符的 UITextView 一次性排版耗时百毫秒级、易卡主线程），
-            // 改用「行数 × 行高」估算内容高度——行高由字号决定、与内容无关，估算误差极小且瞬时完成。
+            // 关键修复：tv.frame.height 必须等于真实内容高度，而非一屏高 viewportH。
+            // 旧实现把 tv.frame 高度设成 viewportH（只有一屏），而 scroll.contentSize 用
+            // 「行数 × 行高」估算——当文本含超长无空格串强制换行、或行高估算偏差时，
+            // contentSize 偏小且 tv 超出一屏的部分被 frame 裁掉 → 下滑后空白。
+            // 现改用 sizeThatFits 实测真实排版高度，tv 高度与 contentSize 一致，滚动即完整可见。
+            // 已通过 head/tail(≤100行)/all(≤120000字符) 限量，一次性排版可控。
             tv.textContainer.size = CGSize(width: viewportW, height: CGFloat.greatestFiniteMagnitude)
             tv.textContainer.lineBreakMode = .byWordWrapping
-            tv.frame = CGRect(x: inset, y: inset, width: viewportW, height: viewportH)
-            let lineHeight = font.lineHeight
-            let lineCount = max(text.isEmpty ? 1 : text.reduce(into: 1) { acc, ch in if ch == "\n" { acc += 1 } },
-                                Int((viewportH / max(lineHeight, 1)).rounded(.up)))
-            let h = CGFloat(lineCount) * lineHeight
-            scroll.contentSize = CGSize(width: scroll.bounds.width, height: h + inset * 2)
+            let measured = tv.sizeThatFits(CGSize(width: viewportW, height: CGFloat.greatestFiniteMagnitude))
+            let contentH = max(measured.height, viewportH)
+            tv.frame = CGRect(x: inset, y: inset, width: viewportW, height: contentH)
+            scroll.contentSize = CGSize(width: scroll.bounds.width, height: contentH + inset * 2)
+            FileRepository.shared.logOperation(level: "D", tag: "预览排版", message: "纵向排版完成 len=\(text.count) viewportH=\(Int(viewportH)) contentH=\(Int(contentH)) tvH=\(Int(tv.frame.height))")
         }
     }
 
