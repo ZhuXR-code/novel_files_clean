@@ -1209,6 +1209,7 @@ struct FilePreviewView: View {
     @State private var fontPt: CGFloat = 16
     @StateObject private var scrollState = PreviewScrollState()
     @State private var file: ScannedFile?
+    @State private var uiKitReady = false
 
     init(fileId: Int64, mode: String) {
         self.fileId = fileId
@@ -1243,21 +1244,26 @@ struct FilePreviewView: View {
 
             // 文本 + 自定义滑条（统一纵向滚动条）
             ZStack(alignment: .topTrailing) {
-                ScrollableText(text: text, fontPt: fontPt,
-                               mode: .vertical,
-                               allLines: nil,
-                               state: scrollState)
-                // UIScrollView 作为 SwiftUI 子视图没有固有高度，必须显式撑满父级剩余空间，
-                // 否则 scroll.bounds.height=0，updateUIView 拿不到可视区域，文本永远无法渲染（屏幕全黑）。
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                MiniScrollBar(state: scrollState,
-                              axis: .vertical)
+                if uiKitReady {
+                    ScrollableText(text: text, fontPt: fontPt,
+                                   mode: .vertical,
+                                   allLines: nil,
+                                   state: scrollState)
+                    // UIScrollView 作为 SwiftUI 子视图没有固有高度，必须显式撑满父级剩余空间，
+                    // 否则 scroll.bounds.height=0，updateUIView 拿不到可视区域，文本永远无法渲染（屏幕全黑）。
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    MiniScrollBar(state: scrollState,
+                                  axis: .vertical)
+                } else {
+                    Text("加载中…").foregroundColor(.fsSecondaryLabel)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                }
             }
         }
         .navigationTitle(file?.fileName ?? "预览")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            FileRepository.shared.logOperation(level: "I", tag: "预览", message: "打开文件预览 id=\(fileId)")
+            LogUtil.i("预览", "body onAppear，进入预览页 id=\(fileId)")
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -1272,11 +1278,14 @@ struct FilePreviewView: View {
     }
 
     private func load() async {
+        LogUtil.i("预览", "load() 开始 id=\(fileId)")
         guard let f = FileRepository.shared.getById(fileId) else {
+            LogUtil.e("预览", "文件不存在 id=\(fileId)")
             text = "文件不存在"
             return
         }
         file = f
+        LogUtil.i("预览", "load() 取到文件 \(f.fileName) encoding=\(f.encoding)")
         text = "加载中…"
         totalLines = 0
         let m = modeState
@@ -1292,6 +1301,8 @@ struct FilePreviewView: View {
         let shown = result.1 ?? result.0
         text = shown
         totalLines = result.2
+        LogUtil.i("预览", "load() 拿到文本 len=\(shown.count) 准备挂载 UIKit")
+        uiKitReady = true
     }
 
     /// 读取文件预览内容。优先使用扫描时保存的文件夹安全作用域书签；若书签失效，则尝试直接读取文件 URL（部分场景可访问）。
