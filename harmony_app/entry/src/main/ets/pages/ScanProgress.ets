@@ -72,11 +72,26 @@ struct ScanProgress {
     if (this.folderUri.length > 0) {
       const accessibleUri: string = await ScanService.tryAccessOrReauthorize(AppContext.get(), this.folderUri);
       if (accessibleUri.length === 0) {
+        // 权限彻底失效（持久化/重新授权均失败，常见于模拟器重启或重装后）。
+        // 弹窗引导用户重新选择目录，比直接提示失败更友好。
         this.folderName = '';
-        ToastUtil.show('扫描目录权限已失效，请重新选择目录');
-        return;
-      }
-      if (accessibleUri !== this.folderUri) {
+        const dialogRes: promptAction.ShowDialogSuccessResponse = await promptAction.showDialog({
+          title: '目录权限已失效',
+          message: '鸿蒙系统出于安全限制，应用无法自行恢复已过期的目录授权，'
+            + '需通过系统文件选择器由你重新确认。\n请重新选择扫描目录（选择原目录即可）。',
+          buttons: [
+            { text: '取消', color: $r('app.color.text_secondary') },
+            { text: '重新选择', color: $r('app.color.primary') }
+          ]
+        });
+        if (dialogRes.index !== 1) {
+          return; // 用户取消
+        }
+        await this.selectDir();
+        if (this.folderUri.length === 0) {
+          return; // 用户未选择新目录
+        }
+      } else if (accessibleUri !== this.folderUri) {
         this.folderUri = accessibleUri;
         if (this.config) {
           this.config.folderUri = accessibleUri;
@@ -91,6 +106,15 @@ struct ScanProgress {
     }
     if (!cfg.fileTypes || cfg.fileTypes.length === 0) {
       cfg.fileTypes = 'txt';
+    }
+    // 重新授权/重新选择后目录 URI 可能已变化：写回数据库，避免下次使用旧配置再次失效
+    if (this.config && this.config.folderUri !== this.folderUri) {
+      this.config.folderUri = this.folderUri;
+      try {
+        await ScanConfigDao.update(this.config);
+      } catch (e) {
+        LogUtil.e('ScanProgress', `保存新目录 URI 失败: ${(e as Error).message}`);
+      }
     }
     this.scanning = true;
     this.processed = 0;

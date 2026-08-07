@@ -62,6 +62,11 @@ export class FilePermissionUtil {
     } catch (e) {
       const err = e as BusinessError<Array<fileShare.PolicyErrorResult>>;
       LogUtil.e('FilePermission', `批量持久化授权失败: code=${err.code} msg=${err.message}`);
+      // 模拟器/低版本系统缺少 FolderAuthorization 能力时返回 801（能力不支持）。
+      // 此时持久化不可用，仅本次会话可访问，重启后需重新选择目录。
+      if (err.code === 801) {
+        LogUtil.e('FilePermission', '设备缺少 FolderAuthorization 能力(801)，持久化授权不可用，重启后需重新授权');
+      }
       // 持久化失败不阻断主流程，当前会话仍可使用临时权限
       return false;
     }
@@ -100,6 +105,31 @@ export class FilePermissionUtil {
     }
     if (activated > 0) {
       LogUtil.i('FilePermission', `已激活 ${activated}/${uris.length} 个持久化权限`);
+    }
+  }
+
+  /**
+   * 激活单个 URI 的持久化权限。
+   * 用于扫描前权限预检失败时重试激活（覆盖「已持久化但启动时未成功激活」的场景，
+   * 避免每次重启后都强制用户重新选择目录）。
+   * @returns 激活成功返回 true
+   */
+  public static async activateUri(uri: string): Promise<boolean> {
+    if (!uri || uri.length === 0 || !FilePermissionUtil.isPersistSupported()) {
+      return false;
+    }
+    try {
+      const policyInfo: fileShare.PolicyInfo = {
+        uri: uri,
+        operationMode: fileShare.OperationMode.READ_MODE | fileShare.OperationMode.WRITE_MODE
+      };
+      await fileShare.activatePermission([policyInfo]);
+      LogUtil.i('FilePermission', `激活单个权限成功: ${uri}`);
+      return true;
+    } catch (e) {
+      const err = e as BusinessError<Array<fileShare.PolicyErrorResult>>;
+      LogUtil.w('FilePermission', `激活单个权限失败 uri=${uri}: code=${err.code} msg=${err.message}`);
+      return false;
     }
   }
 
@@ -144,11 +174,11 @@ export class FilePermissionUtil {
    * Picker 会以 defaultFilePathUri 为默认路径打开，用户确认后即重新获得授权。
    * 比「从头浏览选择」体验更好——用户只需确认，不用重新找目录。
    *
-   * @returns 授权成功返回 true，用户取消或失败返回 false
+   * @returns 返回重新授权后的新 URI（已持久化）；用户取消或失败返回空字符串
    */
-  public static async reauthorizeUri(context: common.Context, uri: string): Promise<boolean> {
+  public static async reauthorizeUri(context: common.Context, uri: string): Promise<string> {
     if (!uri || uri.length === 0) {
-      return false;
+      return '';
     }
     // DocumentViewPicker 需要真正的 UIAbilityContext 才能正确拉起授权弹窗。
     // 调用方可能误传 @Component 的 UIContext（如 getContext(this)）。UIAbilityContext 独有
@@ -170,16 +200,16 @@ export class FilePermissionUtil {
       options.defaultFilePathUri = uri;
       const uris: string[] = await documentPicker.select(options);
       if (uris.length === 0) {
-        return false; // 用户取消
+        return ''; // 用户取消
       }
-      // 重新持久化
+      // 重新持久化，并返回新 URI 供调用方更新配置（模拟器上重新授权可能返回不同的 URI）
       await FilePermissionUtil.persistFolderPermission(uris[0]);
       LogUtil.i('FilePermission', `重新授权成功: ${uris[0]}`);
-      return true;
+      return uris[0];
     } catch (e) {
       const err = e as BusinessError;
       LogUtil.e('FilePermission', `重新授权失败: code=${err.code} msg=${err.message}`);
-      return false;
+      return '';
     }
   }
 

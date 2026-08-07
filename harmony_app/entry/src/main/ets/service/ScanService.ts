@@ -268,14 +268,25 @@ export class ScanService {
 
     LogUtil.w('ScanService', `URI 权限已失效，尝试重新授权: ${uri}`);
 
-    // 2. 尝试用 authMode 重新授权
-    const reauthorized: boolean = await FilePermissionUtil.reauthorizeUri(context, uri);
-    if (reauthorized && (await FilePermissionUtil.checkUriAccessible(uri))) {
-      return uri;
+    // 1.5 权限可能已持久化但重启后未成功激活（启动时批量激活失败仅记日志，不重试）。
+    // 先尝试单独激活该 URI，避免每次重启后都强制用户重新选择目录。
+    if (await FilePermissionUtil.activateUri(uri)) {
+      if (await FilePermissionUtil.checkUriAccessible(uri)) {
+        return uri;
+      }
     }
 
-    // 3. 重新授权也失败了
-    LogUtil.e('ScanService', `重新授权失败，需要用户重新选择目录`);
+    // 2. 尝试用 authMode 重新授权。
+    // 注意：必须使用返回的「新 URI」校验并返回——模拟器/部分系统重新授权返回的
+    // URI 可能与旧 URI 不同，若仍校验旧 URI 会误判为失效，导致重新授权永远不生效。
+    const newUri: string = await FilePermissionUtil.reauthorizeUri(context, uri);
+    if (newUri.length > 0 && (await FilePermissionUtil.checkUriAccessible(newUri))) {
+      return newUri;
+    }
+
+    // 3. 重新授权也失败了。鸿蒙系统限制：目录授权过期后应用无法自行恢复，
+    // 必须由用户通过系统 Picker 重新确认，UI 层据此引导用户重新选择目录。
+    LogUtil.e('ScanService', `重新授权失败（鸿蒙系统限制，需用户重新选择目录）`);
     return '';
   }
 

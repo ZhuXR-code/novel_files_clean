@@ -9,6 +9,7 @@ import { DupRuleConfigDao } from '../database/DupRuleConfigDao';
 import { DupRuleConfig } from '../model/DupRuleConfig';
 import { PreferencesUtil } from '../utils/PreferencesUtil';
 import { FilePermissionUtil } from '../utils/FilePermissionUtil';
+import { PermissionRequester } from '../utils/PermissionRequester';
 import { FontUtil } from '../utils/FontUtil';
 
 /**
@@ -28,11 +29,16 @@ export default class EntryAbility extends UIAbility {
       LogUtil.i('EntryAbility', '数据库初始化完成');
       await this.seedDefaultKeywordRules();
       await this.seedDefaultDupRules();
-      // 激活已持久化的文件访问权限（应用重启后仍可访问/删除之前选中的文件夹）
-      await FilePermissionUtil.activatePersistedPermissions();
     } catch (e) {
       // 打印完整错误（含堆栈），便于定位初始化失败的真实原因
       LogUtil.e('EntryAbility', `数据库初始化失败: ${(e as Error)?.message ?? '未知错误'}\nstack: ${(e as Error)?.stack ?? ''}`);
+    }
+    // 激活已持久化的文件访问权限（应用重启后仍可访问/删除之前选中的文件夹）。
+    // 与 DB 初始化解耦：即使 RDB 初始化失败，也不影响权限激活。
+    try {
+      await FilePermissionUtil.activatePersistedPermissions();
+    } catch (e) {
+      LogUtil.e('EntryAbility', `激活持久化权限失败: ${(e as Error)?.message ?? '未知错误'}`);
     }
   }
 
@@ -96,6 +102,11 @@ export default class EntryAbility extends UIAbility {
       } catch (e) {
         LogUtil.e('EntryAbility', `应用主题失败: ${(e as Error).message}`);
       }
+      // 动态申请 user_grant 权限（READ_WRITE_DOCUMENTS_DIRECTORY 等）。
+      // 窗口就绪后再申请，保证授权弹窗正常展示；失败仅记日志，不阻断主流程。
+      PermissionRequester.requestIfNeeded(this.context).catch((e: Error) => {
+        LogUtil.w('EntryAbility', `动态申请权限异常: ${e.message}`);
+      });
     });
   }
 
