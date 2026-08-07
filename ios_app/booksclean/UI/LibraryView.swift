@@ -210,7 +210,6 @@ struct LibraryView: View {
     @State private var sourceFilter = ""
     @State private var showFilter = false
     @State private var selectAllOnPage = false
-    @State private var selectedGroup: NovelGroup?
     @State private var selectedFilter = "all"     // all/checked/unchecked/marked/unmarked
     @State private var autoCollapse = false
     @State private var showGroupSettings = false
@@ -324,14 +323,6 @@ struct LibraryView: View {
         .sheet(isPresented: $showFilter) { filterSheet }
         .sheet(isPresented: $showGroupSettings) { groupSettingsSheet }
         .sheet(isPresented: $showExportSheet) { exportSheet }
-        .sheet(item: $selectedGroup) { g in
-            NavigationStack {
-                GroupFilesView(runId: runId, title: g.title == "(无书名)" ? "" : g.title, author: g.author)
-                    .navigationTitle("\(g.title) / \(g.author)")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .navigationBarTrailing) { Button("完成") { selectedGroup = nil } } }
-            }
-        }
     }
 
     private func filterChip(_ title: String, _ key: String) -> some View {
@@ -425,7 +416,7 @@ struct LibraryView: View {
                                     let checked = groupChecked[key] ?? 0
                                     let allChecked = checked >= g.fileCount && g.fileCount > 0
                                     toggleGroupChecked(title: g.title, author: g.author, allChecked: allChecked)
-                                }, onTap: { selectedGroup = g })
+                                }, onTap: { router.navigate(.groupFiles(runId: runId, title: g.title == "(无书名)" ? "" : g.title, author: g.author)) })
                                 .padding(12)
                                 .background(Color.fsSecondaryBg).cornerRadius(12)
                             }
@@ -462,7 +453,7 @@ struct LibraryView: View {
                             Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
                         }
                         .contentShape(Rectangle())
-                        .onTapGesture { selectedGroup = g }
+                        .onTapGesture { router.navigate(.groupFiles(runId: runId, title: g.title == "(无书名)" ? "" : g.title, author: g.author)) }
                     }
                 }
                 .listStyle(.plain)
@@ -968,6 +959,8 @@ struct GroupFilesView: View {
             }
         }
         .listStyle(.plain)
+        .navigationTitle("\(title.isEmpty ? "(无书名)" : title) / \(author.isEmpty ? "(无作者)" : author)")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             let rid = runId, t = title, a = author
             DispatchQueue.global(qos: .userInitiated).async {
@@ -1279,28 +1272,39 @@ struct FilePreviewView: View {
 
     private func load() async {
         FileRepository.shared.logOperation(level: "I", tag: "预览", message: "load() 开始 id=\(fileId)")
-        guard let f = FileRepository.shared.getById(fileId) else {
-            FileRepository.shared.logOperation(level: "E", tag: "预览", message: "文件不存在 id=\(fileId)")
-            text = "文件不存在"
-            return
-        }
-        file = f
-        FileRepository.shared.logOperation(level: "I", tag: "预览", message: "取到文件 \(f.fileName) encoding=\(f.encoding) size=\(f.fileSize)")
-        text = "加载中…"
-        totalLines = 0
         let m = modeState
-        // 关键：FilePreviewView 是 SwiftUI View（隐式 @MainActor），`.task` 会继承主 actor。
-        // 若直接 await 读文件+解码，200KB 数据最多解码 3 次、逐字符统计 CJK 占比全在主线程执行，
-        // 会卡住 UI 数秒（表现为「预览加载时间长」），严重时触发 watchdog 强杀（闪退）。
-        // 因此显式丢到 detached 后台任务执行，仅把结果回主线程赋值。
-        let result = await Task.detached(priority: .userInitiated) {
-            FilePreviewView.readFileContent(f, mode: m)
+        // 关键：getById / getScanRun / resolveBookmarkURL(URL(resolvingBookmarkData:)) 在文件位于
+        // File Provider / 外部文件夹时，会在主线程同步跨进程请求文件提供程序扩展，可能卡数秒，
+        // 直接触发 watchdog（0x8BADF00D）强杀。所以整段预备 + 读取 + 安全作用域 start/stop
+        // 全部放到 detached 后台线程执行，主线程只负责 UI 赋值。
+        // 注意：start/stopAccessingSecurityScopedResource 并不要求主线程，任意线程配对即可。
+        let (fid, mmode) = (fileId, m)
+        let result = await Task.detached(priority: .userInitiated) { () -> (String, String?, Int, ScannedFile?) in
+            guard let f = FileRepository.shared.getById(fid) else {
+                FileRepository.shared.logOperation(level: "E", tag: "预览", message: "文件不存在 id=\(fid)")
+                return ("文件不存在", nil, 0, nil)
+            }
+            FileRepository.shared.logOperation(level: "I", tag: "预览", message: "取到文件 \(f.fileName) encoding=\(f.encoding) size=\(f.fileSize)")
+            guard let run = FileRepository.shared.getScanRun(f.scanRunId),
+                  let resolved = resolveBookmarkURL(run.folderUri) else {
+                FileRepository.shared.logOperation(level: "E", tag: "预览", message: "文件夹授权失效 id=\(fid)")
+                return ("无法访问文件夹（授权失效），请重新扫描以刷新授权", nil, 0, f)
+            }
+            let accessed = resolved.url.startAccessingSecurityScopedResource()
+            if !accessed {
+                FileRepository.shared.logOperation(level: "E", tag: "预览", message: "无法开启文件夹访问权限 id=\(fid)")
+                return ("无法访问文件夹（权限被拒绝），请重新扫描并授权", nil, 0, f)
+            }
+            defer { resolved.url.stopAccessingSecurityScopedResource() }
+            let r = FilePreviewView.readFileContent(f, mode: mmode)
+            return (r.0, r.1, r.2, f)
         }.value
         // 页面可能已被切换/返回，重入的旧任务不应覆盖新内容
-        guard fileId == f.id, modeState == m else {
+        guard fileId == fid, modeState == mmode else {
             FileRepository.shared.logOperation(level: "W", tag: "预览", message: "load() 页面已切换，丢弃旧结果 id=\(fileId)")
             return
         }
+        file = result.3
         let shown = result.1 ?? result.0
         text = shown
         totalLines = result.2
@@ -1318,11 +1322,6 @@ struct FilePreviewView: View {
     nonisolated static func readFileContent(_ f: ScannedFile, mode: String) -> (String, String?, Int) {
         let tag = "FilePreview"
         FileRepository.shared.logOperation(level: "D", tag: "预览读取", message: "readFileContent 开始 id=\(f.id) mode=\(mode) path=\(f.path)")
-        guard let run = FileRepository.shared.getScanRun(f.scanRunId) else {
-            FileRepository.shared.logOperation(level: "E", tag: "预览读取", message: "扫描记录不存在 scanRunId=\(f.scanRunId)")
-            LogUtil.e(tag, "scan run not found: \(f.scanRunId)")
-            return ("", "扫描记录不存在（可能已被删除），请重新扫描", 0)
-        }
         // f.path 是 file:// 形式的绝对 URL 字符串，必须用 URL(string:) 解析
         guard let url = URL(string: f.path) else {
             FileRepository.shared.logOperation(level: "E", tag: "预览读取", message: "文件路径无效 \(f.path)")
@@ -1330,36 +1329,8 @@ struct FilePreviewView: View {
             return ("", "文件路径无效：\(f.path)", 0)
         }
 
-        let resolved = resolveBookmarkURL(run.folderUri)
-        var accessed = false
-        if let resolved = resolved {
-            if resolved.isStale {
-                FileRepository.shared.logOperation(level: "W", tag: "预览读取", message: "文件夹书签过期 folder=\(resolved.url.lastPathComponent)")
-                LogUtil.d(tag, "bookmark is stale for folder \(resolved.url.path)")
-                // 书签过期：仍尝试 startAccessing（部分情况下系统会续期），但大概率失败
-                accessed = resolved.url.startAccessingSecurityScopedResource()
-                if !accessed {
-                    return ("", "文件夹访问授权已过期，请重新扫描以刷新授权", 0)
-                }
-            } else {
-                accessed = resolved.url.startAccessingSecurityScopedResource()
-                if !accessed {
-                    FileRepository.shared.logOperation(level: "W", tag: "预览读取", message: "无法访问文件夹（权限被拒绝）folder=\(resolved.url.lastPathComponent)")
-                    LogUtil.d(tag, "failed to start accessing security scoped resource for folder \(resolved.url)")
-                    return ("", "无法访问文件夹（权限被拒绝），请重新扫描并授权", 0)
-                }
-            }
-        } else {
-            FileRepository.shared.logOperation(level: "W", tag: "预览读取", message: "书签解析失败，尝试直读 \(url.lastPathComponent)")
-            LogUtil.d(tag, "bookmark resolve failed, will try direct read for \(url.lastPathComponent)")
-        }
-        defer {
-            if accessed, let resolved = resolved {
-                resolved.url.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        // 检查文件是否存在
+        // 检查文件是否存在（安全作用域已由 load() 的 detached 后台任务开启）
+        FileRepository.shared.logOperation(level: "D", tag: "预览读取", message: "检查文件存在性 path=\(url.path)")
         guard FileManager.default.fileExists(atPath: url.path) else {
             return ("", "文件不存在或已被移动：\(url.lastPathComponent)", 0)
         }
@@ -1437,23 +1408,34 @@ struct FilePreviewView: View {
     }
 
     nonisolated private static func readFileData(url: URL, mode: String, maxBytes: Int, tag: String) -> Data? {
-        if let fh = try? FileHandle(forReadingFrom: url) {
-            defer { try? fh.close() }
-            if mode == "tail" {
-                let total = (try? fh.seekToEnd()) ?? 0
-                let offset = max(0, Int64(total) - Int64(maxBytes))
-                fh.seek(toFileOffset: UInt64(offset))
-                return fh.readData(ofLength: maxBytes)
+        // File Provider（iCloud/第三方文件管理器）文件必须在 NSFileCoordinator 内读取，
+        // 否则 FileHandle/Data 可能触发未捕获异常或被文件提供程序扩展强杀。
+        var result: Data?
+        var coordError: NSError?
+        let coordinator = NSFileCoordinator(filePresenter: nil)
+        coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordError) { coordinatedURL in
+            if let fh = try? FileHandle(forReadingFrom: coordinatedURL) {
+                defer { try? fh.close() }
+                if mode == "tail" {
+                    let total = (try? fh.seekToEnd()) ?? 0
+                    let offset = max(0, Int64(total) - Int64(maxBytes))
+                    fh.seek(toFileOffset: UInt64(offset))
+                    result = fh.readData(ofLength: maxBytes)
+                } else {
+                    fh.seek(toFileOffset: 0)
+                    result = fh.readData(ofLength: maxBytes)
+                }
             } else {
-                fh.seek(toFileOffset: 0)
-                return fh.readData(ofLength: maxBytes)
+                result = try? Data(contentsOf: coordinatedURL)
             }
         }
-        LogUtil.d(tag, "FileHandle failed for \(url.lastPathComponent), trying Data(contentsOf:)")
-        // 回退：整读（仅用于小文件或沙盒内可直接访问的文件）
-        guard let data = try? Data(contentsOf: url) else {
-            FileRepository.shared.logOperation(level: "E", tag: "预览读取", message: "FileHandle+Data 均失败 file=\(url.lastPathComponent)")
-            LogUtil.e(tag, "Data(contentsOf:) also failed for \(url.lastPathComponent)")
+        if let err = coordError {
+            FileRepository.shared.logOperation(level: "E", tag: "预览读取", message: "NSFileCoordinator 错误 file=\(url.lastPathComponent) err=\(err.localizedDescription)")
+            LogUtil.e(tag, "NSFileCoordinator error for \(url.lastPathComponent): \(err)")
+        }
+        guard let data = result, !data.isEmpty else {
+            FileRepository.shared.logOperation(level: "E", tag: "预览读取", message: "读数据失败（权限/IO）file=\(url.lastPathComponent)")
+            LogUtil.e(tag, "readFileData failed for \(url.lastPathComponent)")
             return nil
         }
         if mode == "tail" {
