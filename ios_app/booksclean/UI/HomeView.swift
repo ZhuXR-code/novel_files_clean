@@ -53,17 +53,24 @@ struct HomeView: View {
 
                 FSSection("扫描文库") {
                     HStack {
-                        Text("文库列表")
+                        Text(selecting ? "请勾选 ≥2 个文库以合并" : "文库列表")
                             .fsFont(.headline)
                         Spacer()
-                        if selecting && selectedRunIds.count >= 2 {
-                            Button {
+                        // 合并入口常驻显示：不在选择模式时点击进入选择模式并提示合并，
+                        // 选择模式下仅当已选 ≥2 个时才可触发合并弹窗（对齐安卓长按多选）。
+                        Button {
+                            if selecting {
                                 mergeNameInput = "合并文库"
                                 showMergeAlert = true
-                            } label: {
-                                Label("合并", systemImage: "rectangle.on.rectangle").foregroundColor(.fsPrimary)
+                            } else {
+                                selecting = true
+                                selectedRunIds.removeAll()
                             }
+                        } label: {
+                            Label("合并", systemImage: "rectangle.on.rectangle")
+                                .foregroundColor(selecting && selectedRunIds.count < 2 ? .fsSecondaryLabel : .fsPrimary)
                         }
+                        .disabled(selecting && selectedRunIds.count < 2)
                     }
                     .padding(.bottom, 4)
 
