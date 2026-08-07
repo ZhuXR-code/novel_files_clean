@@ -503,7 +503,7 @@ struct LibraryView: View {
                     let ids = FileRepository.shared.getCheckedIds(runId: runId)
                     guard !ids.isEmpty else { return }
                     // 跳转删除确认页，让用户选择「仅删除记录」或「记录与源文件一起删除」
-                    router.navigate(.deleteConfirm(runId: runId, ids: ids, physical: false))
+                    router.navigate(.deleteConfirm(runId: runId, ids: ids, physical: true))
                 } label: { Image(systemName: "trash") }
                 .help("删除勾选文件")
             }
@@ -1142,7 +1142,7 @@ struct FileDetailView: View {
             }
             Button(role: .destructive) {
                 // 跳转删除确认页，让用户选择「仅删除记录」或「记录与源文件一起删除」
-                router.navigate(.deleteConfirm(runId: f.scanRunId, ids: [f.id], physical: false))
+                router.navigate(.deleteConfirm(runId: f.scanRunId, ids: [f.id], physical: true))
             } label: {
                 Text("删除该文件").frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
