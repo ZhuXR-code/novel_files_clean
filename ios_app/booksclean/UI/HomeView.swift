@@ -34,7 +34,7 @@ struct HomeView: View {
 
                 FSSection("快速开始") {
                     VStack(spacing: 10) {
-                        PrimaryButton(title: "扫描配置") { router.navigate(.configList) }
+                        PrimaryButton(title: "开始扫描") { router.navigate(.configList) }
                         Text("进入扫描配置列表：选择已有的配置执行扫描，或新增配置选择文件夹。")
                             .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
                             .frame(maxWidth: .infinity, alignment: .leading)
