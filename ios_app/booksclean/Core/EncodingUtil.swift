@@ -79,8 +79,8 @@ enum EncodingUtil {
     /// 残字节会让 UTF-8 解码整体失败或让评分失真，表现为「预览末尾乱码 / 整篇选错编码」。
     static func trimIncompleteTail(_ data: Data, encodingName: String) -> Data {
         guard !data.isEmpty else { return data }
-        // 统一成 0 基数组，避免 Data 切片非 0 起始索引带来的下标错乱
-        let bytes = [UInt8](data)
+        // 复制成独立的连续字节数组，避免对桥接 NSData（脏 buffer）直接下标访问触发 trap。
+        let bytes: [UInt8] = data.withUnsafeBytes { Array($0) }
         let n = bytes.count
         // 保留前 keep 个字节
         func keep(_ count: Int) -> Data {
@@ -126,10 +126,15 @@ enum EncodingUtil {
     /// - 纯 ASCII/英文：各候选 CJK≈0，UTF-8 凭红利胜出，保持保真。
     /// 返回 (解码文本, 实际使用的编码名)。全部失败返回 ("", "")。
     static func decodeStrict(data: Data, candidates: [String]) -> (String, String) {
+        // 关键防护：来自 File Provider / 外部文件夹的 Data 常是桥接的 NSData（脏 buffer），
+        // 其底层 length 与实际内存可能不一致，后续任何下标/复制访问都可能触发
+        // Data.subscript 越界 trap（EXC_BREAKPOINT）导致闪退。
+        // 这里强制深拷贝成独立连续内存，切断与脏 buffer 的关联。
+        let owned = Data(data)
         var best = ("", "", -1.0)
         for name in candidates {
             let enc = stringEncoding(named: name)
-            let safe = trimIncompleteTail(data, encodingName: name)
+            let safe = trimIncompleteTail(owned, encodingName: name)
             guard let s = String(data: safe, encoding: enc), !s.isEmpty else { continue }
             var score = cjkScalarRatio(s)
             if name == "UTF-8" && looksLikeUtf8(safe) {
