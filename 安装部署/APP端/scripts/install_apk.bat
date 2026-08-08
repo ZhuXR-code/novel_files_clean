@@ -12,8 +12,8 @@ IF NOT EXIST %APK% (
 echo 列出已连接设备：
 adb devices
 echo.
-set /p DEV="请输入目标设备序列号（直接回车则用默认 127.0.0.1:7555）："
-IF "%DEV%"=="" set DEV=127.0.0.1:7555
+set /p DEV="请输入目标设备序列号（直接回车则用默认 127.0.0.1:16384）："
+IF "%DEV%"=="" set DEV=127.0.0.1:16384
 
 echo [安装] %APK% --^> %DEV%
 adb -s %DEV% install -r %APK%

@@ -130,6 +130,30 @@ class FileRepository(
         }
     }
 
+    /**
+     * 跨文库同步删除：在 APP 内删除文件（含源文件）时，同一物理文件可能出现在多个文库中，
+     * 需要把所有文库里记录该 path 的行一并删除。步骤：
+     *   1) 取待删 id 对应的 path 集合；
+     *   2) 对每个 path，删掉所有文库中该 path 的行，并收集其中命中的 scan_run_id；
+     *   3) 重算所有受影响文库的 file_count。
+     */
+    suspend fun deleteFilesSynced(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        LogUtil.i("Repo", "deleteFilesSynced 开始同步删除 ${ids.size} 条")
+        val paths = dao.getPathsByIds(ids)
+        val affectedRuns = mutableSetOf<Long>()
+        for (p in paths) {
+            val runs = dao.getRunsByPath(p)
+            affectedRuns.addAll(runs)
+            dao.deleteByPath(p)
+        }
+        for (rid in affectedRuns) {
+            val c = dao.countByRunSync(rid)
+            dao.setRunFileCount(rid, c)
+        }
+        LogUtil.i("Repo", "deleteFilesSynced 完成，涉及文库 ${affectedRuns.size} 个")
+    }
+
     suspend fun deleteAll() = dao.deleteAll()
 
     // ===================== 关键词替换规则 =====================

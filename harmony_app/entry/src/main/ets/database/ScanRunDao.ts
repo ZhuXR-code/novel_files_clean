@@ -152,8 +152,8 @@ export class ScanRunDao {
   /**
    * 合并多个文库为一个新文库。
    * 流程：① 新建文库（记录合并来源）② 用 INSERT...SELECT 把源文库文件复制进新文库（保留
-   * marked/checked/content_hash 等全部状态，相同 path 通过唯一约束去重）③ 统计新文库文件数
-   * ④ 删除源文库及其文件。对齐安卓 ScanRunDao.mergeRuns。
+   * marked/checked/content_hash 等全部状态，相同 path 通过唯一约束去重）③ 统计新文库文件数。
+   * 原文库保留，仅新增一个合并文库（不删除源文库）。对齐安卓 ScanRunDao.mergeRuns。
    * 要求 sourceIds.length >= 2，否则返回 -1。
    */
   public static async mergeRuns(sourceIds: number[], newName: string): Promise<number> {
@@ -187,9 +187,7 @@ export class ScanRunDao {
       }
       cntRs.close();
       await store.executeSql('UPDATE scan_run SET file_count = ? WHERE id = ?', [fileCount, newId]);
-      // ④ 删除源文库（先文件后文库）
-      await store.executeSql(`DELETE FROM scanned_file WHERE scan_run_id IN (${placeholders})`, sourceIds);
-      await store.executeSql(`DELETE FROM scan_run WHERE id IN (${placeholders})`, sourceIds);
+      // ④ 原文库保留：仅新增一个合并文库，不再删除源文库及其文件
       await store.executeSql('COMMIT', []);
       return newId;
     } catch (e) {

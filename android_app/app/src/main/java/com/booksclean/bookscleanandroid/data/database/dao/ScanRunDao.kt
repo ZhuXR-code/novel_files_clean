@@ -37,7 +37,7 @@ interface ScanRunDao {
      *      等全部状态），跨文库相同 path 的文件由 UNIQUE(path, scan_run_id) 去重，
      *      每个 path 保留一条（ON CONFLICT DO NOTHING）；
      *   3) 回写新文库 file_count；
-     *   4) 删除源文库及其文件。
+     *   4) 原文库保留，仅新增一个合并文库（不删除源文库）。
      * 返回新建文库的 id。
      *
      * 维护提示：INSERT...SELECT 的列列表必须与 scanned_file 当前列顺序一致，
@@ -56,8 +56,7 @@ interface ScanRunDao {
         copyFilesToRun(newId, sourceIds)
         val count = countFilesInRun(newId)
         setFileCount(newId, count)
-        deleteFilesByRunIds(sourceIds)
-        deleteRunsByIds(sourceIds)
+        // 保留原文库：仅新增一个合并文库，不再删除源文库及其文件
         return newId
     }
 

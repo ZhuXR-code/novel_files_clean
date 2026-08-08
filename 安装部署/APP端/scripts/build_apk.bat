@@ -18,7 +18,7 @@ IF ERRORLEVEL 1 (
 
 echo [2/2] 构建完成：
 echo   android_app\app\build\outputs\apk\debug\app-debug.apk
-echo 安装到设备（以 MuMu 7555 为例）：
-echo   adb connect 127.0.0.1:7555
-echo   adb -s 127.0.0.1:7555 install -r app\build\outputs\apk\debug\app-debug.apk
+echo 安装到设备（以 MuMu 16384 为例）：
+echo   adb connect 127.0.0.1:16384
+echo   adb -s 127.0.0.1:16384 install -r app\build\outputs\apk\debug\app-debug.apk
 endlocal

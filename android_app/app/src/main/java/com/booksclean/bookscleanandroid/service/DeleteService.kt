@@ -101,9 +101,10 @@ class DeleteService : Service() {
                         }
                         processed++
                     }
-                    // 每批立即删除已成功的记录，释放内存
+                    // 每批立即删除已成功的记录（跨文库同步：按 path 删除所有文库中的同名文件，
+                    // 并同步重算受影响文库计数），释放内存
                     if (successIds.isNotEmpty()) {
-                        app.repository.deleteByIds(successIds)
+                        app.repository.deleteFilesSynced(successIds)
                     }
                     val now = System.currentTimeMillis()
                     if (now - lastNotificationTime.get() >= NOTIFICATION_THROTTLE_MS) {

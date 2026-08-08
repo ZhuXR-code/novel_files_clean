@@ -112,7 +112,7 @@ python launcher.py
 cd android_app
 ./gradlew assembleDebug
 ```
-调试版包名 `com.booksclean.app.debug`，主 Activity `com.booksclean.app.MainActivity`。
+调试版包名 `com.bookscleanandroid.app.debug`，主 Activity `com.bookscleanandroid.app.MainActivity`。
 
 ---
 

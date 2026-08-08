@@ -25,6 +25,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -46,6 +47,8 @@ android {
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+        // Robolectric 需要 Android 资源（如 Application Context）
+        unitTests.isIncludeAndroidResources = true
     }
 
     // 直接用 JUnit 控制台运行本地单测，绕开 AGP 测试 worker 的 classpath 装配怪象
@@ -61,7 +64,7 @@ android {
             classpath(
                 ktTestDir,
                 mainClasses,
-                configurations.getByName("debugUnitTestRuntimeClasspath"),
+                files(configurations.getByName("debugUnitTestRuntimeClasspath")),
             )
             mainClass.set("org.junit.runner.JUnitCore")
             args("com.bookscleanandroid.app.util.ParserTest", "com.bookscleanandroid.app.util.LibraryLogicTest", "com.bookscleanandroid.app.data.repository.DupRuleLogicTest", "com.bookscleanandroid.app.data.repository.DupRuleIntegrationTest")
@@ -114,6 +117,8 @@ dependencies {
     // Room 的 Paging3 集成：@RawQuery 返回 PagingSource 需要此依赖
     implementation("androidx.room:room-paging:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
+    // KSP 处理 @RawQuery 返回 PagingSource 时需要 androidx.paging 在处理器 classpath（否则 MissingType）
+    ksp("androidx.paging:paging-runtime:3.3.2")
 
     // 分页：解决 10w 级文件列表全表加载导致的内存/卡顿问题
     val pagingVersion = "3.3.2"
@@ -138,6 +143,11 @@ dependencies {
     testImplementation("androidx.test.ext:junit:1.2.1")
     // JVM 单测需要 org.json 的真实实现（android.jar 中的是 stub）
     testImplementation("org.json:json:20231013")
+
+    // ---- Instrumented（真机/模拟器）测试依赖：合并文库功能在 MuMu 上验证 ----
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
 }
 
 // 生成签名文件的任务

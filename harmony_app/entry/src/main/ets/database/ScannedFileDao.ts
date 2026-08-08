@@ -247,11 +247,55 @@ export class ScannedFileDao {
     if (ids.length === 0) {
       return;
     }
-    // 分块执行，避免 IN 占位符超过 SQLite 变量上限。
+    // 跨文库同步删除：在 APP 内删除文件（含源文件）时，同一物理文件可能出现在多个文库中，
+    // 需要把所有文库里记录该 path 的行一并删除。先收集待删 id 对应的 path 与受影响文库，
+    // 再按 path 删除全部匹配行，最后重算受影响文库的 file_count。
+    const affectedRuns: Set<number> = new Set<number>();
+    const allPaths: string[] = [];
     for (const chunk of ScannedFileDao.chunkIds(ids)) {
-      const predicates = new relationalStore.RdbPredicates('scanned_file');
-      predicates.in('id', chunk);
-      await ScannedFileDao.store.delete(predicates);
+      const placeholders: string = chunk.map(() => '?').join(',');
+      const rs = await ScannedFileDao.store.querySql(
+        `SELECT path, scan_run_id FROM scanned_file WHERE id IN (${placeholders})`,
+        chunk
+      );
+      while (rs.goToNextRow()) {
+        const p: string = rs.getString(rs.getColumnIndex('path'));
+        const rid: number = rs.getLong(rs.getColumnIndex('scan_run_id'));
+        if (p) {
+          allPaths.push(p);
+        }
+        affectedRuns.add(rid);
+      }
+      rs.close();
+    }
+    // 按 path 删除所有文库中的匹配行，并收集额外命中的 run_id（可能含当前文库之外的文库）
+    for (const chunk of ScannedFileDao.chunkIds(allPaths)) {
+      const placeholders: string = chunk.map(() => '?').join(',');
+      const hitRs = await ScannedFileDao.store.querySql(
+        `SELECT DISTINCT scan_run_id FROM scanned_file WHERE path IN (${placeholders})`,
+        chunk
+      );
+      while (hitRs.goToNextRow()) {
+        affectedRuns.add(hitRs.getLong(hitRs.getColumnIndex('scan_run_id')));
+      }
+      hitRs.close();
+      await ScannedFileDao.store.executeSql(
+        `DELETE FROM scanned_file WHERE path IN (${placeholders})`,
+        chunk
+      );
+    }
+    // 重算所有受影响文库的计数
+    for (const rid of affectedRuns) {
+      const cntRs = await ScannedFileDao.store.querySql(
+        'SELECT COUNT(*) AS cnt FROM scanned_file WHERE scan_run_id = ?',
+        [rid]
+      );
+      let c: number = 0;
+      if (cntRs.goToFirstRow()) {
+        c = Number(cntRs.getLong(cntRs.getColumnIndex('cnt')));
+      }
+      cntRs.close();
+      await ScannedFileDao.store.executeSql('UPDATE scan_run SET file_count = ? WHERE id = ?', [c, rid]);
     }
   }
 

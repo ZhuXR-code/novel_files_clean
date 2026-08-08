@@ -76,6 +76,24 @@ interface ScannedFileDao {
     @Query("DELETE FROM scanned_file WHERE scan_run_id = :runId")
     suspend fun deleteByRunId(runId: Long)
 
+    /**
+     * 跨文库同步删除：在 APP 内删除文件（含源文件）时，同一物理文件可能出现在多个文库中，
+     * 需要把所有文库里记录该 path 的行一并删除。先收集待删 id 对应的 path 与受影响文库，
+     * 再按 path 删除全部匹配行，最后重算受影响文库的 file_count。
+     * 跨文库同步删除的辅助查询（编排逻辑放在 FileRepository.deleteFilesSynced）。
+     */
+    @Query("SELECT DISTINCT path FROM scanned_file WHERE id IN (:ids)")
+    suspend fun getPathsByIds(ids: List<Long>): List<String>
+
+    @Query("SELECT DISTINCT scan_run_id FROM scanned_file WHERE path = :path")
+    suspend fun getRunsByPath(path: String): List<Long>
+
+    @Query("DELETE FROM scanned_file WHERE path = :path")
+    suspend fun deleteByPath(path: String)
+
+    @Query("UPDATE scan_run SET file_count = :count WHERE id = :runId")
+    suspend fun setRunFileCount(runId: Long, count: Int)
+
     @Query("DELETE FROM scanned_file")
     suspend fun deleteAll()
 
