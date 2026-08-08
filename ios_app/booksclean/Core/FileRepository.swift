@@ -32,11 +32,19 @@ final class FileRepository {
     /// 要求 sourceIds.count >= 2，否则返回 -1。
     @discardableResult
     func mergeRuns(_ sourceIds: [Int64], newName: String) -> Int64 {
-        guard sourceIds.count >= 2 else { return -1 }
+        let srcDesc = sourceIds.map(String.init).joined(separator: ",")
+        guard sourceIds.count >= 2 else {
+            LogUtil.e("Repo", "合并文库失败: 源文库数量不足（需≥2）实际=\(sourceIds.count)")
+            logOperation(level: "E", tag: "其他", message: "合并文库失败: 至少需选择 2 个文库，当前仅 \(sourceIds.count) 个")
+            return -1
+        }
         let newId = db.mergeRuns(sourceIds, newName: newName)
         if newId > 0 {
-            LogUtil.i("Repo", "合并文库 源=[\(sourceIds.map(String.init).joined(separator: ","))] -> 新=\(newId)")
+            LogUtil.i("Repo", "合并文库 源=[\(srcDesc)] -> 新=\(newId)")
             logOperation(level: "I", tag: "其他", message: "合并文库 源=\(sourceIds.count)个 -> 新文库\(newId)")
+        } else {
+            LogUtil.e("Repo", "合并文库失败: db.mergeRuns 返回 \(newId) 源=[\(srcDesc)] name=\(newName)")
+            logOperation(level: "E", tag: "其他", message: "合并文库失败: 源=[\(srcDesc)] 名称=\(newName)（DB 返回 \(newId)，详见系统日志）")
         }
         return newId
     }

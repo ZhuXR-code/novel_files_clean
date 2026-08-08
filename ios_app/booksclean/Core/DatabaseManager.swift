@@ -847,6 +847,7 @@ final class DatabaseManager {
                                     [finalName, Int64(Date().timeIntervalSince1970 * 1000)])
         guard newId > 0 else {
             execute("ROLLBACK", [])
+            LogUtil.e("DB", "合并文库失败: 插入新文库记录失败 name=\(finalName)")
             return -1
         }
         let copyBind: [Any?] = [Int64(newId)] + sourceIds.map { $0 as Any? }
@@ -858,6 +859,7 @@ final class DatabaseManager {
         )
         guard ok else {
             execute("ROLLBACK", [])
+            LogUtil.e("DB", "合并文库失败: 复制源文库文件到新文库失败 newId=\(newId) 源=\(sourceIds.map(String.init).joined(separator: ","))")
             return -1
         }
         let cntRows = fetchAll("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id = ?", [Int64(newId)])
