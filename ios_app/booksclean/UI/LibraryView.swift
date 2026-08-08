@@ -1203,6 +1203,7 @@ struct FilePreviewView: View {
     @StateObject private var scrollState = PreviewScrollState()
     @State private var file: ScannedFile?
     @State private var uiKitReady = false
+    @State private var showPreviewHelp = false
 
     init(fileId: Int64, mode: String) {
         self.fileId = fileId
@@ -1264,11 +1265,27 @@ struct FilePreviewView: View {
                 Menu {
                     Button { if modeState != "head" { modeState = "head"; Task { await load() } } } label: { Label("前 50 行", systemImage: modeState == "head" ? "checkmark" : "text.line.first") }
                     Button { if modeState != "tail" { modeState = "tail"; Task { await load() } } } label: { Label("后 100 行", systemImage: modeState == "tail" ? "checkmark" : "text.line.last") }
-                    Button { if modeState != "all" { modeState = "all"; Task { await load() } } } label: { Label("全部内容", systemImage: modeState == "all" ? "checkmark" : "doc.plaintext") }
+                    Button { if modeState != "all" { modeState = "all"; Task { await load() } } } label: { Label("前 200KB", systemImage: modeState == "all" ? "checkmark" : "doc.plaintext") }
+                    Button { showPreviewHelp = true } label: { Label("说明", systemImage: "questionmark.circle") }
                 } label: { Image(systemName: "ellipsis.circle") }
             }
         }
         .task { await load() }
+        .alert("预览说明", isPresented: $showPreviewHelp) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text("""
+            本页提供三种查看方式：
+
+            • 前 50 行：仅读取文件开头的 50 行内容，适合快速浏览文件头部信息。
+
+            • 后 100 行：仅读取文件末尾的 100 行内容，适合查看文件结尾或最新追加的数据。
+
+            • 前 200KB：读取文件开头约 200KB 的内容（字符数过多时会进一步截断），适合大致通读，但无法保证看到超大文件的全部内容。
+
+            如文件较大，可切换不同方式分段查看。
+            """)
+        }
     }
 
     /// 预览读取串行队列：同一时刻只允许一个读取任务执行。
@@ -1404,8 +1421,8 @@ struct FilePreviewView: View {
                     if lines.count > want {
                         lines = (mode == "head") ? Array(lines.prefix(want)) : Array(lines.suffix(want))
                         lineNote = (mode == "head")
-                            ? "\n\n…（仅显示前 \(want) 行，切换「全部内容」查看更多）"
-                            : "\n\n…（仅显示后 \(want) 行，切换「全部内容」查看更多）"
+                            ? "\n\n…（仅显示前 \(want) 行，切换「前 200KB」查看更多）"
+                            : "\n\n…（仅显示后 \(want) 行，切换「前 200KB」查看更多）"
                     }
                     text = lines.joined(separator: "\n")
                 } else {
