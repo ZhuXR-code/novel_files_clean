@@ -76,6 +76,10 @@ final class DatabaseManager {
             "CREATE INDEX IF NOT EXISTS idx_sf_run ON scanned_file(scan_run_id);",
             "CREATE INDEX IF NOT EXISTS idx_sf_created ON scanned_file(created_at);",
             "CREATE INDEX IF NOT EXISTS idx_sf_hash ON scanned_file(content_hash);",
+            // 对齐安卓：唯一约束 (path, scan_run_id)，用于合并去重（同 path 只保留一条）。
+            // 建唯一索引前先清理历史重复行（同 scan_run_id 同 path 仅保留 id 最小的一条），否则唯一索引会建失败。
+            "DELETE FROM scanned_file WHERE id NOT IN (SELECT MIN(id) FROM scanned_file GROUP BY path, scan_run_id);",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_sf_path_run ON scanned_file(path, scan_run_id);",
             """
             CREATE TABLE IF NOT EXISTS scan_config (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -843,7 +847,7 @@ final class DatabaseManager {
         let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalName = name.isEmpty ? "合并文库" : name
         execute("BEGIN TRANSACTION", [])
-        let newId = executeReturnId("INSERT INTO scan_run (name, created_at, status, file_count) VALUES (?, ?, 'done', 0)",
+        let newId = executeReturnId("INSERT INTO scan_run (name, created_at, file_count) VALUES (?, ?, 0)",
                                     [finalName, Int64(Date().timeIntervalSince1970 * 1000)])
         guard newId > 0 else {
             execute("ROLLBACK", [])
@@ -854,7 +858,8 @@ final class DatabaseManager {
         let ok = execute(
             "INSERT INTO scanned_file (scan_run_id, path, file_name, file_size, title, author, progress, source, encoding, title_pinyin, author_pinyin, content_hash, ext, marked, checked, created_at, file_date) " +
             "SELECT ?, path, file_name, file_size, title, author, progress, source, encoding, title_pinyin, author_pinyin, content_hash, ext, marked, checked, created_at, file_date " +
-            "FROM scanned_file WHERE scan_run_id IN (\(placeholders))",
+            "FROM scanned_file WHERE scan_run_id IN (\(placeholders)) " +
+            "ON CONFLICT(path, scan_run_id) DO NOTHING",
             copyBind
         )
         guard ok else {
