@@ -761,7 +761,8 @@ final class DatabaseManager {
     }
 
     func getEnabledUserRules() -> [DupRuleConfig] {
-        fetchAll("SELECT id,rule_key,rule_name,enabled,description,is_builtin,conditions,action,sort_order,created_at,updated_at FROM dup_rule_configs WHERE is_builtin=0 AND enabled=1 ORDER BY sort_order ASC").map { r in
+        // 对齐安卓：自定义规则还需 conditions IS NOT NULL 才参与（空条件视为无效、不参与勾选）。
+        fetchAll("SELECT id,rule_key,rule_name,enabled,description,is_builtin,conditions,action,sort_order,created_at,updated_at FROM dup_rule_configs WHERE is_builtin=0 AND enabled=1 AND conditions IS NOT NULL ORDER BY sort_order ASC").map { r in
             var c = DupRuleConfig()
             c.id = (r[0] as? Int64) ?? 0
             c.ruleKey = (r[1] as? String) ?? ""
