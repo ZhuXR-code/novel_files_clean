@@ -45,10 +45,13 @@ interface ScanRunDao {
      */
     @Transaction
     suspend fun mergeRuns(sourceIds: List<Long>, newName: String, now: Long): Long {
+        // 继承第一个源文库的安全作用域书签（folderUri），否则合并后预览/删除/打开等操作均无法访问文件
+        val firstSource = getById(sourceIds.first())
         val newId = insert(
             ScanRunEntity(
                 name = newName,
-                folderName = "合并自 ${sourceIds.size} 个文库",
+                folderUri = firstSource?.folderUri ?: "",
+                folderName = firstSource?.folderName ?: "合并自 ${sourceIds.size} 个文库",
                 fileTypes = "txt",
                 createdAt = now
             )
