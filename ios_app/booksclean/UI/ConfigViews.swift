@@ -3,6 +3,7 @@ import SwiftUI
 struct ConfigListView: View {
     @EnvironmentObject var router: Router
     @State private var configs: [ScanConfig] = []
+    @State private var showNoConfigAlert = false
 
     var body: some View {
         List {
@@ -43,7 +44,16 @@ struct ConfigListView: View {
                 Button { router.navigate(.configEdit(id: 0)) } label: { Image(systemName: "plus") }
             }
         }
-        .onAppear { reload() }
+        .onAppear {
+            reload()
+            if configs.isEmpty { showNoConfigAlert = true }
+        }
+        .alert("提示", isPresented: $showNoConfigAlert) {
+            Button("开始配置") { router.navigate(.configEdit(id: 0)) }
+            Button("取消", role: .cancel) { showNoConfigAlert = false }
+        } message: {
+            Text("当前没有扫描配置，是否新增？")
+        }
     }
 
     private func reload() { configs = FileRepository.shared.getScanConfigs() }
