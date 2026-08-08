@@ -371,11 +371,33 @@ final class DatabaseManager {
 
     func deleteFiles(ids: [Int64]) {
         guard !ids.isEmpty else { return }
+        // 收集待删文件的 path，用于跨文库同步：同一物理文件可能出现在多个文库中，
+        // 在 APP 内删除（含源文件）时需要把所有文库里记录该 path 的行一并删除。
+        var allPaths: [String] = []
+        var affectedRuns = Set<Int64>()
         let chunkSize = 500
         for start in stride(from: 0, to: ids.count, by: chunkSize) {
             let chunk = Array(ids[start..<min(start + chunkSize, ids.count)])
             let ph = chunk.map { _ in "?" }.joined(separator: ",")
-            execute("DELETE FROM scanned_file WHERE id IN (\(ph))", chunk)
+            let rows = fetchAll("SELECT path, scan_run_id FROM scanned_file WHERE id IN (\(ph))", chunk)
+            for r in rows {
+                if let p = r[0] as? String { allPaths.append(p) }
+                if let rid = r[1] as? Int64 { affectedRuns.insert(rid) }
+            }
+        }
+        // 按 path 删除所有文库中的匹配行
+        let pathChunks = stride(from: 0, to: allPaths.count, by: chunkSize)
+        for start in pathChunks {
+            let pc = Array(allPaths[start..<min(start + chunkSize, allPaths.count)])
+            let ph = pc.map { _ in "?" }.joined(separator: ",")
+            // 重新收集本次实际命中的 run_id（可能含其他文库），以便重算计数
+            let hit = fetchAll("SELECT DISTINCT scan_run_id FROM scanned_file WHERE path IN (\(ph))", pc)
+            for r in hit { if let rid = r[0] as? Int64 { affectedRuns.insert(rid) } }
+            execute("DELETE FROM scanned_file WHERE path IN (\(ph))", pc)
+        }
+        // 重算所有受影响文库的计数（file_count = 该文库剩余文件数）
+        for rid in affectedRuns {
+            execute("UPDATE scan_run SET file_count = (SELECT COUNT(*) FROM scanned_file WHERE scan_run_id = ?) WHERE id = ?", [rid, rid])
         }
     }
 
@@ -870,8 +892,7 @@ final class DatabaseManager {
         let cntRows = fetchAll("SELECT COUNT(*) FROM scanned_file WHERE scan_run_id = ?", [Int64(newId)])
         let fileCount = (cntRows.first?.first as? Int64).map { Int($0) } ?? 0
         execute("UPDATE scan_run SET file_count = ? WHERE id = ?", [fileCount, Int64(newId)])
-        execute("DELETE FROM scanned_file WHERE scan_run_id IN (\(placeholders))", sourceIds)
-        execute("DELETE FROM scan_run WHERE id IN (\(placeholders))", sourceIds)
+        // 保留原文库：仅新增一个合并库，不删除被合并的源文库
         execute("COMMIT", [])
         return newId
     }
