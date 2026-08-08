@@ -4,7 +4,8 @@ import androidx.room.ColumnInfo
 
 /**
  * 复刻 PC 端"勾选重复"逻辑所需的轻量投影：
- * id / 文件名(fileName) / 书名(title) / 作者(author) / 进度(progress) / 来源(source) / 大小(fileSize) / 创建时间(createdAt) / 文件修改时间(fileDate)。
+ * id / 文件名(fileName) / 书名(title) / 作者(author) / 进度(progress) / 来源(source) / 大小(fileSize) / 创建时间(createdAt) / 文件修改时间(fileDate) / 内容哈希(contentHash)。
+ * contentHash 用于「rule_hash 内容哈希去重」规则：哈希相同且非最新的文件额外勾选。
  */
 data class DuplicateRow(
     val id: Long,
@@ -15,5 +16,6 @@ data class DuplicateRow(
     @ColumnInfo(name = "source") val source: String = "",
     @ColumnInfo(name = "fileSize") val fileSize: Long,
     @ColumnInfo(name = "createdAt") val createdAt: Long,
-    @ColumnInfo(name = "fileDate") val fileDate: Long = 0
+    @ColumnInfo(name = "fileDate") val fileDate: Long = 0,
+    @ColumnInfo(name = "contentHash") val contentHash: String = ""
 )

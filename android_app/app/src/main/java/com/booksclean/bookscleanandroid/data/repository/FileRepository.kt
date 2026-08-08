@@ -201,7 +201,7 @@ class FileRepository(
             dupRuleDao.getEnabledBuiltinRuleKeys().toSet()
         } else {
             // 兼容无 DAO 场景：全部启用
-            setOf("rule1", "rule2", "rule3a", "rule3b", "rule4", "rule5")
+            setOf("rule1", "rule2", "rule3a", "rule3b", "rule4", "rule5", "rule_hash")
         }
     }
 
@@ -217,6 +217,7 @@ class FileRepository(
             DupRuleConfigEntity(ruleKey = "rule3b", ruleName = "完结特例", enabled = true, description = "同一本书若同时有『完结版』(文件名含『完结/全本』)与纯数字进度的文件：当数字进度最大的文件体积小于所有『完结字样』文件中最小的那个，说明它不完整，会勾选删除，只留下完结版。", isBuiltin = true, sortOrder = 0),
             DupRuleConfigEntity(ruleKey = "rule4", ruleName = "最大文件不勾选", enabled = true, description = "同一组内文件大小唯一最大的文件不勾选", isBuiltin = true, sortOrder = 0),
             DupRuleConfigEntity(ruleKey = "rule5", ruleName = "完结+N番外/番外N去重", enabled = true, description = "进度匹配\"完结+N番外\"或\"完结+番外N\"的组内，按番外数 N 排序，最大 N 不勾选，其余勾选", isBuiltin = true, sortOrder = 0),
+            DupRuleConfigEntity(ruleKey = "rule_hash", ruleName = "内容哈希去重", enabled = true, description = "对「已扫描内容哈希」的文件，按内容哈希全局（跨合集）分组：同一哈希值内保留最新一个（不勾选），其余哈希相同但非最新的文件勾选删除。无哈希的文件不受此规则影响，仍按其它规则处理。", isBuiltin = true, sortOrder = 0),
         )
         for (rule in defaults) {
             // 按 key 计数判断，库中不存在才插入；不依赖 UNIQUE 冲突忽略，

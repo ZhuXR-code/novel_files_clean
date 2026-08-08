@@ -155,6 +155,7 @@ final class DatabaseManager {
             ("rule3b", "完结特例", 1, "同一本书若同时有『完结版』（文件名含『完结/全本』）与纯数字进度的文件：当数字进度最大的文件体积小于所有『完结字样』文件中最小的那个，说明它不完整，会勾选删除，只留下完结版。"),
             ("rule4", "最大文件不勾选", 1, "同一组内文件大小唯一最大的文件不勾选"),
             ("rule5", "完结+N番外/番外N去重", 1, "进度匹配「完结+N番外」或「完结+番外N」的组内，按番外数 N 排序，最大 N 不勾选，其余勾选"),
+            ("rule_hash", "内容哈希去重", 1, "对「已扫描内容哈希」的文件，按内容哈希全局（跨合集）分组：同一哈希值内保留最新一个（不勾选），其余哈希相同但非最新的文件勾选删除。无哈希的文件不受此规则影响，仍按其它规则处理。"),
         ]
         for (i, b) in dupBuiltins.enumerated() {
             let rows = fetchAll("SELECT rule_name, description, enabled FROM dup_rule_configs WHERE rule_key = ?", [b.key])
@@ -588,20 +589,22 @@ final class DatabaseManager {
     }
 
     func getDuplicateRows(runId: Int64) -> [DuplicateRow] {
-        fetchAll("SELECT id,file_name,title,author,progress,source,file_size,created_at,COALESCE(file_date,0) FROM scanned_file WHERE scan_run_id=?", [runId]).map { r in
+        fetchAll("SELECT id,file_name,title,author,progress,source,file_size,created_at,COALESCE(file_date,0),COALESCE(content_hash,'') FROM scanned_file WHERE scan_run_id=?", [runId]).map { r in
             DuplicateRow(id: (r[0] as? Int64) ?? 0, fileName: (r[1] as? String) ?? "", title: (r[2] as? String) ?? "",
                         author: (r[3] as? String) ?? "", progress: (r[4] as? String) ?? "", source: (r[5] as? String) ?? "",
-                        fileSize: (r[6] as? Int64) ?? 0, createdAt: (r[7] as? Int64) ?? 0, fileDate: (r[8] as? Int64) ?? 0)
+                        fileSize: (r[6] as? Int64) ?? 0, createdAt: (r[7] as? Int64) ?? 0, fileDate: (r[8] as? Int64) ?? 0,
+                        contentHash: (r[9] as? String) ?? "")
         }
     }
 
     /// 分批取全部文件详情（用于勾选重复的内存分组计算），避免一次性 SELECT 20w 行。
     func getDuplicateRowsPaged(runId: Int64, offset: Int, limit: Int) -> [DuplicateRow] {
-        fetchAll("SELECT id,file_name,title,author,progress,source,file_size,created_at,COALESCE(file_date,0) FROM scanned_file WHERE scan_run_id=? ORDER BY id LIMIT ? OFFSET ?",
+        fetchAll("SELECT id,file_name,title,author,progress,source,file_size,created_at,COALESCE(file_date,0),COALESCE(content_hash,'') FROM scanned_file WHERE scan_run_id=? ORDER BY id LIMIT ? OFFSET ?",
                  [runId, limit, offset]).map { r in
             DuplicateRow(id: (r[0] as? Int64) ?? 0, fileName: (r[1] as? String) ?? "", title: (r[2] as? String) ?? "",
                         author: (r[3] as? String) ?? "", progress: (r[4] as? String) ?? "", source: (r[5] as? String) ?? "",
-                        fileSize: (r[6] as? Int64) ?? 0, createdAt: (r[7] as? Int64) ?? 0, fileDate: (r[8] as? Int64) ?? 0)
+                        fileSize: (r[6] as? Int64) ?? 0, createdAt: (r[7] as? Int64) ?? 0, fileDate: (r[8] as? Int64) ?? 0,
+                        contentHash: (r[9] as? String) ?? "")
         }
     }
 

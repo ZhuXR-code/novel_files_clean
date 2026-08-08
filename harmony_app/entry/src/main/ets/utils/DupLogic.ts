@@ -33,7 +33,7 @@ export class DupLogic {
     } catch (e) {
       LogUtil.e('DupLogic', `读取内置规则失败，使用兜底: ${(e as Error).message}`);
     }
-    return new Set<string>(['rule1', 'rule2', 'rule3a', 'rule3b', 'rule4', 'rule5']);
+    return new Set<string>(['rule1', 'rule2', 'rule3a', 'rule3b', 'rule4', 'rule5', 'rule_hash']);
   }
 
   /** 复刻核心：计算并持久化应勾选（待删）的 id。 */
@@ -247,6 +247,57 @@ export class DupLogic {
       }
     } catch (e) {
       LogUtil.e('DupLogic', `应用自定义规则失败: ${(e as Error).message}`);
+    }
+
+    // ===================== rule_hash 内容哈希去重（默认启用，受开关控制） =====================
+    // 仅对「已扫描内容哈希(contentHash 非空)」的文件生效：按 contentHash 全局（跨合集）分组，
+    // 同哈希值内保留「最新」一个（fileDate 优先 → 回退 createdAt → 并列取最大 id）不勾选，
+    // 其余（哈希相同但非最新的）强制勾选。无哈希的文件不受此规则影响，仍走其它规则。
+    if (enabled.has('rule_hash')) {
+      try {
+        const hashed: DuplicateRow[] = rows.filter((r) => r.contentHash && r.contentHash.length > 0);
+        const groups: Map<string, DuplicateRow[]> = new Map<string, DuplicateRow[]>();
+        for (const r of hashed) {
+          const arr: DuplicateRow[] = groups.get(r.contentHash) ?? [];
+          arr.push(r);
+          groups.set(r.contentHash, arr);
+        }
+        let hitGroups: number = 0;
+        const hashProtect: Set<number> = new Set<number>();
+        const hashForce: Set<number> = new Set<number>();
+        for (const [, group] of groups) {
+          if (group.length < 2) {
+            continue;
+          }
+          hitGroups++;
+          let newest: DuplicateRow = group[0];
+          for (const f of group) {
+            const da: number = f.fileDate > 0 ? f.fileDate : f.createdAt;
+            const db: number = newest.fileDate > 0 ? newest.fileDate : newest.createdAt;
+            if (da > db || (da === db && f.id > newest.id)) {
+              newest = f;
+            }
+          }
+          hashProtect.add(newest.id);
+          for (const f of group) {
+            if (f.id !== newest.id) {
+              hashForce.add(f.id);
+            }
+          }
+        }
+        // 最新的受保护（即使被其它规则勾选也还原），非最新的强制勾选（即使被保护也勾选）
+        for (const id of hashProtect) {
+          allResult.delete(id);
+        }
+        for (const id of hashForce) {
+          allResult.add(id);
+        }
+        if (hitGroups > 0) {
+          LogUtil.i('DupLogic', `内容哈希去重 命中${hitGroups}组 勾选${hashForce.size}个 (最新${Array.from(hashProtect).sort((a, b) => a - b).join(',')} 受保护)`);
+        }
+      } catch (e) {
+        LogUtil.e('DupLogic', `应用内容哈希去重规则失败: ${(e as Error).message}`);
+      }
     }
 
     if (allResult.size > 0) {

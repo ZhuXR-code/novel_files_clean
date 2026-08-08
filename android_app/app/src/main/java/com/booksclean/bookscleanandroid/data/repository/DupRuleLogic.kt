@@ -296,6 +296,36 @@ internal object DupRuleLogic {
             }
         }
 
+        // ── rule_hash 内容哈希去重（默认启用，受开关控制） ──
+        // 仅对「已扫描内容哈希(contentHash 非空)」的文件生效：按 contentHash 全局（跨合集）分组，
+        // 同哈希值内保留「最新」一个（fileDate 优先 → 回退 createdAt → 并列取最大 id）不勾选，
+        // 其余（哈希相同但非最新的）强制勾选。无哈希的文件不受此规则影响，仍走其它规则。
+        if (enabledBuiltinKeys.contains("rule_hash")) {
+            val byHash = rows.filter { it.contentHash.isNotBlank() }
+                .groupBy { it.contentHash }
+                .filter { it.value.size >= 2 }
+            if (byHash.isNotEmpty()) {
+                val hashProtect = mutableSetOf<Long>()
+                val hashForce = mutableSetOf<Long>()
+                for ((_, group) in byHash) {
+                    val newest = group.maxByOrNull { r ->
+                        (if (r.fileDate > 0) r.fileDate else r.createdAt) * 1_000_000L + r.id
+                    } ?: group.first()
+                    hashProtect.add(newest.id)
+                    for (f in group) {
+                        if (f.id != newest.id) hashForce.add(f.id)
+                    }
+                }
+                // 最新的受保护（即使被其它规则勾选也还原），非最新的强制勾选（即使被保护也勾选）
+                allResult.removeAll(hashProtect)
+                allResult.addAll(hashForce)
+                val forcedCount = hashForce.size
+                detailLines.add(
+                    "勾选重复-内容哈希去重 命中${byHash.size}组 勾选${forcedCount}个 (最新${hashProtect} 受保护)"
+                )
+            }
+        }
+
         return allResult to detailLines
     }
 }

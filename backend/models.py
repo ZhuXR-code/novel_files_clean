@@ -111,6 +111,7 @@ class ScanResult(Base):
     scan_config_id = Column(Integer, ForeignKey('scan_configs.id', ondelete='CASCADE'), nullable=False, comment='关联扫描配置ID')
     scanned_at = Column(DateTime, server_default=func.now(), comment='扫描时间')
     checked = Column(Boolean, nullable=False, default=False, comment='是否被勾选（勾选重复功能标记）')
+    content_hash = Column(String(64), nullable=True, default='', comment='文件内容哈希（扫描时可选计算，空表示未扫描哈希）')
 
     config = relationship('ScanConfig', back_populates='results')
     metadata_record = relationship('FileMetadata', back_populates='scan_result', uselist=False, cascade='all, delete-orphan')

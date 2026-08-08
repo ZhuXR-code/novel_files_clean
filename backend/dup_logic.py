@@ -212,6 +212,36 @@ def compute_duplicate_ids(rows, enabled_rules=None, user_rules=None):
         if protect_ids:
             detail_lines.append(f"自定义规则保护 {len(protect_ids)} 个: {sorted(protect_ids)}")
 
+    # ── rule_hash 内容哈希去重（默认启用，受开关控制） ──
+    # 仅对「已扫描内容哈希(content_hash 非空)」的文件生效：按 content_hash 全局（跨合集）分组，
+    # 同哈希值内保留「最新」一个（created_date 优先 → 回退 scanned_at/id）不勾选，
+    # 其余（哈希相同但非最新的）强制勾选。无哈希的文件不受此规则影响，仍走其它规则。
+    if enabled_rules is None or 'rule_hash' in enabled_rules:
+        by_hash: dict = {}
+        for r in rows:
+            h = r.get('content_hash') or ''
+            if h:
+                by_hash.setdefault(h, []).append(r)
+        hit_groups = 0
+        hash_protect = set()
+        hash_force = set()
+        for h, group in by_hash.items():
+            if len(group) < 2:
+                continue
+            hit_groups += 1
+            # 最新：created_date（epoch 秒，None 视为 0）优先，回退 id（越大越新）
+            newest = max(group, key=lambda f: (f.get('created_date') if f.get('created_date') is not None else 0, f['id']))
+            hash_protect.add(newest['id'])
+            for f in group:
+                if f['id'] != newest['id']:
+                    hash_force.add(f['id'])
+        # 最新的受保护（即使被其它规则勾选也还原），非最新的强制勾选（即使被保护也勾选）
+        all_result = (all_result - hash_protect) | hash_force
+        if hit_groups:
+            detail_lines.append(
+                f"内容哈希去重 命中{hit_groups}组 勾选{len(hash_force)}个 (最新{sorted(hash_protect)} 受保护)"
+            )
+
     return all_result, subgroups_with_dups, detail_lines
 
 

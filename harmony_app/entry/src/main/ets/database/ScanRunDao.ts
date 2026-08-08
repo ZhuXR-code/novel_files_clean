@@ -2,6 +2,7 @@ import { relationalStore } from '@kit.ArkData';
 import { RdbHelper } from './RdbHelper';
 import { ScanRun } from '../model/ScanRun';
 import { ScannedFileDao } from './ScannedFileDao';
+import { LogUtil } from '../utils/LogUtil';
 
 /**
  * 文库（一次扫描）访问层，镜像安卓端 ScanRunDao。
@@ -160,21 +161,42 @@ export class ScanRunDao {
     if (sourceIds.length < 2) {
       return -1;
     }
+    console.info(`[ScanRunDao] mergeRuns entered sourceIds=[${sourceIds.join(',')}] name="${newName}"`);
     const store = ScanRunDao.store;
     const placeholders: string = sourceIds.map(() => '?').join(',');
+    const name: string = newName && newName.trim().length > 0 ? newName.trim() : '合并文库';
+    // 合并前记录总源文件数，便于展示去重效果。
+    let sourceTotal: number = 0;
     try {
-      await store.executeSql('BEGIN TRANSACTION', []);
+      const totalRs = await store.querySql(
+        `SELECT COUNT(*) AS cnt FROM scanned_file WHERE scan_run_id IN (${placeholders})`,
+        sourceIds
+      );
+      if (totalRs.goToFirstRow()) {
+        sourceTotal = Number(totalRs.getLong(0));
+      }
+      totalRs.close();
+      LogUtil.i('ScanRunDao', `合并文库准备 sourceIds=[${sourceIds.join(',')}] 源文件总数=${sourceTotal} 新名称="${name}"`);
+    } catch (e) {
+      LogUtil.w('ScanRunDao', `合并文库 统计源文件总数失败(忽略): ${(e as Error)?.message ?? '未知错误'}`);
+    }
+    try {
+      // 使用 ArkData 原生事务 API（与 ScanRunDao.delete 一致）。
+      // 注意：executeSql('BEGIN TRANSACTION'/'COMMIT'/'ROLLBACK') 在 ArkData 下不被支持，
+      // 会直接抛错导致整个合并回滚、返回 -1（即“合并失败”且无明确日志）。
+      store.beginTransaction();
       // ① 新建文库
-      const name: string = newName && newName.trim().length > 0 ? newName.trim() : '合并文库';
+      // 注意：scan_run 表 schema 没有 status 列（对照 RdbHelper.createTables 与 ScanRun model），
+      // 插入 status 会令 ArkData 抛错导致整个事务回滚、mergeRuns 返回 -1（即“合并失败”）。
+      // 仅写入表中实际存在的列。
       const newId: number = await store.insert('scan_run', {
         name: name,
         created_at: Date.now(),
-        status: 'done',
         file_count: 0
       } as relationalStore.ValuesBucket);
-      // ② 复制文件（保留全部列；path 唯一冲突的行忽略）
+      // ② 复制文件（保留全部列；多个源文库存在相同 path 时只保留一条）
       await store.executeSql(
-        `INSERT INTO scanned_file (scan_run_id, path, file_name, file_size, title, author, progress, source, encoding, title_pinyin, author_pinyin, content_hash, ext, marked, checked, created_at, file_date, title_author_key)
+        `INSERT OR IGNORE INTO scanned_file (scan_run_id, path, file_name, file_size, title, author, progress, source, encoding, title_pinyin, author_pinyin, content_hash, ext, marked, checked, created_at, file_date, title_author_key)
          SELECT ?, path, file_name, file_size, title, author, progress, source, encoding, title_pinyin, author_pinyin, content_hash, ext, marked, checked, created_at, file_date, title_author_key
          FROM scanned_file WHERE scan_run_id IN (${placeholders})`,
         [newId, ...sourceIds]
@@ -186,17 +208,32 @@ export class ScanRunDao {
         fileCount = Number(cntRs.getLong(0));
       }
       cntRs.close();
-      await store.executeSql('UPDATE scan_run SET file_count = ? WHERE id = ?', [fileCount, newId]);
       // ④ 原文库保留：仅新增一个合并文库，不再删除源文库及其文件
-      await store.executeSql('COMMIT', []);
+      store.commit();
+      // 在事务外重新统计并更新 file_count（ArkData 事务内 UPDATE 可能不生效）
+      const cntRs2 = await store.querySql('SELECT COUNT(*) AS cnt FROM scanned_file WHERE scan_run_id = ?', [newId]);
+      let fileCount2: number = 0;
+      if (cntRs2.goToFirstRow()) {
+        fileCount2 = Number(cntRs2.getLong(cntRs2.getColumnIndex('cnt')));
+      }
+      cntRs2.close();
+      const updatePred = new relationalStore.RdbPredicates('scan_run');
+      updatePred.equalTo('id', newId);
+      await store.update({ file_count: fileCount2 } as relationalStore.ValuesBucket, updatePred);
+      console.info(`[ScanRunDao] mergeRuns success newId=${newId} fileCount=${fileCount} fileCount2=${fileCount2}`);
+      LogUtil.i('ScanRunDao', `合并文库成功 sourceIds=[${sourceIds.join(',')}] newId=${newId} name="${name}" 源文件总数=${sourceTotal} 去重后文件数=${fileCount}`);
+      LogUtil.flushNow();
       return newId;
     } catch (e) {
       try {
-        await store.executeSql('ROLLBACK', []);
+        store.rollBack();
       } catch (_) {
         // ignore
       }
-      console.error('mergeRuns failed:', e);
+      const err = e as Error;
+      console.error(`[ScanRunDao] mergeRuns error: ${err?.message ?? JSON.stringify(e)}`);
+      LogUtil.e('ScanRunDao', `合并文库失败 sourceIds=[${sourceIds.join(',')}] name=${name}: ${err?.message ?? JSON.stringify(e)}${err?.stack ? ' | stack: ' + err.stack : ''}`);
+      LogUtil.flushNow();
       return -1;
     }
   }

@@ -789,6 +789,17 @@ def _init_default_data():
         except Exception as e:
             logger.warning(f'dup_rule_configs 表迁移失败（可能是首次启动自动建表无需迁移）: {e}')
 
+        # 迁移 scan_results 表增加 content_hash 列（内容哈希去重规则使用，幂等）
+        try:
+            from backend.models import _safe_add_columns
+            engine = db.get_bind()
+            _safe_add_columns(engine, 'scan_results', {
+                'content_hash': 'VARCHAR(64) NULL DEFAULT '
+                                + ("''" if _IS_SQLITE else "''"),
+            })
+        except Exception as e:
+            logger.warning(f'scan_results 表迁移 content_hash 失败（可能是首次启动自动建表无需迁移）: {e}')
+
         # 补齐勾选重复规则配置（幂等，按 rule_key 匹配，不会覆盖用户手动修改的开关）
         _seed_dup_rules(db)
 
@@ -1140,6 +1151,8 @@ def _seed_dup_rules(db: Session):
          'description': '同一组内文件大小唯一最大的文件不勾选'},
         {'rule_key': 'rule5', 'rule_name': '完结+N番外去重', 'enabled': True,
          'description': '进度匹配"完结+数字番外"的组内，按番外数 N 排序，最大 N 不勾选，其余勾选'},
+        {'rule_key': 'rule_hash', 'rule_name': '内容哈希去重', 'enabled': True,
+         'description': '对「已扫描内容哈希」的文件，按内容哈希全局（跨合集）分组：同一哈希值内保留最新一个（不勾选），其余哈希相同但非最新的文件勾选删除。无哈希的文件不受此规则影响，仍按其它规则处理。'},
     ]
     # 幂等插入+标记内置；已存在则确保 is_builtin=True
     for r in rules:
@@ -2403,6 +2416,7 @@ def select_duplicates(
         FileMetadata.progress,
         func.coalesce(FileMetadata.source, '').label('source'),
         ScanResult.created_date,
+        func.coalesce(ScanResult.content_hash, '').label('content_hash'),
     ).outerjoin(
         FileMetadata, ScanResult.id == FileMetadata.scan_result_id
     ).filter(
@@ -2434,6 +2448,7 @@ def select_duplicates(
         'progress': it.progress or '',
         'source': it.source or '',
         'created_date': it.created_date,
+        'content_hash': it.content_hash or '',
     } for it in items if (it.novel_name or '') in valid_names]
 
     all_ids, subgroups_with_dups, dup_detail_lines = compute_duplicate_ids(

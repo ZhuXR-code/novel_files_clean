@@ -198,6 +198,32 @@ enum DupRuleLogic {
             }
         }
 
+        // rule_hash 内容哈希去重（默认启用，受开关控制）
+        // 仅对「已扫描内容哈希(contentHash 非空)」的文件生效：按 contentHash 全局（跨合集）分组，
+        // 同哈希值内保留「最新」一个（fileDate 优先 → 回退 createdAt → 并列取最大 id）不勾选，
+        // 其余（哈希相同但非最新的）强制勾选。无哈希的文件不受此规则影响，仍走其它规则。
+        if enabledBuiltinKeys.contains("rule_hash") {
+            let hashed = rows.filter { !$0.contentHash.isEmpty }
+            let groups = Dictionary(grouping: hashed) { $0.contentHash }.filter { $0.value.count >= 2 }
+            if !groups.isEmpty {
+                var hashProtect = Set<Int64>()
+                var hashForce = Set<Int64>()
+                for (_, group) in groups {
+                    let newest = group.max(by: { (a, b) -> Bool in
+                        let da = a.fileDate > 0 ? a.fileDate : a.createdAt
+                        let db = b.fileDate > 0 ? b.fileDate : b.createdAt
+                        if da != db { return da < db }
+                        return a.id < b.id
+                    }) ?? group.first!
+                    hashProtect.insert(newest.id)
+                    for f in group where f.id != newest.id { hashForce.insert(f.id) }
+                }
+                // 最新的受保护（即使被其它规则勾选也还原），非最新的强制勾选（即使被保护也勾选）
+                allResult = allResult.subtracting(hashProtect).union(hashForce)
+                detailLines.append("勾选重复-内容哈希去重 命中\(groups.count)组 勾选\(hashForce.count)个 (最新\(hashProtect) 受保护)")
+            }
+        }
+
         return (allResult, detailLines)
     }
 }

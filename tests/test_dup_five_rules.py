@@ -33,9 +33,12 @@ def check(name, actual, expected):
 
 
 def rows(*specs):
-    """specs: (id, file_name, file_size, title, author, progress, created_date)"""
-    return [
-        {
+    """specs: (id, file_name, file_size, title, author, progress, created_date[, content_hash])"""
+    out = []
+    for spec in specs:
+        (i, fn, sz, nv, au, pg, cd) = spec[:7]
+        h = spec[7] if len(spec) > 7 else ""
+        out.append({
             "id": i,
             "file_name": fn,
             "file_size": sz,
@@ -43,9 +46,9 @@ def rows(*specs):
             "author": au,
             "progress": pg,
             "created_date": cd,
-        }
-        for (i, fn, sz, nv, au, pg, cd) in specs
-    ]
+            "content_hash": h,
+        })
+    return out
 
 
 # 规则 2：纯数字进度，最大者保留，其余勾选
@@ -161,6 +164,45 @@ check(
         )
     )[0],
     [62],
+)
+
+# ===================== 内容哈希去重（rule_hash） =====================
+# 哈希相同 H1 三本（不同合集），最新(created_date 最晚=03)不勾选，其余勾选
+check(
+    "哈希去重-非最新勾选最新保留",
+    compute_duplicate_ids(
+        rows(
+            (70, "a.txt", 100, "书A", "作A", "10", "2024-01-01", "H1"),
+            (71, "b.txt", 100, "书B", "作B", "10", "2024-01-03", "H1"),  # 最新
+            (72, "c.txt", 100, "书C", "作C", "10", "2024-01-02", "H1"),
+        )
+    )[0],
+    [70, 72],
+)
+
+# rule_hash 关闭时，即便哈希相同也不勾选（其余规则未命中）
+check(
+    "哈希去重-关闭时不生效",
+    compute_duplicate_ids(
+        rows(
+            (73, "a.txt", 100, "书A", "作A", "10", "2024-01-01", "H1"),
+            (74, "b.txt", 100, "书B", "作B", "10", "2024-01-03", "H1"),
+        ),
+        enabled_rules={"rule1", "rule2", "rule3a", "rule3b", "rule4", "rule5"},
+    )[0],
+    [],
+)
+
+# rule_hash 覆盖其它规则：哈希相同但不同合集，即便按规则2应保留最新，仍以哈希最新为准
+check(
+    "哈希去重-覆盖跨合集",
+    compute_duplicate_ids(
+        rows(
+            (75, "a.txt", 100, "书A", "作A", "20", "2024-01-01", "HX"),  # 非最新(01) -> 勾选
+            (76, "b.txt", 100, "书B", "作B", "80", "2024-01-05", "HX"),  # 最新(05) -> 保留
+        )
+    )[0],
+    [75],
 )
 
 failed = [r for r in PASS if r[1] == "FAIL"]

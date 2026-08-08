@@ -1,6 +1,5 @@
 import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
-import { CustomDialogController } from '@kit.ArkUI';
 import { ScanRun } from '../model/ScanRun';
 import { ScanRunDao } from '../database/ScanRunDao';
 import { ScannedFileDao } from '../database/ScannedFileDao';
@@ -245,6 +244,11 @@ export struct LibraryTab {
       ToastUtil.show('请至少选择 2 个文库');
       return;
     }
+    const selNames: string = this.runs
+      .filter((r: ScanRun) => this.selectedIds.includes(r.id))
+      .map((r: ScanRun) => `${r.name}(${r.id})`)
+      .join('、');
+    console.info(`[LibraryTab] mergeSelected triggered ids=[${this.selectedIds.join(',')}] names=${selNames}`);
     // 使用 CustomDialog 弹出命名浮层，比 if(showMerge) 内嵌 overlay 更稳定，
     // 不会被列表、删除栏或 TabBar 遮挡。
     this.mergeDialogController = new CustomDialogController({
@@ -253,6 +257,7 @@ export struct LibraryTab {
           this.doMerge(name);
         },
         onCancel: () => {
+          console.info('[LibraryTab] merge dialog cancelled');
           this.mergeDialogController = null;
         }
       }),
@@ -265,14 +270,18 @@ export struct LibraryTab {
   }
 
   private async doMerge(name: string): Promise<void> {
+    console.info(`[LibraryTab] doMerge called name="${name}"`);
     const ids = [...this.selectedIds];
     const trimmedName = name.trim();
     this.mergeDialogController = null;
     if (ids.length < 2 || trimmedName.length === 0) {
+      console.warn(`[LibraryTab] doMerge abort ids.length=${ids.length} empty=${trimmedName.length === 0}`);
+      ToastUtil.show(`合并参数无效: ids=${ids.length} 名称空=${trimmedName.length === 0}`);
       return;
     }
     try {
       const newId: number = await ScanRunDao.mergeRuns(ids, trimmedName);
+      console.info(`[LibraryTab] mergeRuns returned newId=${newId}`);
       if (newId > 0) {
         LogUtil.operation('合并文库', `源文库ID=[${ids.join(',')}] 新文库ID=${newId}`);
         this.exitSelectMode();
@@ -280,9 +289,11 @@ export struct LibraryTab {
         ToastUtil.show(`已合并为「${trimmedName}」`);
         this.openRun(newId);
       } else {
+        console.error('[LibraryTab] mergeRuns returned -1');
         ToastUtil.show('合并失败');
       }
     } catch (e) {
+      console.error(`[LibraryTab] mergeRuns exception: ${(e as Error).message}`);
       LogUtil.e('LibraryTab', `合并文库失败: ${(e as Error).message}`);
       ToastUtil.show('合并失败');
     }

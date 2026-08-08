@@ -240,7 +240,8 @@ interface ScannedFileDao {
         SELECT s.id, s.file_name AS fileName, s.title, s.author, s.progress,
                COALESCE(s.source, '') AS source,
                s.file_size AS fileSize, s.created_at AS createdAt,
-               COALESCE(s.file_date, 0) AS fileDate
+               COALESCE(s.file_date, 0) AS fileDate,
+               COALESCE(s.content_hash, '') AS contentHash
         FROM scanned_file s
         WHERE s.scan_run_id = :runId
     """)

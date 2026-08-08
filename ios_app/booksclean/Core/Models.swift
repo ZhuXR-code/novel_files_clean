@@ -89,6 +89,8 @@ struct DuplicateRow {
     let createdAt: Int64
     /// 文件在文件系统中的最后修改时间（毫秒时间戳）。判断“新旧”时优先使用，避免扫描入库顺序干扰。
     let fileDate: Int64
+    /// 内容哈希（扫描时计算，可能为空）。rule_hash 内容哈希去重规则使用：哈希相同且非最新的文件额外勾选。
+    let contentHash: String
 }
 
 /// 合集分组头（按书名聚合的统计结果，非数据库实体）。对齐安卓：合集仅按书名(title)分组。

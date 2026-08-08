@@ -20,14 +20,14 @@ import org.junit.Test
  */
 class DupRuleIntegrationTest {
 
-    private val ALL_BUILTIN = setOf("rule1", "rule2", "rule3a", "rule3b", "rule4", "rule5")
+    private val ALL_BUILTIN = setOf("rule1", "rule2", "rule3a", "rule3b", "rule4", "rule5", "rule_hash")
 
     private fun row(
         id: Long, fileName: String, title: String, author: String,
-        progress: String, size: Long, createdAt: Long, source: String = ""
+        progress: String, size: Long, createdAt: Long, source: String = "", contentHash: String = ""
     ) = DuplicateRow(
         id = id, fileName = fileName, title = title, author = author,
-        progress = progress, source = source, fileSize = size, createdAt = createdAt
+        progress = progress, source = source, fileSize = size, createdAt = createdAt, contentHash = contentHash
     )
 
     private fun check(rows: List<DuplicateRow>, builtin: Set<String>, userRules: List<DupRuleConfigEntity> = emptyList()): Set<Long> {
@@ -172,5 +172,53 @@ class DupRuleIntegrationTest {
         assertTrue(result.contains(1L)) // 较旧精确重复
         assertTrue(result.contains(3L)) // 较低进度
         assertFalse(result.contains(2L)) // 较新 / 最大进度
+    }
+
+    // ===================== rule_hash 内容哈希去重 =====================
+
+    @Test
+    fun ruleHash_disabled_noEffect() {
+        // rule_hash 关闭时，即便哈希相同也不勾选
+        val rows = listOf(
+            row(1L, "A.txt", "书名A", "作者A", "10", 100L, 100L, contentHash = "H1"),
+            row(2L, "B.txt", "书名B", "作者B", "10", 100L, 200L, contentHash = "H1"),
+            row(3L, "C.txt", "书名C", "作者C", "10", 100L, 300L, contentHash = "H1"),
+        )
+        assertTrue(check(rows, emptySet()).isEmpty())
+    }
+
+    @Test
+    fun ruleHash_enabled_checksNonNewestSameHash() {
+        // 哈希相同 H1 三本，最新(createdAt 最大=300)不勾选，其余勾选
+        val rows = listOf(
+            row(1L, "A.txt", "书名A", "作者A", "10", 100L, 100L, contentHash = "H1"),
+            row(2L, "B.txt", "书名B", "作者B", "10", 100L, 200L, contentHash = "H1"),
+            row(3L, "C.txt", "书名C", "作者C", "10", 100L, 300L, contentHash = "H1"),
+        )
+        val result = check(rows, setOf("rule_hash"))
+        assertEquals(setOf(1L, 2L), result) // 最新的 3 受保护不勾选
+        assertFalse(result.contains(3L))
+    }
+
+    @Test
+    fun ruleHash_onlyAffectsHashedFiles() {
+        // 无哈希的文件不受 rule_hash 影响，按其它规则(此处无其它规则)不勾选
+        val rows = listOf(
+            row(1L, "A.txt", "书名A", "作者A", "10", 100L, 100L),
+            row(2L, "B.txt", "书名B", "作者B", "10", 100L, 200L),
+        )
+        assertTrue(check(rows, setOf("rule_hash")).isEmpty())
+    }
+
+    @Test
+    fun ruleHash_crossCollection() {
+        // 哈希相同但不同合集(不同书名/作者)也应被勾选（全局跨合集）
+        val rows = listOf(
+            row(1L, "A.txt", "书名A", "作者A", "10", 100L, 100L, contentHash = "HX"),
+            row(2L, "B.txt", "书名B", "作者B", "10", 100L, 300L, contentHash = "HX"), // 最新
+        )
+        val result = check(rows, setOf("rule_hash"))
+        assertEquals(setOf(1L), result)
+        assertFalse(result.contains(2L))
     }
 }

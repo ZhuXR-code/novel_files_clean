@@ -82,6 +82,7 @@ export class ScannedFileDao {
     r.fileSize = ScannedFileDao.colNum(rs, 'file_size');
     r.createdAt = ScannedFileDao.colNum(rs, 'created_at');
     r.fileDate = ScannedFileDao.colNum(rs, 'file_date');
+    r.contentHash = ScannedFileDao.colStr(rs, 'content_hash');
     return r;
   }
 
@@ -211,7 +212,7 @@ export class ScannedFileDao {
     const predicates = new relationalStore.RdbPredicates('scanned_file');
     predicates.equalTo('scan_run_id', scanRunId);
     predicates.orderByDesc('id');
-    const columns: string[] = ['id', 'file_name', 'title', 'author', 'progress', 'source', 'file_size', 'created_at', 'file_date'];
+    const columns: string[] = ['id', 'file_name', 'title', 'author', 'progress', 'source', 'file_size', 'created_at', 'file_date', 'content_hash'];
     const rs = await ScannedFileDao.store.query(predicates, columns);
     const list: DuplicateRow[] = [];
     while (rs.goToNextRow()) {
@@ -269,7 +270,8 @@ export class ScannedFileDao {
       rs.close();
     }
     // 按 path 删除所有文库中的匹配行，并收集额外命中的 run_id（可能含当前文库之外的文库）
-    for (const chunk of ScannedFileDao.chunkIds(allPaths)) {
+    for (let i: number = 0; i < allPaths.length; i += 500) {
+      const chunk: string[] = allPaths.slice(i, i + 500);
       const placeholders: string = chunk.map(() => '?').join(',');
       const hitRs = await ScannedFileDao.store.querySql(
         `SELECT DISTINCT scan_run_id FROM scanned_file WHERE path IN (${placeholders})`,

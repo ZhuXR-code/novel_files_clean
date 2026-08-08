@@ -121,3 +121,6 @@ harmony_app/build-profile.json5
 
 # iOS 签名排障文档（含 p12 路径、证书密码等敏感信息，仅本地保留，禁止入库）
 iOS签名打包排障记录.md
+
+# 多平台同步 skill 的临时脚本目录（commit message、adb 包装脚本等，用完即删，不入库）
+tmp_scripts/

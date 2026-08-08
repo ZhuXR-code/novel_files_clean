@@ -77,6 +77,11 @@ export class LogUtil {
     }
   }
 
+  /** 强制将缓冲日志立即落盘（关键业务完成后调用，确保日志不丢）。 */
+  public static flushNow(): void {
+    LogUtil.flush();
+  }
+
   /** 将缓冲区批量写入文件（保持句柄常开，失败时重置句柄以便下次重开）。 */
   private static flush(): void {
     if (LogUtil.buffer.length === 0) {

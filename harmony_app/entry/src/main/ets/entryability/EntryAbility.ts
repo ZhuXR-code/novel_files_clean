@@ -128,7 +128,8 @@ export default class EntryAbility extends UIAbility {
         EntryAbility.builtin('rule3a', '中文进度/完结优先', '含中文进度或完结关键词者优先保留', 3),
         EntryAbility.builtin('rule3b', '番外特例', '完结+数字番外 按 N 最大保留', 4),
         EntryAbility.builtin('rule4', '大文件保护', '同组内文件最大者不勾选(保护)', 5),
-        EntryAbility.builtin('rule5', '完结+番外覆盖', '完结+N番外 按 N 最大保留(覆盖规则3A)', 6)
+        EntryAbility.builtin('rule5', '完结+番外覆盖', '完结+N番外 按 N 最大保留(覆盖规则3A)', 6),
+        EntryAbility.builtin('rule_hash', '内容哈希去重', '对「已扫描内容哈希」的文件，按内容哈希全局（跨合集）分组：同一哈希值内保留最新一个（不勾选），其余哈希相同但非最新的文件勾选删除。无哈希的文件不受此规则影响，仍按其它规则处理。', 7)
       ];
       for (const r of builtins) {
         await DupRuleConfigDao.insertIfNotExists(r);
