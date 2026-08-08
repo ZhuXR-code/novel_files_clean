@@ -403,7 +403,7 @@ struct LibraryView: View {
     private var groupContent: some View {
         Group {
             if groups.isEmpty {
-                emptyStateView(message: "暂无合集\n\n合集按「书名 / 作者」自动归并。可先到列表模式扫描并解析文件，或在更多菜单中进入「合集设置」调整分组规则。")
+                emptyStateView(message: "暂无合集\n\n合集按「书名」自动归并。可先到列表模式扫描并解析文件，或在更多菜单中进入「合集设置」调整分组规则。")
             } else if isPad {
                 // iPad：多列卡片网格
                 GeometryReader { geo in
@@ -412,11 +412,11 @@ struct LibraryView: View {
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: cols), spacing: 12) {
                             ForEach(groups) { g in
                                 GroupCardView(g: g, groupChecked: groupChecked, onToggle: {
-                                    let key = "\(g.title)\u{0000}\(g.author)"
+                                    let key = g.title
                                     let checked = groupChecked[key] ?? 0
                                     let allChecked = checked >= g.fileCount && g.fileCount > 0
-                                    toggleGroupChecked(title: g.title, author: g.author, allChecked: allChecked)
-                                }, onTap: { router.navigate(.groupFiles(runId: runId, title: g.title == "(无书名)" ? "" : g.title, author: g.author)) })
+                                    toggleGroupChecked(title: g.title, allChecked: allChecked)
+                                }, onTap: { router.navigate(.groupFiles(runId: runId, title: g.title == "(无书名)" ? "" : g.title)) })
                                 .padding(12)
                                 .background(Color.fsSecondaryBg).cornerRadius(12)
                             }
@@ -429,12 +429,12 @@ struct LibraryView: View {
                     ForEach(groups) { g in
                         HStack {
                             // 三态复选框：空白=未勾选 / √=全部勾选 / -=部分勾选
-                            let key = "\(g.title)\u{0000}\(g.author)"
+                            let key = g.title
                             let checked = groupChecked[key] ?? 0
                             let allChecked = checked >= g.fileCount && g.fileCount > 0
                             let someChecked = checked > 0 && !allChecked
                             Button {
-                                toggleGroupChecked(title: g.title, author: g.author, allChecked: allChecked)
+                                toggleGroupChecked(title: g.title, allChecked: allChecked)
                             } label: {
                                 Image(systemName: allChecked ? "checkmark.square.fill" : (someChecked ? "minus.square.fill" : "square"))
                                     .foregroundColor(allChecked || someChecked ? .fsPrimary : .fsSecondaryLabel)
@@ -443,7 +443,7 @@ struct LibraryView: View {
                             .buttonStyle(.plain)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(g.title).fsFont(.subheadline).fontWeight(.medium)
-                                Text("作者: \(g.author) · \(g.fileCount) 本 · \(FormatUtil.formatSize(g.totalSize))")
+                                Text("\(g.fileCount) 本 · \(FormatUtil.formatSize(g.totalSize))")
                                     .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
                             }
                             Spacer()
@@ -453,7 +453,7 @@ struct LibraryView: View {
                             Image(systemName: "chevron.right").foregroundColor(.fsSecondaryLabel)
                         }
                         .contentShape(Rectangle())
-                        .onTapGesture { router.navigate(.groupFiles(runId: runId, title: g.title == "(无书名)" ? "" : g.title, author: g.author)) }
+                        .onTapGesture { router.navigate(.groupFiles(runId: runId, title: g.title == "(无书名)" ? "" : g.title)) }
                     }
                 }
                 .listStyle(.plain)
@@ -463,7 +463,7 @@ struct LibraryView: View {
 
     // 合集卡片（iPad 网格用）
     private func GroupCardView(g: NovelGroup, groupChecked: [String: Int], onToggle: @escaping () -> Void, onTap: @escaping () -> Void) -> some View {
-        let key = "\(g.title)\u{0000}\(g.author)"
+        let key = g.title
         let checked = groupChecked[key] ?? 0
         let allChecked = checked >= g.fileCount && g.fileCount > 0
         let someChecked = checked > 0 && !allChecked
@@ -476,7 +476,7 @@ struct LibraryView: View {
             .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 4) {
                 Text(g.title).fsFont(.subheadline).fontWeight(.medium)
-                Text("作者: \(g.author) · \(g.fileCount) 本 · \(FormatUtil.formatSize(g.totalSize))")
+                Text("\(g.fileCount) 本 · \(FormatUtil.formatSize(g.totalSize))")
                     .fsFont(.caption).foregroundColor(.fsSecondaryLabel)
             }
             Spacer(minLength: 4)
@@ -811,8 +811,8 @@ struct LibraryView: View {
     }
 
     // 合集三态复选框：全部已勾选则取消该合集所有子文件，否则全选该合集所有子文件。
-    private func toggleGroupChecked(title: String, author: String, allChecked: Bool) {
-        let ids = DatabaseManager.shared.getGroupFiles(runId: runId, title: title, author: author).map { $0.id }
+    private func toggleGroupChecked(title: String, allChecked: Bool) {
+        let ids = DatabaseManager.shared.getGroupFiles(runId: runId, title: title).map { $0.id }
         guard !ids.isEmpty else { return }
         FileRepository.shared.updateChecked(ids: ids, checked: !allChecked)
         reload()
@@ -939,12 +939,11 @@ extension FileRepository {
     }
 }
 
-// MARK: - 合集文件列表
+// MARK: - 合集文件列表（按书名，对齐安卓）
 struct GroupFilesView: View {
     @EnvironmentObject var router: Router
     let runId: Int64
     let title: String
-    let author: String
     @State private var files: [ScannedFile] = []
 
     var body: some View {
@@ -959,12 +958,12 @@ struct GroupFilesView: View {
             }
         }
         .listStyle(.plain)
-        .navigationTitle("\(title.isEmpty ? "(无书名)" : title) / \(author.isEmpty ? "(无作者)" : author)")
+        .navigationTitle(title.isEmpty ? "(无书名)" : title)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            let rid = runId, t = title, a = author
+            let rid = runId, t = title
             DispatchQueue.global(qos: .userInitiated).async {
-                let data = DatabaseManager.shared.getGroupFiles(runId: rid, title: t, author: a)
+                let data = DatabaseManager.shared.getGroupFiles(runId: rid, title: t)
                 DispatchQueue.main.async { files = data }
             }
         }

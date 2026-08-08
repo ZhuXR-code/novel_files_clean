@@ -25,7 +25,7 @@ struct ContentView: View {
                     case .about: MaxWidthContainer { AboutView() }
                     case .fileDetail(let id): MaxWidthContainer { FileDetailView(fileId: id) }
                     case .filePreview(let id, let mode): MaxWidthContainer { FilePreviewView(fileId: id, mode: mode) }
-                    case .groupFiles(let runId, let title, let author): GroupFilesView(runId: runId, title: title, author: author)
+                    case .groupFiles(let runId, let title): GroupFilesView(runId: runId, title: title)
                     case .deleteConfirm(let runId, let ids, let physical): DeleteConfirmView(runId: runId, ids: ids, physical: physical)
                     case .deleteProgress(let runId, let ids, let physical): DeleteProgressView(runId: runId, ids: ids, physical: physical)
                     }

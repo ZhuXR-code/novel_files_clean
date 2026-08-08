@@ -484,8 +484,9 @@ final class DatabaseManager {
         return count("SELECT COUNT(*) FROM scanned_file WHERE \(whereClauses.joined(separator: " AND "))", binds)
     }
 
+    /// 合集分组（对齐安卓：仅按书名 title 分组，不叠加 author）。
     func getNovelGroups(runId: Int64, minCount: Int, maxCount: Int, excludeNames: [String]) -> [NovelGroup] {
-        var sql = "SELECT title, author, COUNT(*) AS c, SUM(file_size) AS s, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k FROM scanned_file WHERE scan_run_id=? GROUP BY title, author HAVING c >= ?"
+        var sql = "SELECT title, COUNT(*) AS c, SUM(file_size) AS s, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k FROM scanned_file WHERE scan_run_id=? GROUP BY title HAVING c >= ?"
         var binds: [Any?] = [runId, minCount.coerceAtLeast(0)]
         if maxCount >= 0 { sql += " AND c <= ?"; binds.append(maxCount) }
         sql += " ORDER BY c DESC, title ASC"
@@ -493,12 +494,11 @@ final class DatabaseManager {
         var groups: [NovelGroup] = []
         for r in rows {
             let title = (r[0] as? String) ?? ""
-            let author = (r[1] as? String) ?? ""
-            let count = (r[2] as? Int64).map(Int.init) ?? 0
-            let size = (r[3] as? Int64) ?? 0
-            let checked = (r[4] as? Int64).map(Int.init) ?? 0
+            let count = (r[1] as? Int64).map(Int.init) ?? 0
+            let size = (r[2] as? Int64) ?? 0
+            let checked = (r[3] as? Int64).map(Int.init) ?? 0
             if excludeNames.contains(where: { !$0.isEmpty && title.contains($0) }) { continue }
-            groups.append(NovelGroup(title: title.isEmpty ? "(无书名)" : title, author: author, fileCount: count, totalSize: size, checkedCount: checked))
+            groups.append(NovelGroup(title: title.isEmpty ? "(无书名)" : title, fileCount: count, totalSize: size, checkedCount: checked))
         }
         return groups
     }
@@ -510,7 +510,7 @@ final class DatabaseManager {
         var binds: [Any?] = [runId]
         if checkedFilter >= 0 { sql += " AND checked=?"; binds.append(checkedFilter) }
         if markedFilter >= 0 { sql += " AND marked=?"; binds.append(markedFilter) }
-        sql += " GROUP BY title, author HAVING COUNT(*) >= ?"
+        sql += " GROUP BY title HAVING COUNT(*) >= ?"
         binds.append(minCount.coerceAtLeast(0))
         if maxCount >= 0 { sql += " AND COUNT(*) <= ?"; binds.append(maxCount) }
         for n in excludeNames where !n.isEmpty { sql += " AND title NOT LIKE ?"; binds.append("%\(n)%") }
@@ -547,11 +547,11 @@ final class DatabaseManager {
                              checkedFilter: Int = -1, markedFilter: Int = -1) -> [NovelGroup] {
         // date_* 排序依赖 newest_date 派生列，必须一并 SELECT，否则 ORDER BY 找不到该列
         let selectExtra = groupSort.hasPrefix("date_") ? ", MAX(created_at) AS newest_date" : ""
-        var sql = "SELECT title, author, COUNT(*) AS c, SUM(file_size) AS s, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k\(selectExtra) FROM scanned_file WHERE scan_run_id=?"
+        var sql = "SELECT title, COUNT(*) AS c, SUM(file_size) AS s, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k\(selectExtra) FROM scanned_file WHERE scan_run_id=?"
         var binds: [Any?] = [runId]
         if checkedFilter >= 0 { sql += " AND checked=?"; binds.append(checkedFilter) }
         if markedFilter >= 0 { sql += " AND marked=?"; binds.append(markedFilter) }
-        sql += " GROUP BY title, author HAVING c >= ?"
+        sql += " GROUP BY title HAVING c >= ?"
         binds.append(minCount.coerceAtLeast(0))
         if maxCount >= 0 { sql += " AND c <= ?"; binds.append(maxCount) }
         for n in excludeNames where !n.isEmpty { sql += " AND title NOT LIKE ?"; binds.append("%\(n)%") }
@@ -561,29 +561,28 @@ final class DatabaseManager {
         var groups: [NovelGroup] = []
         for r in rows {
             let title = (r[0] as? String) ?? ""
-            let author = (r[1] as? String) ?? ""
-            let count = (r[2] as? Int64).map(Int.init) ?? 0
-            let size = (r[3] as? Int64) ?? 0
-            let checked = (r[4] as? Int64).map(Int.init) ?? 0
-            groups.append(NovelGroup(title: title.isEmpty ? "(无书名)" : title, author: author, fileCount: count, totalSize: size, checkedCount: checked))
+            let count = (r[1] as? Int64).map(Int.init) ?? 0
+            let size = (r[2] as? Int64) ?? 0
+            let checked = (r[3] as? Int64).map(Int.init) ?? 0
+            groups.append(NovelGroup(title: title.isEmpty ? "(无书名)" : title, fileCount: count, totalSize: size, checkedCount: checked))
         }
         return groups
     }
 
-    func getGroupFiles(runId: Int64, title: String, author: String) -> [ScannedFile] {
-        fetchAll("SELECT \(SF_COLS) FROM scanned_file WHERE scan_run_id=? AND title=? AND author=? ORDER BY created_at DESC, id DESC", [runId, title, author]).map(mapScannedFile)
+    /// 合集文件列表（对齐安卓 getFilesByTitle：仅按书名 title 取文件，不叠加 author）。
+    func getGroupFiles(runId: Int64, title: String) -> [ScannedFile] {
+        fetchAll("SELECT \(SF_COLS) FROM scanned_file WHERE scan_run_id=? AND title=? ORDER BY created_at DESC, id DESC", [runId, title]).map(mapScannedFile)
     }
 
-    /// 一次性取出文库内每个 (title,author) 子组的「已勾选文件数」，供合集列表的三态复选框与勾选计数使用。
-    /// 返回字典以 "title\u{0000}author" 为键，避免合集数量多时逐组合查。
+    /// 一次性取出文库内每个 (title) 分组的「已勾选文件数」，供合集列表的三态复选框与勾选计数使用。
+    /// 返回字典以 title 为键，避免合集数量多时逐组合查。
     func getGroupCheckedCounts(runId: Int64) -> [String: Int] {
-        let rows = fetchAll("SELECT title, author, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k FROM scanned_file WHERE scan_run_id=? GROUP BY title, author", [runId])
+        let rows = fetchAll("SELECT title, SUM(CASE WHEN checked=1 THEN 1 ELSE 0 END) AS k FROM scanned_file WHERE scan_run_id=? GROUP BY title", [runId])
         var dict: [String: Int] = [:]
         for r in rows {
             let title = (r[0] as? String) ?? ""
-            let author = (r[1] as? String) ?? ""
-            let checked = (r[2] as? Int64).map(Int.init) ?? 0
-            dict["\(title)\u{0000}\(author)"] = checked
+            let checked = (r[1] as? Int64).map(Int.init) ?? 0
+            dict[title] = checked
         }
         return dict
     }

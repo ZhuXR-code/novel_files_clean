@@ -91,11 +91,10 @@ struct DuplicateRow {
     let fileDate: Int64
 }
 
-/// 合集分组头（按书名+作者聚合的统计结果，非数据库实体）。
+/// 合集分组头（按书名聚合的统计结果，非数据库实体）。对齐安卓：合集仅按书名(title)分组。
 struct NovelGroup: Identifiable {
-    var id: String { "\(title)|\(author)" }
+    var id: String { title }
     var title: String
-    var author: String
     var fileCount: Int
     var totalSize: Int64
     var checkedCount: Int
