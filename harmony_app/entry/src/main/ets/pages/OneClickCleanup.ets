@@ -118,12 +118,15 @@ struct OneClickCleanup {
       return;
     }
     try {
-      const uri = await ScanService.selectDirectory(ctx, this.folderUri);
-      if (uri.length === 0) {
+      const result = await ScanService.selectDirectory(ctx, this.folderUri);
+      if (result.uri.length === 0) {
         return; // 用户取消
       }
-      this.folderUri = uri;
-      this.folderName = FormatUtil.formatFolderDisplay(uri);
+      this.folderUri = result.uri;
+      this.folderName = FormatUtil.formatFolderDisplay(result.uri);
+      if (result.isFileFallback) {
+        ToastUtil.show('当前设备不支持选择文件夹，已选中文件用于定位扫描');
+      }
     } catch (e) {
       LogUtil.e('OneClickCleanup', `选择目录失败: ${(e as Error).message}`);
       ToastUtil.show(`选择失败: ${(e as Error).message}`);
@@ -146,11 +149,16 @@ struct OneClickCleanup {
     try {
       // 复用 ScanService.selectDirectory + FormatUtil.formatFolderDisplay 选文件夹并取末级目录名
       // （与 ConfigEdit.ets 的 selectExcludeFolder 行为一致）
-      const uri: string = await ScanService.selectDirectory(ctx, this.folderUri);
-      if (uri.length === 0) {
+      const result = await ScanService.selectDirectory(ctx, this.folderUri);
+      if (result.uri.length === 0) {
         return; // 用户取消
       }
-      const folderName: string = FormatUtil.formatFolderDisplay(uri);
+      // FILE 多选兜底模式下选中的是文件，无法作为「排除文件夹」使用
+      if (result.isFileFallback) {
+        ToastUtil.show('当前设备不支持选择文件夹，请手动输入排除目录');
+        return;
+      }
+      const folderName: string = FormatUtil.formatFolderDisplay(result.uri);
       if (folderName.length === 0) {
         ToastUtil.show('无法解析文件夹名称');
         return;

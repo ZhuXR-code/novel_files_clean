@@ -47,12 +47,15 @@ struct ScanProgress {
       return;
     }
     try {
-      const uri = await ScanService.selectDirectory(ctx, this.folderUri);
-      if (uri.length === 0) {
+      const result = await ScanService.selectDirectory(ctx, this.folderUri);
+      if (result.uri.length === 0) {
         return; // 用户取消选择
       }
-      this.folderUri = uri;
-      this.folderName = FormatUtil.formatFolderDisplay(uri);
+      this.folderUri = result.uri;
+      this.folderName = FormatUtil.formatFolderDisplay(result.uri);
+      if (result.isFileFallback) {
+        ToastUtil.show('当前设备不支持选择文件夹，已选中文件用于定位扫描');
+      }
     } catch (e) {
       LogUtil.e('ScanProgress', `选择目录失败: ${(e as Error).message}`);
       ToastUtil.show(`选择失败: ${(e as Error).message}`);

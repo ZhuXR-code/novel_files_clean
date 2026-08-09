@@ -874,10 +874,10 @@ final class DatabaseManager {
         // 继承第一个源文库的安全作用域书签（folder_uri），否则合并后预览/删除/打开等操作均无法访问文件
         let firstSource = getScanRun(sourceIds[0])
         let mergedFolderUri = firstSource?.folderUri ?? ""
-        let mergedFolderName = firstSource?.folderName ?? ""
+        // 合并库使用新名称作为 folder_name，避免列表优先显示 folder_name 时回退成某个源文库原名
         execute("BEGIN TRANSACTION", [])
         let newId = executeReturnId("INSERT INTO scan_run (name, folder_uri, folder_name, created_at, file_count) VALUES (?, ?, ?, ?, 0)",
-                                    [finalName, mergedFolderUri, mergedFolderName, Int64(Date().timeIntervalSince1970 * 1000)])
+                                    [finalName, mergedFolderUri, finalName, Int64(Date().timeIntervalSince1970 * 1000)])
         guard newId > 0 else {
             execute("ROLLBACK", [])
             LogUtil.e("DB", "合并文库失败: 插入新文库记录失败 name=\(finalName)")

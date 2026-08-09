@@ -45,6 +45,16 @@ export interface ScanProgress {
  * 注意：HarmonyOS 的文件访问 API 在真机/模拟器上请以开发者文档为准；
  * 此处采用 Picker 授权 URI + fileIo 遍历的通用写法，并在遍历时对目录/文件用 URI 拼接子项。
  */
+/**
+ * 目录选择结果。
+ * isFileFallback=true 表示当前设备/系统不支持 FOLDER 目录选择器，已降级为 FILE 多选；
+ * 此时 uri 是第一个被选中的文件 URI，供 UI 展示与保存配置，真正的扫描仍走 selectedFileUris 逐文件模式。
+ */
+export interface DirectoryPickResult {
+  uri: string;
+  isFileFallback: boolean;
+}
+
 export class ScanService {
   private static readonly BATCH_SIZE: number = 200;
   private static readonly PROGRESS_INTERVAL: number = 16;
@@ -116,14 +126,14 @@ export class ScanService {
    * @param context  Ability 上下文
    * @param defaultUri  可选，上次选择的 URI，用于预设 Picker 打开位置（更好的 UX）
    */
-  public static async selectDirectory(context: common.Context, defaultUri?: string): Promise<string> {
+  public static async selectDirectory(context: common.Context, defaultUri?: string): Promise<DirectoryPickResult> {
     // 先清空上次的文件缓存（内存 + 持久化），避免旧列表影响新配置。
     ScanService.clearFileFallback();
     // FOLDER 模式优先：直接选目录，授权整棵树，可递归遍历扫描。
     if (ScanService.canPickFolder()) {
-      const folderUri: string = await ScanService.tryPickFolder(context, defaultUri);
-      if (folderUri.length > 0) {
-        return folderUri;
+      const folderResult: DirectoryPickResult = await ScanService.tryPickFolder(context, defaultUri);
+      if (folderResult.uri.length > 0) {
+        return folderResult;
       }
       LogUtil.w('ScanService', 'FOLDER 模式未选中目录，降级为 FILE 多选');
     } else {
@@ -151,7 +161,7 @@ export class ScanService {
    *
    * @returns 选中的目录 URI；用户取消或失败返回空字符串
    */
-  private static async tryPickFolder(context: common.Context, defaultUri?: string): Promise<string> {
+  private static async tryPickFolder(context: common.Context, defaultUri?: string): Promise<DirectoryPickResult> {
     try {
       const documentPicker = new picker.DocumentViewPicker(context);
       const options = new picker.DocumentSelectOptions();
@@ -165,7 +175,7 @@ export class ScanService {
       }
       const uris: string[] = await documentPicker.select(options);
       if (!uris || uris.length === 0) {
-        return '';
+        return { uri: '', isFileFallback: false };
       }
       const folderUri: string = uris[0];
       // 持久化目录授权（读写模式），重启后自动激活
@@ -176,10 +186,10 @@ export class ScanService {
         LogUtil.w('ScanService', `持久化目录授权失败: ${(e as Error).message}`);
       }
       LogUtil.i('ScanService', `FOLDER 模式选择成功: ${folderUri}`);
-      return folderUri;
+      return { uri: folderUri, isFileFallback: false };
     } catch (e) {
       LogUtil.w('ScanService', `FOLDER 模式选择失败，降级 FILE 多选: ${(e as Error).message}`);
-      return '';
+      return { uri: '', isFileFallback: false };
     }
   }
 
@@ -189,7 +199,7 @@ export class ScanService {
    *  - 父目录可访问（listFile 成功）→ 返回父目录 URI，runScan 扫描整个文件夹；
    *  - 父目录不可访问（如文档卷未授权父目录）→ 回退逐文件扫描 selectedFileUris。
    */
-  private static async pickFiles(context: common.Context, defaultUri?: string): Promise<string> {
+  private static async pickFiles(context: common.Context, defaultUri?: string): Promise<DirectoryPickResult> {
     // 首次使用时给出明确指引
     await promptAction.showDialog({
       title: '选择文件以定位文件夹',
@@ -205,7 +215,7 @@ export class ScanService {
     }
     const uris: string[] = await documentPicker.select(options);
     if (!uris || uris.length === 0) {
-      return '';
+      return { uri: '', isFileFallback: false };
     }
 
     // 持久化每个选中文件的授权（每个文件都有独立的 picker 临时授权，可持久化）
@@ -240,18 +250,16 @@ export class ScanService {
         LogUtil.w('ScanService', `持久化父目录授权失败: ${(e as Error).message}`);
       }
       LogUtil.i('ScanService', `已定位目录（选中 ${uris.length} 个文件），将扫描整个文件夹: ${parentDirUri}`);
-      return parentDirUri;
+      return { uri: parentDirUri, isFileFallback: false };
     }
 
     // 父目录不可访问（如文档卷未授权父目录）：回退为逐文件扫描选中列表。
     // 列表需持久化：selectedFileUris 是内存变量，重启丢失后 runScan 会错误地走
     // BFS 遍历不可访问的父目录导致「扫描失败」。
-    // 注意：必须返回空 folderUri（而非 parentDirUri），否则 runScan 会带着一个
-    // 不可访问的目录字符串去递归遍历，既扫不到文件又可能报错；空 folderUri 让
-    // runScan 明确走「逐文件」分支（依赖 selectedFileUris）。
+    // 返回第一个选中的文件 URI 给 UI 展示/保存配置；runScan 优先使用 selectedFileUris 走逐文件分支。
     ScanService.saveFileFallback(uris);
     LogUtil.i('ScanService', `FILE 多选：共选 ${uris.length} 个文件，父目录不可遍历，逐文件扫描`);
-    return '';
+    return { uri: uris[0] || '', isFileFallback: true };
   }
 
   /**
