@@ -126,9 +126,7 @@ struct DeleteConfirmView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "hand.point.up.left.fill")
                             .foregroundColor(.fsPrimary)
-                        Text("不需要删除的文件：点击行右侧红色").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
-                        Text("移除").fsFont(.caption2).foregroundColor(.red).fontWeight(.semibold)
-                        Text("按钮，或左滑该行。").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
+                        Text("不需要删除的文件：左滑该行即可移除。").fsFont(.caption2).foregroundColor(.fsSecondaryLabel)
                         Spacer(minLength: 0)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -150,9 +148,7 @@ struct DeleteConfirmView: View {
                                             totalSizeCache -= f.fileSize
                                         }
                                     }
-                                )) {
-                                    removeFromList(f)
-                                }
+                                ))
                                 .listRowSeparator(.hidden)
                                 .listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -195,8 +191,6 @@ struct DeleteConfirmView: View {
 private struct DeleteConfirmRow: View {
     let file: ScannedFile
     @Binding var isOn: Bool
-    /// 从清单中移除该文件（本次不删除）
-    var onRemove: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -217,22 +211,6 @@ private struct DeleteConfirmRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
-            if let onRemove = onRemove {
-                Button(action: onRemove) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "xmark.circle.fill")
-                            .fsFontSize(22)
-                        Text("移除").fsFont(.caption2)
-                    }
-                    .foregroundColor(.red)
-                    .padding(.vertical, 6)
-                    .padding(.leading, 8)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("从删除清单移除")
-                .help("从清单移除")
-            }
         }
         .contentShape(Rectangle())
         .onTapGesture {
