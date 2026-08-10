@@ -1219,9 +1219,9 @@ struct FileDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 TextField("请输入备注内容（1~50 字）", text: $noteDraft)
                     .textFieldStyle(.roundedBorder)
-                    .onChange(of: noteDraft) { _, nv in
-                        if nv.count > 50 {
-                            noteDraft = String(nv.prefix(50))
+                    .onChange(of: noteDraft) { newValue in
+                        if newValue.count > 50 {
+                            noteDraft = String(newValue.prefix(50))
                         }
                         noteError = ""
                     }
