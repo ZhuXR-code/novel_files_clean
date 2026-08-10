@@ -123,7 +123,7 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 30
     environment:
-      xcode: 16.2
+      xcode: latest  # Apple 已强制要求 iOS 26 SDK (Xcode 26+)，使用 latest 让 CI 选用可用的最高 Xcode
       groups:
         - ios_signing  # 已包含 APPSTORE_API_KEY_ID / APPSTORE_API_ISSUER_ID / APPSTORE_PROFILE_B64 / APPSTORE_API_KEY_B64
       vars:
@@ -194,7 +194,8 @@ workflows:
             DEVELOPMENT_TEAM="$APP_DEVELOPMENT_TEAM" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
-            PROVISIONING_PROFILE_SPECIFIER=booksclean-appstore
+            PROVISIONING_PROFILE_SPECIFIER=booksclean-appstore \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0
       - name: Export IPA (App Store)
         script: |
           mkdir -p build/ipa
@@ -227,34 +228,35 @@ workflows:
       email:
         recipients:
           - your@email.com
-      # altool 在 Xcode 16+ 只支持 Apple ID + 专用密码（app-specific password）会话认证
-      # 需要以下变量（在 ios_signing 变量组配置）：
-      #   APPLE_ID              = 你的 Apple ID 邮箱
-      #   APP_STORE_PASSWORD    = app 专用密码（appleid.apple.com 生成）
+      # 使用 App Store Connect API Key 上传（变量组 ios_signing 已包含）：
+      #   APPSTORE_API_KEY_ID       = 如 2PPHPZG88FDT
+      #   APPSTORE_API_KEY_ISSUER_ID = issuer UUID
+      #   APPSTORE_API_KEY_B64      = AuthKey_*.p8 的 base64
       scripts:
-        - name: 上传 IPA 到 App Store Connect (Apple ID + 专用密码)
+        - name: 上传 IPA 到 App Store Connect (API Key)
           script: |
             set -e
 
             # 诊断：确认变量是否注入（只打印是否设置，不打印值）
-            echo "APPLE_ID set: ${APPLE_ID:+yes}${APPLE_ID:-no}"
-            echo "APP_STORE_PASSWORD set: ${APP_STORE_PASSWORD:+yes}${APP_STORE_PASSWORD:-no}"
+            echo "APPSTORE_API_KEY_ID set: ${APPSTORE_API_KEY_ID:+yes}${APPSTORE_API_KEY_ID:-no}"
+            echo "APPSTORE_API_KEY_ISSUER_ID set: ${APPSTORE_API_KEY_ISSUER_ID:+yes}${APPSTORE_API_KEY_ISSUER_ID:-no}"
+            echo "APPSTORE_API_KEY_B64 set: ${APPSTORE_API_KEY_B64:+yes}${APPSTORE_API_KEY_B64:-no}"
 
-            if [ -z "${APPLE_ID:-}" ] || [ -z "${APP_STORE_PASSWORD:-}" ]; then
-              echo "ERROR: APPLE_ID 或 APP_STORE_PASSWORD 未注入。请确认它们已加入 ios_signing 变量组。"
+            if [ -z "${APPSTORE_API_KEY_ID:-}" ] || [ -z "${APPSTORE_API_KEY_ISSUER_ID:-}" ] || [ -z "${APPSTORE_API_KEY_B64:-}" ]; then
+              echo "ERROR: APPSTORE_API_KEY_ID / APPSTORE_API_KEY_ISSUER_ID / APPSTORE_API_KEY_B64 未注入。请确认它们已加入 ios_signing 变量组。"
               exit 1
             fi
 
+            echo "$APPSTORE_API_KEY_B64" | base64 --decode > /tmp/AuthKey.p8
             IPA_PATH=$(ls build/ipa/*.ipa | head -1)
             echo "=== 上传 IPA: $IPA_PATH ==="
-            echo "Apple ID: $APPLE_ID"
 
-            # 用 altool 会话认证上传（Apple ID + app-specific password）
+            # 用 altool + App Store Connect API Key 上传
             xcrun altool --upload-app \
               -f "$IPA_PATH" \
               -t ios \
-              -u "$APPLE_ID" \
-              -p "$APP_STORE_PASSWORD" \
+              --apiKey "$APPSTORE_API_KEY_ID" \
+              --apiIssuer "$APPSTORE_API_KEY_ISSUER_ID" \
               --output-format json
 
             UPLOAD_RESULT=$?
