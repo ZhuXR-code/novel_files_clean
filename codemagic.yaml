@@ -236,6 +236,15 @@ workflows:
           script: |
             set -e
 
+            # 诊断：确认变量是否注入（只打印是否设置，不打印值）
+            echo "APPLE_ID set: ${APPLE_ID:+yes}${APPLE_ID:-no}"
+            echo "APP_STORE_PASSWORD set: ${APP_STORE_PASSWORD:+yes}${APP_STORE_PASSWORD:-no}"
+
+            if [ -z "${APPLE_ID:-}" ] || [ -z "${APP_STORE_PASSWORD:-}" ]; then
+              echo "ERROR: APPLE_ID 或 APP_STORE_PASSWORD 未注入。请确认它们已加入 ios_signing 变量组。"
+              exit 1
+            fi
+
             IPA_PATH=$(ls build/ipa/*.ipa | head -1)
             echo "=== 上传 IPA: $IPA_PATH ==="
             echo "Apple ID: $APPLE_ID"
