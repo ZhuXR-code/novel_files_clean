@@ -4,7 +4,7 @@ workflows:
     instance_type: mac_mini_m2
     max_build_duration: 30
     environment:
-      xcode: 16.0
+      xcode: latest  # 与 release-appstore 保持一致，使用 iOS 26 SDK
       groups:
         - ios_signing
       vars:
@@ -73,6 +73,9 @@ workflows:
       - name: Archive
         script: |
           cd ios_app
+          # 自动生成递增 build 号 (YYYYMMDD + 当日分钟序号)，避免 App Store Connect 报 DUPLICATE
+          BUILD_NUMBER="$(date +%Y%m%d)$(date +%H%M)"
+          echo ">>> 本次 build 号: $BUILD_NUMBER"
           mkdir -p $CM_BUILD_DIR/build
           xcodebuild archive \
             -project booksclean.xcodeproj \
@@ -85,7 +88,8 @@ workflows:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             PROVISIONING_PROFILE_SPECIFIER=booksclean-adhoc \
-            IPHONEOS_DEPLOYMENT_TARGET=16.0
+            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
       - name: Export IPA
         script: |
           mkdir -p build/ipa
@@ -184,6 +188,9 @@ workflows:
       - name: Archive
         script: |
           cd ios_app
+          # 自动生成递增 build 号 (YYYYMMDD + 当日分钟序号)，避免 App Store Connect 报 DUPLICATE
+          BUILD_NUMBER="$(date +%Y%m%d)$(date +%H%M)"
+          echo ">>> 本次 build 号: $BUILD_NUMBER"
           mkdir -p $CM_BUILD_DIR/build
           xcodebuild archive \
             -project booksclean.xcodeproj \
@@ -196,7 +203,8 @@ workflows:
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             PROVISIONING_PROFILE_SPECIFIER=booksclean-appstore \
-            IPHONEOS_DEPLOYMENT_TARGET=16.0
+            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
       - name: Export IPA (App Store)
         script: |
           mkdir -p build/ipa
