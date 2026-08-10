@@ -227,36 +227,28 @@ workflows:
       email:
         recipients:
           - your@email.com
-      # 不再使用 app_store_connect: 块（Codemagic 内部走 altool 会话认证导致 Code=-26000）
-      # 改为脚本手动调用 xcrun altool --apiKey（API Key 方式，不依赖 Apple ID 会话）
+      # altool 在 Xcode 16+ 只支持 Apple ID + 专用密码（app-specific password）会话认证
+      # 需要以下变量（在 ios_signing 变量组配置）：
+      #   APPLE_ID              = 你的 Apple ID 邮箱
+      #   APP_STORE_PASSWORD    = app 专用密码（appleid.apple.com 生成）
       scripts:
-        - name: 上传 IPA 到 App Store Connect (API Key)
+        - name: 上传 IPA 到 App Store Connect (Apple ID + 专用密码)
           script: |
             set -e
 
-            # 1) 从 base64 还原 p8 私钥，放到 altool 能识别的目录
-            #    altool 的 --private-key 传【目录】，且文件名必须是 AuthKey_<key_id>.p8
-            mkdir -p "$HOME/.private_keys"
-            echo "$APPSTORE_API_KEY_B64" | base64 --decode > "$HOME/.private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
-            chmod 600 "$HOME/.private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
-
             IPA_PATH=$(ls build/ipa/*.ipa | head -1)
             echo "=== 上传 IPA: $IPA_PATH ==="
-            echo "Key ID: $APPSTORE_API_KEY_ID"
-            echo "Issuer ID: $APPSTORE_API_ISSUER_ID"
+            echo "Apple ID: $APPLE_ID"
 
-            # 2) 用 xcrun altool --apiKey 上传（API Key 认证，不走 Apple ID 会话）
-            #    --private-key 传目录（altool 会找 AuthKey_<key_id>.p8）
+            # 用 altool 会话认证上传（Apple ID + app-specific password）
             xcrun altool --upload-app \
               -f "$IPA_PATH" \
               -t ios \
-              --apiKey "$APPSTORE_API_KEY_ID" \
-              --apiIssuer "$APPSTORE_API_ISSUER_ID" \
-              --private-key "$HOME/.private_keys" \
+              -u "$APPLE_ID" \
+              -p "$APP_STORE_PASSWORD" \
               --output-format json
 
             UPLOAD_RESULT=$?
-            rm -f "$HOME/.private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
 
             if [ $UPLOAD_RESULT -eq 0 ]; then
               echo ""
