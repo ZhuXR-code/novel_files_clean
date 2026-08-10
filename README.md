@@ -18,7 +18,7 @@
 | PC 本地软件版 | 独立窗口应用（pywebview + WebView2），不打开浏览器、不联网 | 内置 SQLite | `python launcher.py` / 打包后的 `FileScanner.exe` |
 | Android APP | 原生移动端 | Room（SQLite） | `android_app/`（Android Studio 构建） |
 | HarmonyOS NEXT | 纯血鸿蒙原生端 | relationalStore（SQLite） | `harmony_app/`（DevEco Studio 构建） |
-| iOS APP | 原生 iOS 端（Swift + SwiftUI），功能对齐 Android 端 | SQLite（系统 sqlite3） | `ios_app/`（macOS + Xcode 15 构建） |
+| iOS APP | 原生 iOS 端（Swift + SwiftUI），功能对齐 Android 端 | SQLite（系统 sqlite3，存于 Library/Application Support） | `ios_app/`（macOS + Xcode 15 构建） |
 
 > APP 端新增**预览页滚动条模式选择**（设置 → 阅读设置），支持竖向/横向（顶部）两种滚动条；触摸时自动加粗，0.5 秒不操作恢复。底部操作栏仅保留「清除勾选」和「删除」按钮，其他功能移至右上角菜单，界面更简洁。
 
@@ -118,12 +118,23 @@ cd android_app
 
 ## 六、iOS APP
 
-源码位于 `ios_app/`，使用 Swift 5 + SwiftUI，数据层为系统 sqlite3（库文件 `Documents/file_scanner.db`），功能与 Android 端 1:1 对齐（文件名解析、合集归并、勾选重复规则、关键词替换、一键清理、操作日志、隐私政策门禁等）。
+源码位于 `ios_app/`，使用 Swift 5 + SwiftUI，数据层为系统 sqlite3（库文件位于 `Library/Application Support/booksclean/file_scanner.db`，不暴露于 iTunes/Finder 文件共享；文件保护等级 `NSFileProtectionComplete`，设备锁定时不可访问），功能与 Android 端 1:1 对齐（文件名解析、合集归并、勾选重复规则、关键词替换、一键清理、操作日志、隐私政策门禁等）。
 
-- 构建环境：macOS + Xcode 15+，部署目标 iOS 16+（NavigationStack 依赖）。
+- 构建环境：macOS + Xcode 15+（App Store 上架需 Xcode 26+，iOS 26 SDK），部署目标 iOS 16+（NavigationStack 依赖）。
 - 打开 `ios_app/FileScanner.xcodeproj` 直接构建运行。
 - 目录访问采用 Document Picker + security-scoped bookmark（对应 Android 的 SAF 授权目录）。
 - 详细说明见 `ios_app/README.md`。
+
+### iOS 隐私与安全合规（上架 App Store 必读）
+
+本 App 为**纯本地离线工具，不发起任何网络请求、不要求登录、不收集任何用户数据**：
+- 所有扫描、解析、清理均在设备本地完成，文件不会上传任何服务器（与 App 内「关于」页声明一致）。
+- 数据库仅存于本地沙盒 `Library/Application Support/`，且文件保护等级为 `NSFileProtectionComplete`。
+- 无广告 SDK、无统计/追踪 SDK、无第三方网络库。
+
+**App Store Connect 上架时请如实填写「隐私营养标签」**：选择「不收集任何数据（App does not collect any data）」，与以上实现一致，避免隐私声明与实际不符导致下架风险。
+
+**定价**：建议设为 Tier 1（中国大陆 ¥3）买断制，下载即付费、永久使用；App 内部保持「打开即用」，不再设任何购买/登录墙（苹果禁止对已付费 App 再设内购墙）。
 
 ---
 

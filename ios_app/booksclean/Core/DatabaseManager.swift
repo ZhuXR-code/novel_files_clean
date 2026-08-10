@@ -2,27 +2,63 @@ import Foundation
 import SQLite3
 
 /// 本地 SQLite 数据库（对齐 Android Room：scanned_file / scan_config / scan_run / keyword_replace_rules / dup_rule_configs / operation_log）。
-/// iOS 沙盒内数据库位于 Documents/file_scanner.db，使用系统内置 sqlite3。
+/// 数据库存放于 Library/Application Support/booksclean/file_scanner.db（不暴露给 iTunes/Finder 文件共享，避免扫描出的书名/作者等隐私被直接导出），
+/// 文件保护等级设为 NSFileProtectionComplete（设备锁定时加密不可访问）。
 final class DatabaseManager {
     static let shared = DatabaseManager()
     private var db: OpaquePointer?
     private let lock = NSLock()
     private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-    private init() { open() }
+    private init() {
+        migrateLegacyDbIfNeeded()
+        open()
+    }
+
+    /// 旧版本将数据库放在 Documents/file_scanner.db，且对文件共享可见。
+    /// 升级到本版本时把旧库迁移到 Library/Application Support 下，避免老用户数据丢失。
+    private func migrateLegacyDbIfNeeded() {
+        let fm = FileManager.default
+        let legacyUrl = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("file_scanner.db")
+        let newDir = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("booksclean", isDirectory: true)
+        let newUrl = newDir.appendingPathComponent("file_scanner.db")
+
+        guard fm.fileExists(atPath: legacyUrl.path) else { return }
+        do {
+            try fm.createDirectory(at: newDir, withIntermediateDirectories: true)
+            if !fm.fileExists(atPath: newUrl.path) {
+                // 优先移动；若跨容器移动失败（如权限），回退为复制
+                try fm.moveItem(at: legacyUrl, to: newUrl)
+            } else {
+                try fm.removeItem(at: legacyUrl)
+            }
+        } catch {
+            // 迁移失败不影响启动：将以新路径空库运行（旧数据保留于 Documents 不破坏）
+            LogUtil.e("DB", "迁移旧数据库失败: \(error.localizedDescription)")
+        }
+    }
 
     private func dbPath() -> String {
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("booksclean", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("file_scanner.db").path
     }
 
     func open() {
         if db != nil { return }
-        if sqlite3_open(dbPath(), &db) != SQLITE_OK {
+        let path = dbPath()
+        if sqlite3_open(path, &db) != SQLITE_OK {
             LogUtil.e("DB", "无法打开数据库")
             return
         }
+        // 设备锁定时数据库文件不可读，提升本地隐私安全性
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: path
+        )
         createTables()
         migrateSchema()
         seedDefaultData()
