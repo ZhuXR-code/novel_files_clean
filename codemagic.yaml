@@ -227,17 +227,39 @@ workflows:
       email:
         recipients:
           - your@email.com
-      # 官方 App Store Connect 发布块（基于 API Key，走 xcrun api，兼容 Xcode 16）
-      # 下列变量需在 Codemagic 的 ios_signing 变量组中配置：
-      #   APPSTORE_API_KEY_B64   = p8 文件的 base64
-      #   APPSTORE_API_KEY_ID    = 2PPHPZG88FDT
-      #   APPSTORE_API_ISSUER_ID  = 24829c27-eaa7-4ea8-b162-db6e6fafb40a（完整 36 位 UUID，勿截断）
-      app_store_connect:
-        api_key: $APPSTORE_API_KEY_B64
-        key_id: $APPSTORE_API_KEY_ID
-        issuer_id: $APPSTORE_API_ISSUER_ID
-        submit_to_testflight: false   # 直接传 App Store Connect（不发布 TestFlight）
+      # 不再使用 app_store_connect: 块（Codemagic 内部走 altool 会话认证导致 Code=-26000）
+      # 改为脚本手动调用 xcrun altool --apiKey（API Key 方式，不依赖 Apple ID 会话）
       scripts:
-        - name: 校验上传结果
+        - name: 上传 IPA 到 App Store Connect (API Key)
           script: |
-            echo "IPA 已通过 App Store Connect API Key 上传，请到 App Store Connect 网页端选择构建版本并提交审核。"
+            set -e
+
+            # 1) 从 base64 还原 p8 私钥文件
+            echo "$APPSTORE_API_KEY_B64" | base64 --decode > /tmp/AuthKey.p8
+            chmod 600 /tmp/AuthKey.p8
+
+            IPA_PATH=$(ls build/ipa/*.ipa | head -1)
+            echo "=== 上传 IPA: $IPA_PATH ==="
+            echo "Key ID: $APPSTORE_API_KEY_ID"
+            echo "Issuer ID: $APPSTORE_API_ISSUER_ID"
+
+            # 2) 用 xcrun altool --apiKey 上传（API Key 认证，不走 Apple ID 会话）
+            xcrun altool --upload-app \
+              -f "$IPA_PATH" \
+              -t ios \
+              --apiKey "$APPSTORE_API_KEY_ID" \
+              --apiIssuer "$APPSTORE_API_ISSUER_ID" \
+              --private-key /tmp/AuthKey.p8 \
+              --output-format json
+
+            UPLOAD_RESULT=$?
+            rm -f /tmp/AuthKey.p8
+
+            if [ $UPLOAD_RESULT -eq 0 ]; then
+              echo ""
+              echo "✅ IPA 上传成功！请到 App Store Connect 网页端选择构建版本并提交审核。"
+            else
+              echo ""
+              echo "❌ IPA 上传失败 (exit code: $UPLOAD_RESULT)"
+              exit $UPLOAD_RESULT
+            fi
