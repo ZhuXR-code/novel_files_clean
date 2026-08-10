@@ -957,32 +957,31 @@ final class DatabaseManager {
         return newId
     }
 
-    /// 合并书库时复制备注：新文库 path→newFileId，源文库 id→path，再把源备注写入新文件（重复忽略）。
+    /// 合并书库时复制备注：单语句 JOIN 在 DB 内部按 path 把源备注映射到新文件（重复忽略）。
+    /// 相比原「全量读取 path + 巨型 IN(file_id) + 内存 map + 逐条 INSERT」方案，
+    /// 该实现在 20w 级别书库下零内存压力、走索引、无参数上限风险。
+    /// 源文库 ids 数量仅为用户选择的文库数（通常个位数），IN (...) 无参数上限问题；
+    /// 新文库文件数虽大，但 JOIN 走 path 索引、全部在 DB 内部完成，不进应用内存。
     private func mergeNotesIntoNewRun(newRunId: Int64, sourceIds: [Int64]) {
+        guard !sourceIds.isEmpty else { return }
         let placeholders = sourceIds.map { _ in "?" }.joined(separator: ",")
-        var newPathToId: [String: Int64] = [:]
-        let newRows = fetchAll("SELECT id, path FROM scanned_file WHERE scan_run_id = ?", [Int64(newRunId)])
-        for r in newRows {
-            guard let id = r[0] as? Int64, let path = r[1] as? String else { continue }
-            newPathToId[path] = id
-        }
-        var srcIdToPath: [Int64: String] = [:]
-        let srcRows = fetchAll("SELECT id, path FROM scanned_file WHERE scan_run_id IN (\(placeholders))", sourceIds.map { $0 as Any? })
-        for r in srcRows {
-            guard let id = r[0] as? Int64, let path = r[1] as? String else { continue }
-            srcIdToPath[id] = path
-        }
-        let srcFileIds = Array(srcIdToPath.keys)
-        guard !srcFileIds.isEmpty else { return }
-        let notePlaceholders = srcFileIds.map { _ in "?" }.joined(separator: ",")
-        let noteRows = fetchAll("SELECT id, file_id, content, created_at FROM file_notes WHERE file_id IN (\(notePlaceholders))", srcFileIds.map { $0 as Any? })
-        for r in noteRows {
-            guard let fileId = r[1] as? Int64, let content = r[2] as? String else { continue }
-            guard let path = srcIdToPath[fileId], let newFileId = newPathToId[path], newFileId > 0 else { continue }
-            let createdAt = (r[3] as? Int64) ?? Int64(Date().timeIntervalSince1970 * 1000)
-            // 重复 (file_id, content) 会被唯一索引拒绝，用 INSERT OR IGNORE 静默忽略
-            execute("INSERT OR IGNORE INTO file_notes (file_id, content, created_at) VALUES (?, ?, ?)",
-                    [Int64(newFileId), content, createdAt])
+        let sql = """
+            INSERT OR IGNORE INTO file_notes (file_id, content, created_at)
+            SELECT nf.id, src.content, src.created_at
+            FROM scanned_file nf
+            JOIN scanned_file sf ON sf.path = nf.path AND sf.scan_run_id IN (\(placeholders))
+            JOIN file_notes src ON src.file_id = sf.id
+            WHERE nf.scan_run_id = ?
+        """
+        var bind: [Any?] = sourceIds.map { $0 as Any? }
+        bind.append(Int64(newRunId) as Any?)
+        execute("BEGIN TRANSACTION", [])
+        let ok = execute(sql, bind)
+        if ok {
+            execute("COMMIT", [])
+        } else {
+            execute("ROLLBACK", [])
+            LogUtil.e("DB", "合并备注失败 newRunId=\(newRunId)")
         }
     }
 

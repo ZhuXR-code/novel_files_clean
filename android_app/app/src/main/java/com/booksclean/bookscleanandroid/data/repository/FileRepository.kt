@@ -92,16 +92,10 @@ class FileRepository(
         // 合并备注：按 path 把源文库文件备注复制到新文库文件下。
         // 同一 path 在合并后只保留一条（新 file_id），多个源文库对同一 path 的备注
         // 经 file_notes 唯一索引 (file_id, content) 自动去重（区分大小写）。
-        val newPathToId = dao.getPathsAndIdsByRun(newId).associate { it.path to it.id }
-        val sourceFileIds = sourceIds.flatMap { dao.getPathsAndIdsByRun(it).map { t -> t.id } }
-        if (sourceFileIds.isNotEmpty()) {
-            val notes = fileNoteDao.getNotesByFilesOnce(sourceFileIds)
-            val toInsert = notes.mapNotNull { note ->
-                newPathToId[note.fileId.let { fid -> dao.getById(fid)?.path }]
-                    ?.let { newFileId -> FileNoteEntity(fileId = newFileId, content = note.content, createdAt = note.createdAt) }
-            }
-            if (toInsert.isNotEmpty()) fileNoteDao.insertIgnore(toInsert)
-        }
+        // 使用单语句 JOIN（copyNotesOnMerge）在 DB 内部完成 path 重映射，
+        // 避免 20w 级别书库下「全量读取 path + 巨型 IN + 内存 map」导致的内存与参数上限问题。
+        val copied = fileNoteDao.copyNotesOnMerge(newId, sourceIds)
+        LogUtil.i("Repo", "mergeRuns 复制备注 $copied 条 -> 新文库 newId=$newId")
         return newId
     }
 

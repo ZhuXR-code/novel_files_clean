@@ -51,4 +51,24 @@ interface FileNoteDao {
     /** 批量写入备注，重复 content（区分大小写）静默忽略（用于合并书库复制去重）。 */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnore(notes: List<FileNoteEntity>)
+
+    /**
+     * 合并书库时复制备注（高性能单语句版本，避免 20w 级别下巨型 IN 与全量内存映射）。
+     *
+     * 通过三层 JOIN 在数据库内部完成「源备注 -> 新文件」的按 path 重映射，
+     * 重复内容由 file_notes 唯一索引 (file_id, content) 自动去重（区分大小写，INSERT OR IGNORE）。
+     *
+     * - 源文库 ids 在 IN (...) 中，但数量仅为用户选择的文库数（通常个位数），不存在参数上限问题；
+     * - 新文库文件虽可能达 20w，但 JOIN 走 path 索引、全部在 DB 内部完成，不进应用内存；
+     * - 返回受影响行数（忽略重复后实际插入的备注数）。
+     */
+    @Query("""
+        INSERT OR IGNORE INTO file_notes (file_id, content, created_at)
+        SELECT nf.id, src.content, src.created_at
+        FROM scanned_file nf
+        JOIN scanned_file sf ON sf.path = nf.path AND sf.scan_run_id IN (:sourceRunIds)
+        JOIN file_notes src ON src.file_id = sf.id
+        WHERE nf.scan_run_id = :newRunId
+    """)
+    suspend fun copyNotesOnMerge(newRunId: Long, sourceRunIds: List<Long>): Int
 }

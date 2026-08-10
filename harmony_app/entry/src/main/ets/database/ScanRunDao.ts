@@ -254,53 +254,30 @@ export class ScanRunDao {
    */
   private static mergeNotesInto(store: relationalStore.RdbStore, sourceIds: number[], newRunId: number): void {
     const srcPlaceholders: string = sourceIds.map(() => '?').join(',');
-    // 1) 新文库 path -> newFileId
-    const newRs = store.querySql!(
-      'SELECT id, path FROM scanned_file WHERE scan_run_id = ?',
-      [newRunId]
-    );
-    const newPathToId: Map<string, number> = new Map();
-    while (newRs.goToNextRow()) {
-      const idIdx = newRs.getColumnIndex('id');
-      const pathIdx = newRs.getColumnIndex('path');
-      const id = idIdx >= 0 ? newRs.getLong(idIdx) : 0;
-      const path = pathIdx >= 0 ? newRs.getString(pathIdx) : '';
-      if (path) {
-        newPathToId.set(path, id);
+    // 单语句 JOIN 复制备注：在 DB 内部完成「源备注 -> 新文件」的按 path 重映射，
+    // 避免 20w 级别书库下「全量读取 path + 巨型 IN + 内存 map + 逐条 INSERT」的内存与性能问题。
+    // 源文库 ids 在 IN (...) 中，数量仅为用户选择的文库数（通常个位数），不存在参数上限问题；
+    // 新文库文件虽可能达 20w，但 JOIN 走 path 索引、全部在 DB 内部完成，不进应用内存。
+    // 重复内容由 file_notes 唯一索引 (file_id, content) 自动去重（区分大小写，INSERT OR IGNORE）。
+    const sql: string =
+      `INSERT OR IGNORE INTO file_notes (file_id, content, created_at)
+       SELECT nf.id, src.content, src.created_at
+       FROM scanned_file nf
+       JOIN scanned_file sf ON sf.path = nf.path AND sf.scan_run_id IN (${srcPlaceholders})
+       JOIN file_notes src ON src.file_id = sf.id
+       WHERE nf.scan_run_id = ?`;
+    const bindArgs: Array<number | string> = [...sourceIds, newRunId];
+    try {
+      store.beginTransaction();
+      store.executeSql!(sql, bindArgs);
+      store.commit();
+    } catch (e) {
+      try {
+        store.rollback();
+      } catch (_) {
+        // 回滚失败忽略
       }
-    }
-    newRs.close();
-    // 2) 源文库文件 id -> path
-    const srcRs = store.querySql!(
-      `SELECT id, path FROM scanned_file WHERE scan_run_id IN (${srcPlaceholders})`,
-      sourceIds
-    );
-    const srcIdToPath: Map<number, string> = new Map();
-    while (srcRs.goToNextRow()) {
-      const idIdx = srcRs.getColumnIndex('id');
-      const pathIdx = srcRs.getColumnIndex('path');
-      const id = idIdx >= 0 ? srcRs.getLong(idIdx) : 0;
-      const path = pathIdx >= 0 ? srcRs.getString(pathIdx) : '';
-      if (path) {
-        srcIdToPath.set(id, path);
-      }
-    }
-    srcRs.close();
-    // 3) 取源备注并按 path 写入新文件
-    const srcFileIds: number[] = Array.from(srcIdToPath.keys());
-    if (!srcFileIds.length) {
-      return;
-    }
-    const notes = FileNoteDao.getNotesByFiles(srcFileIds);
-    for (const note of notes) {
-      const path = srcIdToPath.get(note.fileId);
-      if (!path) {
-        continue;
-      }
-      const newFileId = newPathToId.get(path);
-      if (newFileId && newFileId > 0) {
-        FileNoteDao.insert(newFileId, note.content, note.createdAt > 0 ? note.createdAt : Date.now());
-      }
+      LogUtil.e('ScanRunDao', `合并备注失败 newRunId=${newRunId}: ${(e as Error)?.message ?? '未知错误'}`);
     }
   }
 }
