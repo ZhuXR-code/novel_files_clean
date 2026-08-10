@@ -70,5 +70,5 @@ interface FileNoteDao {
         JOIN file_notes src ON src.file_id = sf.id
         WHERE nf.scan_run_id = :newRunId
     """)
-    suspend fun copyNotesOnMerge(newRunId: Long, sourceRunIds: List<Long>): Int
+    suspend fun copyNotesOnMerge(newRunId: Long, sourceRunIds: List<Long>)
 }

@@ -35,17 +35,17 @@ export class FileNoteDao {
   /** 取某文件全部备注（按创建时间升序）。 */
   static getNotesByFile(fileId: number): FileNote[] {
     const out: FileNote[] = [];
-    const rs = FileNoteDao.store.querySql?.(
+    const rs = FileNoteDao.store.querySql(
       'SELECT * FROM file_notes WHERE file_id = ? ORDER BY created_at ASC, id ASC',
       [fileId]
     );
-    if (!rs) {
-      return out;
+    try {
+      while (rs.goToNextRow()) {
+        out.push(FileNoteDao.toNote(rs));
+      }
+    } finally {
+      rs.close();
     }
-    while (rs.goToNextRow()) {
-      out.push(FileNoteDao.toNote(rs));
-    }
-    rs.close();
     return out;
   }
 
@@ -56,17 +56,17 @@ export class FileNoteDao {
       return out;
     }
     const placeholders: string = fileIds.map(() => '?').join(',');
-    const rs = FileNoteDao.store.querySql?.(
+    const rs = FileNoteDao.store.querySql(
       `SELECT * FROM file_notes WHERE file_id IN (${placeholders}) ORDER BY created_at ASC, id ASC`,
       fileIds
     );
-    if (!rs) {
-      return out;
+    try {
+      while (rs.goToNextRow()) {
+        out.push(FileNoteDao.toNote(rs));
+      }
+    } finally {
+      rs.close();
     }
-    while (rs.goToNextRow()) {
-      out.push(FileNoteDao.toNote(rs));
-    }
-    rs.close();
     return out;
   }
 
@@ -85,13 +85,14 @@ export class FileNoteDao {
         [fileId, c, createdAt]
       );
       // 通过 last_insert_rowid() 判断是否真正插入（重复内容被 IGNORE 时 id 不变/为0）
-      const rs = FileNoteDao.store.querySql?.('SELECT last_insert_rowid() AS lid');
+      const rs = FileNoteDao.store.querySql('SELECT last_insert_rowid() AS lid');
       let id: number = 0;
-      if (rs) {
+      try {
         if (rs.goToFirstRow()) {
           const idx = rs.getColumnIndex('lid');
           id = idx >= 0 ? rs.getLong(idx) : 0;
         }
+      } finally {
         rs.close();
       }
       return id > 0;
@@ -112,12 +113,16 @@ export class FileNoteDao {
         [c, Date.now(), noteId]
       );
       // 校验是否真的更新成功（避免被唯一约束忽略却仍返回 OK）
-      const rs = FileNoteDao.store.querySql?.(
+      const rs = FileNoteDao.store.querySql(
         'SELECT id FROM file_notes WHERE file_id = ? AND content = ? AND id = ?',
         [fileId, c, noteId]
       );
-      const exists: boolean = !!rs && rs.goToFirstRow();
-      rs?.close();
+      let exists: boolean = false;
+      try {
+        exists = rs.goToFirstRow();
+      } finally {
+        rs.close();
+      }
       return exists;
     } catch (e) {
       return false;

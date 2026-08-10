@@ -467,7 +467,7 @@ final class DatabaseManager {
         if let a = authorFilter, !a.isEmpty { whereClauses.append("author LIKE ?"); binds.append("\(a)%") }
         if let p = progressFilter, !p.isEmpty { whereClauses.append("progress LIKE ?"); binds.append("\(p)%") }
         if let s = sourceFilter, !s.isEmpty { whereClauses.append("source LIKE ?"); binds.append("\(s)%") }
-        if let q = search, !q.isEmpty { whereClauses.append("(file_name LIKE ? OR title LIKE ? OR author LIKE ?)"); binds.append("%\(q)%"); binds.append("%\(q)%"); binds.append("%\(q)%") }
+        if let q = search, !q.isEmpty { whereClauses.append("(file_name LIKE ? OR title LIKE ? OR author LIKE ? OR id IN (SELECT file_id FROM file_notes WHERE content LIKE ?))"); binds.append("%\(q)%"); binds.append("%\(q)%"); binds.append("%\(q)%"); binds.append("%\(q)%") }
         if checkedFilter >= 0 { whereClauses.append("checked=?"); binds.append(checkedFilter) }
         if markedFilter >= 0 { whereClauses.append("marked=?"); binds.append(markedFilter) }
         let orderCol = sortBy == "file_name" || sortBy == "title" || sortBy == "author" || sortBy == "progress" || sortBy == "source" || sortBy == "file_size" ? sortBy : "created_at"
@@ -491,7 +491,7 @@ final class DatabaseManager {
         if let a = authorFilter, !a.isEmpty { whereClauses.append("author LIKE ?"); binds.append("\(a)%") }
         if let p = progressFilter, !p.isEmpty { whereClauses.append("progress LIKE ?"); binds.append("\(p)%") }
         if let s = sourceFilter, !s.isEmpty { whereClauses.append("source LIKE ?"); binds.append("\(s)%") }
-        if let q = search, !q.isEmpty { whereClauses.append("(file_name LIKE ? OR title LIKE ? OR author LIKE ?)"); binds.append("%\(q)%"); binds.append("%\(q)%"); binds.append("%\(q)%") }
+        if let q = search, !q.isEmpty { whereClauses.append("(file_name LIKE ? OR title LIKE ? OR author LIKE ? OR id IN (SELECT file_id FROM file_notes WHERE content LIKE ?))"); binds.append("%\(q)%"); binds.append("%\(q)%"); binds.append("%\(q)%"); binds.append("%\(q)%") }
         if checkedFilter >= 0 { whereClauses.append("checked=?"); binds.append(checkedFilter) }
         if markedFilter >= 0 { whereClauses.append("marked=?"); binds.append(markedFilter) }
         return count("SELECT COUNT(*) FROM scanned_file WHERE \(whereClauses.joined(separator: " AND "))", binds)

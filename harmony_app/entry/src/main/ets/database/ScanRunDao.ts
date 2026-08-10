@@ -185,7 +185,7 @@ export class ScanRunDao {
       // 使用 ArkData 原生事务 API（与 ScanRunDao.delete 一致）。
       // 注意：executeSql('BEGIN TRANSACTION'/'COMMIT'/'ROLLBACK') 在 ArkData 下不被支持，
       // 会直接抛错导致整个合并回滚、返回 -1（即“合并失败”且无明确日志）。
-      store.beginTransaction();
+      await store.beginTransaction();
       // ① 新建文库
       // 注意：scan_run 表 schema 没有 status 列（对照 RdbHelper.createTables 与 ScanRun model），
       // 插入 status 会令 ArkData 抛错导致整个事务回滚、mergeRuns 返回 -1（即“合并失败”）。
@@ -210,7 +210,7 @@ export class ScanRunDao {
       }
       cntRs.close();
       // ④ 原文库保留：仅新增一个合并文库，不再删除源文库及其文件
-      store.commit();
+      await store.commit();
       // 在事务外重新统计并更新 file_count（ArkData 事务内 UPDATE 可能不生效）
       const cntRs2 = await store.querySql('SELECT COUNT(*) AS cnt FROM scanned_file WHERE scan_run_id = ?', [newId]);
       let fileCount2: number = 0;
@@ -268,12 +268,12 @@ export class ScanRunDao {
        WHERE nf.scan_run_id = ?`;
     const bindArgs: Array<number | string> = [...sourceIds, newRunId];
     try {
-      store.beginTransaction();
-      store.executeSql!(sql, bindArgs);
-      store.commit();
+      await store.beginTransaction();
+      store.executeSql(sql, bindArgs);
+      await store.commit();
     } catch (e) {
       try {
-        store.rollback();
+        await store.rollBack();
       } catch (_) {
         // 回滚失败忽略
       }

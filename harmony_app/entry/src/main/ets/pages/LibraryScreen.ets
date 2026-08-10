@@ -39,7 +39,9 @@ struct LibraryScreen {
   // 已展开合集的文件缓存（书名 -> 文件列表，懒加载）
   @State expandedGroupFiles: Map<string, ScannedFile[]> = new Map<string, ScannedFile[]>();
   // 当前页（0 基）：同步驱动跳转输入框默认显示「第 N 页」（对齐安卓 jumpText = page + 1）
-  @State @Watch('onPageChanged') page: number = 0;
+  // 注：跳转输入框默认值 jumpPage 的同步不依赖 @Watch（部分 ArkTS SDK 版本对 @Watch 校验更严，
+  // 易触发级联编译失败），改为在 reload() 末尾统一同步，所有 page 变更均经 reload 触发。
+  @State page: number = 0;
   @State pageCount: number = 1;
   // 当前筛选条件下的总数（分页指示器「共 N 条」用，对齐安卓 listPageState.total / groupPageState.total）
   // 与 totalCount（运行全集数，用于统计栏）区分：筛选/搜索后只显示匹配条数
@@ -149,6 +151,9 @@ struct LibraryScreen {
     } else {
       await this.loadGroups();
     }
+    // 同步跳转输入框默认值（替代 @Watch('onPageChanged')，规避部分 SDK 对 @Watch 的严格校验）。
+    // 所有 this.page 的赋值点之后都会调用 reload，故此处统一同步即可覆盖全部分页/筛选/排序变更。
+    this.jumpPage = (this.page + 1).toString();
   }
 
   /** 列表模式：从数据库查询当前页文件（LIMIT/OFFSET，支持 10w+ 级数据）。 */
@@ -1524,16 +1529,10 @@ struct GroupSortDialog {
   // 页面跳转
   private jumpToPage(p: number): void {
     if (p >= 0 && p < this.pageCount) {
-      // 改 this.page 会触发 @Watch('onPageChanged') 同步更新 jumpPage
+      // 改 this.page 后调用 reload，reload 末尾会同步 jumpPage（替代 @Watch）
       this.page = p;
       this.reload();
     }
-  }
-
-  // @Watch 回调：page 变化时同步跳转输入框默认显示（用户可覆盖输入后通过 ✓ 提交）
-  // 对齐安卓 jumpText = remember(page) { mutableStateOf((page + 1).toString()) }
-  private onPageChanged(): void {
-    this.jumpPage = (this.page + 1).toString();
   }
 
   // 筛选 Chip（对齐安卓 CompactChip：圆角小标签，选中高亮）

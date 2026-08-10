@@ -94,8 +94,8 @@ class FileRepository(
         // 经 file_notes 唯一索引 (file_id, content) 自动去重（区分大小写）。
         // 使用单语句 JOIN（copyNotesOnMerge）在 DB 内部完成 path 重映射，
         // 避免 20w 级别书库下「全量读取 path + 巨型 IN + 内存 map」导致的内存与参数上限问题。
-        val copied = fileNoteDao.copyNotesOnMerge(newId, sourceIds)
-        LogUtil.i("Repo", "mergeRuns 复制备注 $copied 条 -> 新文库 newId=$newId")
+        fileNoteDao.copyNotesOnMerge(newId, sourceIds)
+        LogUtil.i("Repo", "mergeRuns 已复制源文库备注 -> 新文库 newId=$newId")
         return newId
     }
 
@@ -335,7 +335,7 @@ class FileRepository(
         val q = query.trim()
         if (q.isNotEmpty()) {
             val safe = q.replace("'", "''")
-            where += "(file_name LIKE '%$safe%' OR title LIKE '%$safe%' OR author LIKE '%$safe%' OR title_pinyin LIKE '%$safe%' OR author_pinyin LIKE '%$safe%')"
+            where += "(file_name LIKE '%$safe%' OR title LIKE '%$safe%' OR author LIKE '%$safe%' OR title_pinyin LIKE '%$safe%' OR author_pinyin LIKE '%$safe%' OR id IN (SELECT file_id FROM file_notes WHERE content LIKE '%$safe%'))"
         }
         val orderBy = when (sort) {
             "NAME" -> "checked DESC, file_name ASC"
@@ -367,7 +367,7 @@ class FileRepository(
         val q = query.trim()
         if (q.isNotEmpty()) {
             val safe = q.replace("'", "''")
-            where += "(file_name LIKE '%$safe%' OR title LIKE '%$safe%' OR author LIKE '%$safe%' OR title_pinyin LIKE '%$safe%' OR author_pinyin LIKE '%$safe%')"
+            where += "(file_name LIKE '%$safe%' OR title LIKE '%$safe%' OR author LIKE '%$safe%' OR title_pinyin LIKE '%$safe%' OR author_pinyin LIKE '%$safe%' OR id IN (SELECT file_id FROM file_notes WHERE content LIKE '%$safe%'))"
         }
         return where.joinToString(" AND ")
     }
@@ -423,7 +423,7 @@ class FileRepository(
         val q = query.trim()
         if (q.isNotEmpty()) {
             val safe = q.replace("'", "''")
-            where += "(file_name LIKE '%$safe%' OR title LIKE '%$safe%' OR author LIKE '%$safe%' OR title_pinyin LIKE '%$safe%' OR author_pinyin LIKE '%$safe%')"
+            where += "(file_name LIKE '%$safe%' OR title LIKE '%$safe%' OR author LIKE '%$safe%' OR title_pinyin LIKE '%$safe%' OR author_pinyin LIKE '%$safe%' OR id IN (SELECT file_id FROM file_notes WHERE content LIKE '%$safe%'))"
         }
         val having = mutableListOf<String>()
         if (minCount > 0) having += "COUNT(*) >= $minCount"
@@ -586,7 +586,7 @@ class FileRepository(
         val q = query.trim()
         if (q.isNotEmpty()) {
             val safe = q.replace("'", "''")
-            where += "(file_name LIKE '%$safe%' OR title LIKE '%$safe%' OR author LIKE '%$safe%' OR title_pinyin LIKE '%$safe%' OR author_pinyin LIKE '%$safe%')"
+            where += "(file_name LIKE '%$safe%' OR title LIKE '%$safe%' OR author LIKE '%$safe%' OR title_pinyin LIKE '%$safe%' OR author_pinyin LIKE '%$safe%' OR id IN (SELECT file_id FROM file_notes WHERE content LIKE '%$safe%'))"
         }
         val having = mutableListOf<String>()
         if (minCount > 0) having += "COUNT(*) >= $minCount"

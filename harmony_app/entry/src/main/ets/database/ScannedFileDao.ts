@@ -763,8 +763,8 @@ export class ScannedFileDao {
     const q: string = query.trim();
     if (q.length === 0) return '';
     const pattern: string = `%${q}%`;
-    args.push(pattern, pattern, pattern, pattern, pattern);
-    return ' AND (file_name LIKE ? OR title LIKE ? OR author LIKE ? OR title_pinyin LIKE ? OR author_pinyin LIKE ?)';
+    args.push(pattern, pattern, pattern, pattern, pattern, pattern);
+    return ' AND (file_name LIKE ? OR title LIKE ? OR author LIKE ? OR title_pinyin LIKE ? OR author_pinyin LIKE ? OR id IN (SELECT file_id FROM file_notes WHERE content LIKE ?))';
   }
 
   /** 列表模式排序子句。 */

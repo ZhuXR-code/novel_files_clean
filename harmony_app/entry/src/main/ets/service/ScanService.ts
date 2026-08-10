@@ -421,21 +421,22 @@ export class ScanService {
           try {
             stat = await fileIo.stat(childUri);
           } catch (e) {
+            // stat 失败：可能是文档树 URI 子项 stat 不可靠，用 listFile 兜底判定目录。
+            if (config.recursive && !ScanService.isExcluded(name, config.excludedFolders)) {
+              try {
+                const probe: string[] = await fileIo.listFile(childUri);
+                if (Array.isArray(probe)) {
+                  nextLevel.push(childUri);
+                }
+              } catch (e2) {
+                // listFile 也失败，跳过该子项
+              }
+            }
             continue;
           }
-          // 判定目录：以 stat.isDirectory() 为主；文档树 URI 子项 stat 不可靠时，
-          // 用「listFile 能成功返回数组」作为目录的兜底判据，确保递归能下钻。
-          let isDir: boolean = stat.isDirectory();
-          if (!isDir) {
-            try {
-              const probe: string[] = await fileIo.listFile(childUri);
-              if (Array.isArray(probe) && probe.length >= 0) {
-                isDir = true;
-              }
-            } catch (e) {
-              // listFile 失败说明不是可遍历目录，维持 isDir=false
-            }
-          }
+          // 判定目录：以 stat.isDirectory() 为主；stat 已成功，绝大多数场景下直接可信，
+          // 避免对每个文件再发一次无意义的 listFile 探测（10w 文件场景会多出 10w 次 IPC）。
+          const isDir: boolean = stat.isDirectory();
           if (isDir) {
             if (config.recursive && !ScanService.isExcluded(name, config.excludedFolders)) {
               nextLevel.push(childUri);
