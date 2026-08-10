@@ -1,10 +1,12 @@
 package com.bookscleanandroid.app.data.repository
 
 import com.bookscleanandroid.app.data.database.dao.DupRuleConfigDao
+import com.bookscleanandroid.app.data.database.dao.FileNoteDao
 import com.bookscleanandroid.app.data.database.dao.ScannedFileDao
 import com.bookscleanandroid.app.data.database.dao.ScanRunDao
 import com.bookscleanandroid.app.data.database.dao.KeywordReplaceDao
 import com.bookscleanandroid.app.data.database.entity.DupRuleConfigEntity
+import com.bookscleanandroid.app.data.database.entity.FileNoteEntity
 import com.bookscleanandroid.app.data.database.entity.ScannedFileEntity
 import com.bookscleanandroid.app.data.database.entity.ScanRunEntity
 import com.bookscleanandroid.app.data.database.entity.KeywordReplaceRuleEntity
@@ -26,7 +28,8 @@ class FileRepository(
     private val dao: ScannedFileDao,
     private val runDao: ScanRunDao,
     private val keywordDao: KeywordReplaceDao,
-    private val dupRuleDao: DupRuleConfigDao? = null
+    private val dupRuleDao: DupRuleConfigDao? = null,
+    private val fileNoteDao: FileNoteDao
 ) {
     /** 首页统计所需的计数流，直接走 COUNT(*)，不加载全表。 */
     val totalCount: Flow<Int> = dao.countFlow()
@@ -85,8 +88,59 @@ class FileRepository(
      */
     suspend fun mergeRuns(sourceIds: List<Long>, newName: String): Long {
         require(sourceIds.size >= 2) { "合并文库至少需要选择 2 个" }
-        return runDao.mergeRuns(sourceIds, newName, System.currentTimeMillis())
+        val newId = runDao.mergeRuns(sourceIds, newName, System.currentTimeMillis())
+        // 合并备注：按 path 把源文库文件备注复制到新文库文件下。
+        // 同一 path 在合并后只保留一条（新 file_id），多个源文库对同一 path 的备注
+        // 经 file_notes 唯一索引 (file_id, content) 自动去重（区分大小写）。
+        val newPathToId = dao.getPathsAndIdsByRun(newId).associate { it.path to it.id }
+        val sourceFileIds = sourceIds.flatMap { dao.getPathsAndIdsByRun(it).map { t -> t.id } }
+        if (sourceFileIds.isNotEmpty()) {
+            val notes = fileNoteDao.getNotesByFilesOnce(sourceFileIds)
+            val toInsert = notes.mapNotNull { note ->
+                newPathToId[note.fileId.let { fid -> dao.getById(fid)?.path }]
+                    ?.let { newFileId -> FileNoteEntity(fileId = newFileId, content = note.content, createdAt = note.createdAt) }
+            }
+            if (toInsert.isNotEmpty()) fileNoteDao.insertIgnore(toInsert)
+        }
+        return newId
     }
+
+    // ===================== 文件备注（file_notes）管理 =====================
+    /** 取某文件全部备注（实时流，供详情页展示）。 */
+    fun getFileNotesFlow(fileId: Long) = fileNoteDao.getNotesByFile(fileId)
+
+    /**
+     * 新增备注。content 须 1~50 字；同一文件内内容（区分大小写）重复则抛
+     * IllegalStateException，由调用方提示用户。
+     */
+    suspend fun addFileNote(fileId: Long, content: String): FileNoteEntity {
+        val c = content.trim()
+        require(c.isNotEmpty() && c.length <= 50) { "备注内容须为 1~50 字" }
+        val entity = FileNoteEntity(fileId = fileId, content = c)
+        try {
+            fileNoteDao.insert(entity)
+        } catch (e: android.database.sqlite.SQLiteConstraintException) {
+            throw IllegalStateException("该文件已存在相同内容的备注", e)
+        }
+        // 重新取出（带自增 id / createdAt）
+        return fileNoteDao.getNotesByFileOnce(fileId).firstOrNull { it.content == c }
+            ?: entity
+    }
+
+    /** 编辑备注内容，规则同新增。 */
+    suspend fun updateFileNote(noteId: Long, fileId: Long, content: String) {
+        val c = content.trim()
+        require(c.isNotEmpty() && c.length <= 50) { "备注内容须为 1~50 字" }
+        val existing = fileNoteDao.getNotesByFileOnce(fileId).firstOrNull { it.id == noteId }
+            ?: throw IllegalStateException("备注不存在")
+        try {
+            fileNoteDao.update(existing.copy(content = c))
+        } catch (e: android.database.sqlite.SQLiteConstraintException) {
+            throw IllegalStateException("该文件已存在相同内容的备注", e)
+        }
+    }
+
+    suspend fun deleteFileNote(noteId: Long) = fileNoteDao.deleteById(noteId)
 
     suspend fun getById(id: Long): ScannedFileEntity? = dao.getById(id)
     suspend fun getByIds(ids: List<Long>): List<ScannedFileEntity> = dao.getByIds(ids)

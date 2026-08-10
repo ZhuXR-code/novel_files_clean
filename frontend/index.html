@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文件扫描管理系统</title>
     <link rel="icon" href="/static/favicon.ico?v=20260718">
-    <link rel="stylesheet" href="/static/css/style.css?v=20260723g">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260809a">
 </head>
 <body>
     <div id="app">
@@ -72,6 +72,7 @@
                     <div class="toolbar-left">
                         <div class="search-filter-group">
                             <input type="text" id="searchInput" placeholder="模糊搜索文件名/路径/小说名/作者..." style="width:260px" oninput="debouncedSearch()">
+                            <input type="text" id="noteSearchInput" placeholder="按备注搜索..." style="width:160px" oninput="debouncedNoteSearch()">
                             <span class="toolbar-sep"></span>
                             <div class="checked-filter-group">
                                 <button class="checked-filter-btn active" data-filter="all" onclick="setCheckedFilter('all')">全部</button>
@@ -626,6 +627,6 @@
         <button class="back-nav-btn" id="backToBottomBtn" title="回到底部" onclick="scrollToBottom()">↓</button>
     </div>
 
-    <script src="/static/js/app.js?v=20260807a"></script>
+    <script src="/static/js/app.js?v=20260809a"></script>
 </body>
 </html>

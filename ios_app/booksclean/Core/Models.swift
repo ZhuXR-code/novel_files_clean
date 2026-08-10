@@ -110,3 +110,11 @@ struct LogEntry: Identifiable {
     var tag: String = ""
     var message: String = ""
 }
+
+/// 文件备注（对应 `file_notes` 表）。同一 `fileId` 内 `content` 去重（区分大小写）。
+struct FileNote: Identifiable {
+    var id: Int64 = 0
+    var fileId: Int64 = 0
+    var content: String = ""
+    var createdAt: Int64 = 0
+}

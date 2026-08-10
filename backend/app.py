@@ -22,7 +22,7 @@ from sqlalchemy import create_engine, text, func, Integer
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.logger import logger
-from backend.models import Base, ScanConfig, ScanResult, FileMetadata, ColumnConfig, FileGroup, ParseLog, KeywordReplaceRule, HelpDoc, DupRuleConfig
+from backend.models import Base, ScanConfig, ScanResult, FileMetadata, ColumnConfig, FileGroup, ParseLog, KeywordReplaceRule, HelpDoc, DupRuleConfig, FileNoteModel
 from backend.scanner import scan_files
 from backend.regex_parser import parse_file_names_regex_only, parse_file_summary_regex_only
 from backend import pipeline as pipeline_manager
@@ -231,6 +231,9 @@ def init_database():
     Base.metadata.create_all(bind=engine)
     logger.info('数据表创建完成')
 
+    # 迁移：file_notes 备注表（兼容历史库补索引）
+    _migrate_file_notes()
+
     # 迁移：修复 FileMetadata 外键约束（确保 ON DELETE CASCADE）
     _migrate_fk_cascade()
 
@@ -304,8 +307,44 @@ def _init_sqlite_database():
     _migrate_file_metadata_pinyin()
     _migrate_file_metadata_encoding()
 
+    # 迁移：file_notes 备注表（兼容历史库补索引）
+    _migrate_file_notes()
+
     _init_default_data()
     logger.info(f'SQLite 初始化完成: {db_path}')
+
+
+def _migrate_file_notes():
+    """迁移：确保 file_notes 表与索引存在（兼容已存在该表但缺索引的历史库）"""
+    try:
+        with engine.connect() as conn:
+            if IS_SQLITE:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS file_notes ("
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                    "config_id INTEGER NOT NULL, "
+                    "file_id INTEGER NOT NULL, "
+                    "content TEXT NOT NULL, "
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
+                ))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fn_file ON file_notes(config_id, file_id)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fn_content ON file_notes(content)"))
+            else:
+                conn.execute(text(
+                    "CREATE TABLE IF NOT EXISTS file_notes ("
+                    "id INT PRIMARY KEY AUTO_INCREMENT, "
+                    "config_id INT NOT NULL, "
+                    "file_id INT NOT NULL, "
+                    "content VARCHAR(50) NOT NULL, "
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, "
+                    "INDEX idx_fn_file (config_id, file_id), "
+                    "INDEX idx_fn_content (content)) "
+                    "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+                ))
+            conn.commit()
+        logger.info('迁移: file_notes 表与索引已就绪')
+    except Exception as e:
+        logger.warning(f'迁移 file_notes 警告: {e}')
 
 
 def _migrate_drop_copywriting():
@@ -1984,12 +2023,146 @@ def _apply_cfg_title_excludes(query, db, config_id, keyword_op='notin'):
     return query
 
 
+# ---------------------------------------------------------------------------
+# 文件备注（file_notes）：增删改查 + 同文件去重（区分大小写，≤50字）
+# ---------------------------------------------------------------------------
+def _validate_note_content(content):
+    """校验备注内容：strip 后 1~50 字符，返回规范化串；非法抛 ValueError"""
+    if content is None:
+        raise ValueError('备注内容不能为空')
+    c = str(content).strip()
+    if not c:
+        raise ValueError('备注内容不能为空')
+    if len(c) > 50:
+        raise ValueError('备注内容不能超过 50 个字符')
+    return c
+
+
+def _get_note_file_or_404(db, file_id, config_id=None):
+    """校验 file_id 存在（且属于 config_id），返回 ScanResult 或抛 404"""
+    q = db.query(ScanResult).filter(ScanResult.id == file_id)
+    sr = q.first()
+    if sr is None:
+        raise HTTPException(status_code=404, detail='文件不存在')
+    if config_id is not None and config_id != '' and getattr(sr, 'scan_config_id', None) != config_id:
+        raise HTTPException(status_code=404, detail='文件不存在')
+    return sr
+
+
+@app.get('/api/files/{file_id}/notes')
+def get_file_notes(file_id: int, config_id: Optional[int] = Query(None)):
+    """查某文件全部备注（文件详情页用）"""
+    db = SessionLocal()
+    try:
+        _get_note_file_or_404(db, file_id, config_id)
+        notes = db.query(FileNoteModel).filter(
+            FileNoteModel.file_id == file_id
+        ).order_by(FileNoteModel.created_at, FileNoteModel.id).all()
+        return {'success': True, 'notes': [
+            {'id': n.id, 'content': n.content, 'created_at': str(n.created_at)}
+            for n in notes
+        ]}
+    except Exception as e:
+        logger.warning(f'获取备注失败: {e}')
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.post('/api/files/{file_id}/notes')
+def add_file_note(file_id: int, body: dict, config_id: Optional[int] = Query(None)):
+    """给某文件新增一条备注"""
+    db = SessionLocal()
+    try:
+        sr = _get_note_file_or_404(db, file_id, config_id)
+        content = _validate_note_content(body.get('content') if isinstance(body, dict) else body)
+        dup = db.query(FileNoteModel).filter(
+            FileNoteModel.file_id == file_id,
+            FileNoteModel.content == content,
+        ).first()
+        if dup is not None:
+                raise HTTPException(status_code=400, detail='同一文件内已存在相同内容的备注')
+        note = FileNoteModel(config_id=getattr(sr, 'scan_config_id', config_id), file_id=file_id, content=content)
+        db.add(note)
+        db.commit()
+        db.refresh(note)
+        return {'success': True, 'note': {'id': note.id, 'content': note.content, 'created_at': str(note.created_at)}}
+    except Exception as e:
+        db.rollback()
+        logger.warning(f'新增备注失败: {e}')
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.put('/api/files/{file_id}/notes/{note_id}')
+def update_file_note(file_id: int, note_id: int, body: dict, config_id: Optional[int] = Query(None)):
+    """编辑某条备注"""
+    db = SessionLocal()
+    try:
+        _get_note_file_or_404(db, file_id, config_id)
+        content = _validate_note_content(body.get('content') if isinstance(body, dict) else body)
+        note = db.query(FileNoteModel).filter(
+            FileNoteModel.id == note_id, FileNoteModel.file_id == file_id
+        ).first()
+        if note is None:
+                raise HTTPException(status_code=404, detail='备注不存在')
+        dup = db.query(FileNoteModel).filter(
+            FileNoteModel.file_id == file_id,
+            FileNoteModel.content == content,
+            FileNoteModel.id != note_id,
+        ).first()
+        if dup is not None:
+                raise HTTPException(status_code=400, detail='同一文件内已存在相同内容的备注')
+        note.content = content
+        db.commit()
+        db.refresh(note)
+        return {'success': True, 'note': {'id': note.id, 'content': note.content, 'created_at': str(note.created_at)}}
+    except Exception as e:
+        db.rollback()
+        logger.warning(f'编辑备注失败: {e}')
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.delete('/api/files/{file_id}/notes/{note_id}')
+def delete_file_note(file_id: int, note_id: int, config_id: Optional[int] = Query(None)):
+    """删除某条备注"""
+    db = SessionLocal()
+    try:
+        _get_note_file_or_404(db, file_id, config_id)
+        note = db.query(FileNoteModel).filter(
+            FileNoteModel.id == note_id, FileNoteModel.file_id == file_id
+        ).first()
+        if note is None:
+                raise HTTPException(status_code=404, detail='备注不存在')
+        db.delete(note)
+        db.commit()
+        return {'success': True}
+    except Exception as e:
+        db.rollback()
+        logger.warning(f'删除备注失败: {e}')
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        db.close()
+
+
 @app.get('/api/results')
 def list_results(
     config_id: Optional[int] = Query(None),
     sort_by: str = Query('id'),
     sort_order: str = Query('desc'),
     search: Optional[str] = Query(None),
+    note: Optional[str] = Query(None),
     novel_names: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
@@ -2033,6 +2206,17 @@ def list_results(
             FileMetadata.title_pinyin.like(like_pat),
             FileMetadata.author_pinyin.like(like_pat),
         ))
+
+    if note:
+        note_pat = f'%{note}%'
+        base_query = base_query.filter(
+            ScanResult.id.in_(
+                db.query(FileNoteModel.file_id).filter(
+                    FileNoteModel.config_id == config_id,
+                    FileNoteModel.content.like(note_pat),
+                )
+            )
+        )
 
     if novel_names:
         names_list = [n.strip() for n in novel_names.split(',') if n.strip()]
@@ -2208,6 +2392,7 @@ def list_groups(
     max_count: Optional[int] = Query(None, ge=0),
     exclude_names: Optional[str] = Query(None),
     checked_filter: Optional[str] = Query(None),
+    note: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=2000),
     db: Session = Depends(get_db),
@@ -2217,6 +2402,22 @@ def list_groups(
 
     # 1. 构建分组查询
     group_query = db.query(FileGroup).filter(FileGroup.config_id == config_id)
+
+    if note:
+        note_pat = f'%{note}%'
+        from sqlalchemy import select as _select
+        from sqlalchemy import func as _func
+        note_novels = _select(
+            _func.coalesce(FileMetadata.novel_name, '')
+        ).join(
+            ScanResult, ScanResult.id == FileMetadata.scan_result_id
+        ).join(
+            FileNoteModel, FileNoteModel.file_id == ScanResult.id
+        ).filter(
+            FileNoteModel.config_id == config_id,
+            FileNoteModel.content.like(note_pat),
+        )
+        group_query = group_query.filter(FileGroup.novel_name.in_(note_novels))
 
     if min_count > 0:
         group_query = group_query.filter(FileGroup.file_count >= min_count)

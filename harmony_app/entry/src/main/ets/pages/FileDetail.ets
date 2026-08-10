@@ -3,6 +3,7 @@ import { common } from '@kit.AbilityKit';
 import { Want } from '@kit.AbilityKit';
 import { ScannedFile } from '../model/ScannedFile';
 import { ScannedFileDao } from '../database/ScannedFileDao';
+import { FileNoteDao, FileNote } from '../database/FileNoteDao';
 import { FormatUtil } from '../utils/FormatUtil';
 import { LogUtil } from '../utils/LogUtil';
 import { TopBar } from '../components/TopBar';
@@ -19,6 +20,12 @@ struct FileDetail {
   // 对齐安卓端：删除选项弹窗（仅记录/记录+源文件）
   @State showDeleteChoice: boolean = false;
   @State deleteSource: boolean = false;
+  // 文件备注
+  @State notes: FileNote[] = [];
+  @State showNoteDialog: boolean = false;
+  @State noteEditId: number = -1; // -1 表示新增
+  @State noteDraft: string = '';
+  @State noteError: string = '';
 
   async aboutToAppear(): Promise<void> {
     const params = router.getParams() as Record<string, Object>;
@@ -32,6 +39,56 @@ struct FileDetail {
       ToastUtil.show('加载失败');
     }
     this.loading = false;
+    this.loadNotes();
+  }
+
+  private loadNotes(): void {
+    if (this.fileId > 0) {
+      this.notes = FileNoteDao.getNotesByFile(this.fileId);
+    }
+  }
+
+  private openAddNote(): void {
+    this.noteEditId = -1;
+    this.noteDraft = '';
+    this.noteError = '';
+    this.showNoteDialog = true;
+  }
+
+  private openEditNote(note: FileNote): void {
+    this.noteEditId = note.id;
+    this.noteDraft = note.content;
+    this.noteError = '';
+    this.showNoteDialog = true;
+  }
+
+  private async saveNote(): Promise<void> {
+    const content = this.noteDraft.trim();
+    if (!content) {
+      this.noteError = '备注内容不能为空';
+      return;
+    }
+    if (content.length > 50) {
+      this.noteError = '备注内容不能超过 50 字';
+      return;
+    }
+    let ok = false;
+    if (this.noteEditId < 0) {
+      ok = FileNoteDao.insert(this.fileId, content, Date.now());
+    } else {
+      ok = FileNoteDao.update(this.noteEditId, this.fileId, content);
+    }
+    if (ok) {
+      this.showNoteDialog = false;
+      this.loadNotes();
+    } else {
+      this.noteError = (this.noteEditId < 0 ? '添加失败：' : '修改失败：') + '该文件已存在相同内容的备注';
+    }
+  }
+
+  private deleteNote(note: FileNote): void {
+    FileNoteDao.delete(note.id);
+    this.loadNotes();
   }
 
   private async onMarkChanged(marked: boolean): Promise<void> {
@@ -219,6 +276,59 @@ struct FileDetail {
               .fontColor($r('app.color.text_primary'))
               .margin({ top: 8 })
               .onClick(() => this.openFile())
+
+            // ===================== 文件备注 =====================
+            Column({ space: 8 }) {
+              Text('备注')
+                .fontSize(16)
+                .fontWeight(FontWeight.Bold)
+                .fontColor($r('app.color.text_primary'))
+                .alignSelf(HorizontalAlign.Start)
+
+              if (this.notes.length === 0) {
+                Text('暂无备注，点击下方按钮添加')
+                  .fontSize(13)
+                  .fontColor($r('app.color.text_secondary'))
+                  .alignSelf(HorizontalAlign.Start)
+              } else {
+                ForEach(this.notes, (note: FileNote) => {
+                  Row({ space: 8 }) {
+                    Text(note.content)
+                      .fontSize(14)
+                      .fontColor($r('app.color.text_primary'))
+                      .layoutWeight(1)
+                      .alignSelf(VerticalAlign.Center)
+                    Button('编辑')
+                      .height(32)
+                      .fontSize(13)
+                      .backgroundColor($r('app.color.bg_light'))
+                      .fontColor($r('app.color.text_primary'))
+                      .onClick(() => this.openEditNote(note))
+                    Button('删除')
+                      .height(32)
+                      .fontSize(13)
+                      .backgroundColor($r('app.color.danger'))
+                      .fontColor($r('app.color.text_on_primary'))
+                      .onClick(() => this.deleteNote(note))
+                  }
+                  .width('100%')
+                  .backgroundColor($r('app.color.bg_card'))
+                  .borderRadius(8)
+                  .padding(12)
+                }, (note: FileNote) => note.id.toString())
+              }
+
+              Button('添加备注')
+                .width('100%')
+                .height(44)
+                .margin({ top: 4 })
+                .backgroundColor($r('app.color.primary'))
+                .fontColor($r('app.color.text_on_primary'))
+                .onClick(() => this.openAddNote())
+            }
+            .width('100%')
+            .margin({ top: 16 })
+            .alignItems(HorizontalAlign.Start)
           }
           .width('100%')
           .padding(16)
@@ -235,6 +345,11 @@ struct FileDetail {
       // 删除选项弹窗（对齐安卓端：仅记录/记录+源文件）
       if (this.showDeleteChoice) {
         this.deleteChoiceDialog()
+      }
+
+      // 备注新增/编辑弹窗
+      if (this.showNoteDialog) {
+        this.noteDialog()
       }
     }
     .width('100%')
@@ -371,6 +486,71 @@ struct FileDetail {
       .backgroundColor($r('app.color.bg_card'))
       .borderRadius(12)
       // 弹窗卡片居中：position + markAnchor 实现真正的中心对齐
+      .position({ x: '50%', y: '50%' })
+      .markAnchor({ x: '50%', y: '50%' })
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  // 备注新增/编辑弹窗
+  @Builder
+  noteDialog() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor($r('app.color.scrim'))
+        .onClick(() => { this.showNoteDialog = false; })
+
+      Column({ space: 12 }) {
+        Text(this.noteEditId < 0 ? '添加备注' : '编辑备注')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+
+        TextInput({ placeholder: '请输入备注内容（1~50 字）', text: this.noteDraft })
+          .width('100%')
+          .height(60)
+          .backgroundColor($r('app.color.bg_page'))
+          .onChange((v: string) => {
+            if (v.length <= 50) {
+              this.noteDraft = v;
+              this.noteError = '';
+            }
+          })
+
+        Text(`${this.noteDraft.trim().length}/50`)
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+          .alignSelf(HorizontalAlign.End)
+
+        if (this.noteError) {
+          Text(this.noteError)
+            .fontSize(12)
+            .fontColor($r('app.color.danger'))
+            .alignSelf(HorizontalAlign.Start)
+        }
+
+        Row({ space: 8 }) {
+          Button('取消')
+            .layoutWeight(1)
+            .backgroundColor($r('app.color.bg_page'))
+            .fontColor($r('app.color.text_primary'))
+            .onClick(() => { this.showNoteDialog = false; })
+          Button('保存')
+            .layoutWeight(1)
+            .backgroundColor($r('app.color.primary'))
+            .fontColor($r('app.color.text_on_primary'))
+            .onClick(() => this.saveNote())
+        }
+        .width('100%')
+        .margin({ top: 4 })
+      }
+      .width('85%')
+      .padding(16)
+      .backgroundColor($r('app.color.bg_card'))
+      .borderRadius(12)
       .position({ x: '50%', y: '50%' })
       .markAnchor({ x: '50%', y: '50%' })
     }

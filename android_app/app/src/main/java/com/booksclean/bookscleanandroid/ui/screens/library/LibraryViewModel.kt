@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.bookscleanandroid.app.FileScannerApp
 import com.bookscleanandroid.app.data.database.entity.ScannedFileEntity
 import com.bookscleanandroid.app.data.database.entity.ScanRunEntity
+import com.bookscleanandroid.app.data.database.entity.FileNoteEntity
 import com.bookscleanandroid.app.data.database.entity.DuplicateRow
 import com.bookscleanandroid.app.data.model.DeleteStateManager
 import com.bookscleanandroid.app.data.model.NovelGroup
@@ -570,6 +571,26 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     suspend fun getById(id: Long): ScannedFileEntity? = repo.getById(id)
+
+    // ===================== 文件备注 =====================
+    /** 取某文件全部备注的实时流（详情页监听）。 */
+    fun getFileNotesFlow(fileId: Long): Flow<List<FileNoteEntity>> = repo.getFileNotesFlow(fileId)
+
+    /** 新增备注，返回 null 表示成功，否则返回错误提示（如重复/超长）。 */
+    suspend fun addFileNote(fileId: Long, content: String): String? = runCatching {
+        repo.addFileNote(fileId, content)
+    }.fold(onSuccess = { null }, onFailure = { it.message ?: "添加备注失败" })
+
+    /** 编辑备注，返回 null 表示成功，否则返回错误提示。 */
+    suspend fun updateFileNote(noteId: Long, fileId: Long, content: String): String? = runCatching {
+        repo.updateFileNote(noteId, fileId, content)
+    }.fold(onSuccess = { null }, onFailure = { it.message ?: "修改备注失败" })
+
+    fun deleteFileNote(noteId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repo.deleteFileNote(noteId)
+        }
+    }
 
     fun markDuplicatesByName() {
         val runId = _currentRunId.value ?: run { _toast.value = "请先进入某个文库"; return }

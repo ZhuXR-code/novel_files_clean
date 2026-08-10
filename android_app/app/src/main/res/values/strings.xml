@@ -337,6 +337,17 @@
     <string name="no_viewer_found">未找到可打开该文件的应用</string>
     <string name="file_not_found">未找到该文件记录（可能已被删除）</string>
 
+    <!-- 文件备注 -->
+    <string name="file_notes_title">备注</string>
+    <string name="file_notes_empty">暂无备注，点击下方按钮添加</string>
+    <string name="note_add">添加备注</string>
+    <string name="note_add_title">添加备注</string>
+    <string name="note_edit">编辑备注</string>
+    <string name="note_edit_title">编辑备注</string>
+    <string name="note_delete">删除备注</string>
+    <string name="note_placeholder">请输入备注内容（1~50 字）</string>
+    <string name="note_empty_error">备注内容不能为空</string>
+
     <!-- 文件内容预览 -->
     <string name="preview_file">预览内容</string>
     <string name="preview_title">内容预览</string>

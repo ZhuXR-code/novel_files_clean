@@ -7,11 +7,13 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.bookscleanandroid.app.data.database.dao.DupRuleConfigDao
+import com.bookscleanandroid.app.data.database.dao.FileNoteDao
 import com.bookscleanandroid.app.data.database.dao.ScannedFileDao
 import com.bookscleanandroid.app.data.database.dao.ScanConfigDao
 import com.bookscleanandroid.app.data.database.dao.ScanRunDao
 import com.bookscleanandroid.app.data.database.dao.KeywordReplaceDao
 import com.bookscleanandroid.app.data.database.entity.DupRuleConfigEntity
+import com.bookscleanandroid.app.data.database.entity.FileNoteEntity
 import com.bookscleanandroid.app.data.database.entity.ScannedFileEntity
 import com.bookscleanandroid.app.data.database.entity.ScanConfigEntity
 import com.bookscleanandroid.app.data.database.entity.ScanRunEntity
@@ -21,9 +23,9 @@ import com.bookscleanandroid.app.util.LogUtil
 @Database(
     entities = [
         ScannedFileEntity::class, ScanConfigEntity::class, ScanRunEntity::class,
-        KeywordReplaceRuleEntity::class, DupRuleConfigEntity::class
+        KeywordReplaceRuleEntity::class, DupRuleConfigEntity::class, FileNoteEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -32,6 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun scanRunDao(): ScanRunDao
     abstract fun keywordReplaceDao(): KeywordReplaceDao
     abstract fun dupRuleConfigDao(): DupRuleConfigDao
+    abstract fun fileNoteDao(): FileNoteDao
 
     companion object {
         @Volatile
@@ -267,6 +270,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v15 -> v16：新增 file_notes 表（文件备注）。
+         * 建表 + file_id 索引 + (file_id, content) 唯一索引（默认 BINARY 排序，区分大小写去重）。
+         * 仅建表，旧数据安全保留。
+         */
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS file_notes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        file_id INTEGER NOT NULL,
+                        content TEXT NOT NULL,
+                        created_at INTEGER NOT NULL DEFAULT 0
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_file_notes_file_id ON file_notes(file_id)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_file_notes_file_content ON file_notes(file_id, content)")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -274,7 +299,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also {

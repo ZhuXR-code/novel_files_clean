@@ -185,6 +185,20 @@ export class RdbHelper {
     );
     // 复合索引：加速「勾选重复」按 (scan_run_id, title_author_key) 的分组聚合与过滤。
     await safe('CREATE INDEX IF NOT EXISTS idx_sf_run_tak ON scanned_file(scan_run_id, title_author_key)', 'idx_sf_run_tak');
+
+    // 文件备注表（file_notes）：每个文件可有多条备注（≤50 字），同文件内 content 去重（区分大小写）。
+    // SQLite 默认 COLLATE BINARY，唯一索引 (file_id, content) 区分大小写；
+    // 故 "A" 与 "a" 视为不同内容，可同时存在于同一文件下。
+    await safe(`
+      CREATE TABLE IF NOT EXISTS file_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        file_id INTEGER NOT NULL DEFAULT 0,
+        content TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL DEFAULT 0
+      )`, 'file_notes');
+    await safe('CREATE INDEX IF NOT EXISTS idx_fn_file ON file_notes(file_id)', 'idx_fn_file');
+    await safe('CREATE UNIQUE INDEX IF NOT EXISTS idx_fn_file_content ON file_notes(file_id, content)', 'idx_fn_file_content');
+
     // 拼音回填：历史数据在拼音列加入前已入库时，title_pinyin/author_pinyin 为空串，
     // 导致按拼音搜索无法命中。仅在拼音列为空、原字段非空时回填，已有正确拼音的不覆盖。
     await this.backfillPinyin(store);

@@ -117,6 +117,28 @@ class ScanResult(Base):
     metadata_record = relationship('FileMetadata', back_populates='scan_result', uselist=False, cascade='all, delete-orphan')
 
 
+class FileNoteModel(Base):
+    """文件备注表：每个文件可挂多条备注（≤50字，同一文件内内容互不重复，区分大小写）"""
+    __tablename__ = 'file_notes'
+
+    _content_index = (
+        Index('idx_fn_content', 'content', mysql_length=50)
+        if not _IS_SQLITE else
+        Index('idx_fn_content', 'content')
+    )
+
+    __table_args__ = (
+        Index('idx_fn_file', 'config_id', 'file_id'),
+        _content_index,
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='备注ID')
+    config_id = Column(Integer, nullable=False, comment='关联扫描配置ID（书库）')
+    file_id = Column(Integer, nullable=False, comment='关联扫描结果ID（scan_results.id）')
+    content = Column(String(50), nullable=False, comment='备注内容（≤50字符）')
+    created_at = Column(DateTime, server_default=func.now(), comment='创建时间')
+
+
 class FileMetadata(Base):
     """文件元数据（工程解析结果）"""
     __tablename__ = 'file_metadata'

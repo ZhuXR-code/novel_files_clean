@@ -17,6 +17,7 @@ let state = {
     sortOrder: 'desc',
     sortClicks: {},
     searchText: '',
+    noteText: '',
     scanningIds: new Set(),
     groupByFileName: false,
     minGroupCount: 0,
@@ -233,6 +234,9 @@ async function loadResults() {
         if (state.searchText) {
             params.set('search', state.searchText);
         }
+        if (state.noteText) {
+            params.set('note', state.noteText);
+        }
         if (state.checkedFilter !== 'all') {
             params.set('checked_filter', state.checkedFilter);
         }
@@ -358,6 +362,9 @@ function selectConfig(id) {
     state.filterListRendered = false;
     const searchInput = document.getElementById('searchInput');
     if (searchInput) searchInput.value = '';
+    const noteSearchInput = document.getElementById('noteSearchInput');
+    if (noteSearchInput) noteSearchInput.value = '';
+    state.noteText = '';
     const filterDropdown = document.getElementById('filterDropdown');
     if (filterDropdown) filterDropdown.style.display = 'none';
     updateFilterBadge();
@@ -1120,7 +1127,103 @@ function buildDetailContent(r) {
     if (sections.length === 0) {
         return '<div class="detail-empty">暂无解析数据</div>';
     }
+    // 备注区块：展开后由 loadFileNotes 异步填充列表；添加/编辑/删除走事件委托
+    sections.push(`<div class="detail-section note-section" id="noteSection-${r.id}">
+        <div class="detail-label">备注 <button class="btn-sm note-add-btn" data-id="${r.id}" data-action="noteAdd">添加备注</button></div>
+        <div class="detail-value">
+            <div class="note-list" id="noteList-${r.id}"><span class="note-loading">加载中…</span></div>
+        </div>
+    </div>`);
     return sections.join('');
+}
+
+// 异步加载某文件的备注列表并填充到详情面板
+async function loadFileNotes(fileId) {
+    const listEl = document.getElementById('noteList-' + fileId);
+    if (!listEl) return;
+    try {
+        const resp = await fetch(`/api/files/${fileId}/notes?config_id=${encodeURIComponent(state.configId || '')}`);
+        const data = await resp.json();
+        if (!data.success) {
+            listEl.innerHTML = '<span class="note-empty">备注加载失败</span>';
+            return;
+        }
+        if (!data.notes || data.notes.length === 0) {
+            listEl.innerHTML = '<span class="note-empty">暂无备注</span>';
+            return;
+        }
+        listEl.innerHTML = data.notes.map(n => `
+            <div class="note-item" data-note-id="${n.id}">
+                <span class="note-text">${escapeHtml(n.content)}</span>
+                <span class="note-actions">
+                    <button class="btn-sm" data-action="noteEdit" data-id="${fileId}" data-note-id="${n.id}">编辑</button>
+                    <button class="btn-sm danger" data-action="noteDelete" data-id="${fileId}" data-note-id="${n.id}">删除</button>
+                </span>
+            </div>`).join('');
+    } catch (e) {
+        listEl.innerHTML = '<span class="note-empty">备注加载失败</span>';
+    }
+}
+
+// 备注弹窗（添加/编辑共用）：复用全局简单 prompt 风格的模态
+function openNoteDialog(fileId, noteId, initialContent) {
+    const isEdit = !!noteId;
+    const overlay = document.createElement('div');
+    overlay.className = 'note-dialog-overlay';
+    overlay.innerHTML = `
+        <div class="note-dialog">
+            <div class="note-dialog-title">${isEdit ? '编辑备注' : '添加备注'}</div>
+            <textarea class="note-input" maxlength="50" placeholder="最多 50 个字符">${escapeHtml(initialContent || '')}</textarea>
+            <div class="note-count"><span class="note-len">${(initialContent || '').length}</span>/50</div>
+            <div class="note-dialog-actions">
+                <button class="btn-sm note-cancel">取消</button>
+                <button class="btn-sm note-confirm">${isEdit ? '保存' : '添加'}</button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+    const ta = overlay.querySelector('.note-input');
+    const lenEl = overlay.querySelector('.note-len');
+    ta.focus();
+    ta.addEventListener('input', () => { lenEl.textContent = ta.value.length; });
+    overlay.querySelector('.note-cancel').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    overlay.querySelector('.note-confirm').addEventListener('click', async () => {
+        const content = ta.value.trim();
+        if (!content) { alert('备注内容不能为空'); return; }
+        if (content.length > 50) { alert('备注内容不能超过 50 个字符'); return; }
+        const url = isEdit
+            ? `/api/files/${fileId}/notes/${noteId}?config_id=${encodeURIComponent(state.configId || '')}`
+            : `/api/files/${fileId}/notes?config_id=${encodeURIComponent(state.configId || '')}`;
+        const method = isEdit ? 'PUT' : 'POST';
+        try {
+            const resp = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content }),
+            });
+            const data = await resp.json();
+            if (!data.success) {
+                alert(data.detail || '操作失败');
+                return;
+            }
+            overlay.remove();
+            loadFileNotes(fileId);
+        } catch (e) {
+            alert('请求失败：' + e.message);
+        }
+    });
+}
+
+async function deleteFileNote(fileId, noteId) {
+    if (!confirm('确定删除这条备注？')) return;
+    try {
+        const resp = await fetch(`/api/files/${fileId}/notes/${noteId}?config_id=${encodeURIComponent(state.configId || '')}`, { method: 'DELETE' });
+        const data = await resp.json();
+        if (!data.success) { alert(data.detail || '删除失败'); return; }
+        loadFileNotes(fileId);
+    } catch (e) {
+        alert('删除失败：' + e.message);
+    }
 }
 
 function getColumnValue(row, key) {
@@ -1168,6 +1271,7 @@ function toggleExpand(id) {
         expandTr.dataset.parent = id;
         expandTr.innerHTML = `<td colspan="${colspan}">${buildDetailContent(findRowById(id))}</td>`;
         mainRow.insertAdjacentElement('afterend', expandTr);
+        loadFileNotes(id);
         const icon = mainRow.querySelector('.expand-icon');
         if (icon) icon.classList.add('expanded');
     }
@@ -1440,6 +1544,23 @@ function handleBodyClick(e) {
     // 展开详情
     if (action === 'expand') {
         toggleExpand(Number(target.dataset.id));
+        return;
+    }
+    // 添加备注
+    if (action === 'noteAdd') {
+        openNoteDialog(Number(target.dataset.id), null, '');
+        return;
+    }
+    // 编辑备注
+    if (action === 'noteEdit') {
+        const noteItem = target.closest('.note-item');
+        const current = noteItem ? noteItem.querySelector('.note-text').textContent : '';
+        openNoteDialog(Number(target.dataset.id), Number(target.dataset.noteId), current);
+        return;
+    }
+    // 删除备注
+    if (action === 'noteDelete') {
+        deleteFileNote(Number(target.dataset.id), Number(target.dataset.noteId));
         return;
     }
     // 删除
@@ -2382,6 +2503,12 @@ function debounce(fn, delay) {
 const debouncedSearch = debounce(function () {
     state.searchText = document.getElementById('searchInput').value.trim();
     state.sortClicks = {};
+    state.page = 1;
+    loadResults();
+}, 400);
+
+const debouncedNoteSearch = debounce(function () {
+    state.noteText = document.getElementById('noteSearchInput').value.trim();
     state.page = 1;
     loadResults();
 }, 400);

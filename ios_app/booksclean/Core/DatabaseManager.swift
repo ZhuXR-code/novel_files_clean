@@ -131,6 +131,18 @@ final class DatabaseManager {
               updated_at INTEGER NOT NULL DEFAULT 0
             );
             """,
+            // 文件备注表（file_notes）：每个文件可有多条备注（≤50 字），同文件内 content 去重（区分大小写）。
+            // SQLite 默认 COLLATE BINARY，唯一索引 (file_id, content) 区分大小写；"A" 与 "a" 视为不同内容。
+            """
+            CREATE TABLE IF NOT EXISTS file_notes (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              file_id INTEGER NOT NULL DEFAULT 0,
+              content TEXT NOT NULL DEFAULT '',
+              created_at INTEGER NOT NULL DEFAULT 0
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_fn_file ON file_notes(file_id);",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_fn_file_content ON file_notes(file_id, content);",
             """
             CREATE TABLE IF NOT EXISTS operation_log (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -852,6 +864,45 @@ final class DatabaseManager {
             .first.map(mapScanRun)
     }
 
+    // MARK: - file_notes（文件备注）
+    /// 取某文件全部备注（按创建时间升序）。
+    func getFileNotes(fileId: Int64) -> [FileNote] {
+        fetchAll("SELECT id, file_id, content, created_at FROM file_notes WHERE file_id = ? ORDER BY created_at ASC, id ASC", [fileId])
+            .map { r in
+                var n = FileNote()
+                n.id = (r[0] as? Int64) ?? 0
+                n.fileId = (r[1] as? Int64) ?? 0
+                n.content = (r[2] as? String) ?? ""
+                n.createdAt = (r[3] as? Int64) ?? 0
+                return n
+            }
+    }
+
+    /// 新增备注，返回是否成功（false 表示内容重复/非法，被唯一索引拒绝或超长）。
+    @discardableResult
+    func insertFileNote(fileId: Int64, content: String) -> Bool {
+        let c = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !c.isEmpty, c.count <= 50 else { return false }
+        let id = executeReturnId("INSERT OR IGNORE INTO file_notes (file_id, content, created_at) VALUES (?, ?, ?)",
+                                 [fileId, c, Int64(Date().timeIntervalSince1970 * 1000)])
+        return id > 0
+    }
+
+    /// 编辑备注内容，返回是否成功（false 表示与同文件其它备注冲突/超长）。
+    @discardableResult
+    func updateFileNote(noteId: Int64, fileId: Int64, content: String) -> Bool {
+        let c = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !c.isEmpty, c.count <= 50 else { return false }
+        execute("UPDATE OR IGNORE file_notes SET content = ?, created_at = ? WHERE id = ?",
+                [c, Int64(Date().timeIntervalSince1970 * 1000), noteId])
+        let rows = fetchAll("SELECT id FROM file_notes WHERE id = ? AND file_id = ? AND content = ?", [noteId, fileId, c])
+        return !rows.isEmpty
+    }
+
+    func deleteFileNote(_ noteId: Int64) {
+        execute("DELETE FROM file_notes WHERE id = ?", [noteId])
+    }
+
     func updateScanRunFileCount(_ id: Int64, count: Int) {
         execute("UPDATE scan_run SET file_count=? WHERE id=?", [count, id])
     }
@@ -901,7 +952,38 @@ final class DatabaseManager {
         execute("UPDATE scan_run SET file_count = ? WHERE id = ?", [fileCount, Int64(newId)])
         // 保留原文库：仅新增一个合并库，不删除被合并的源文库
         execute("COMMIT", [])
+        // 合并备注：按 path 把源文库文件备注复制到新文库文件下（区分大小写去重由唯一索引保证）
+        mergeNotesIntoNewRun(newRunId: newId, sourceIds: sourceIds)
         return newId
+    }
+
+    /// 合并书库时复制备注：新文库 path→newFileId，源文库 id→path，再把源备注写入新文件（重复忽略）。
+    private func mergeNotesIntoNewRun(newRunId: Int64, sourceIds: [Int64]) {
+        let placeholders = sourceIds.map { _ in "?" }.joined(separator: ",")
+        var newPathToId: [String: Int64] = [:]
+        let newRows = fetchAll("SELECT id, path FROM scanned_file WHERE scan_run_id = ?", [Int64(newRunId)])
+        for r in newRows {
+            guard let id = r[0] as? Int64, let path = r[1] as? String else { continue }
+            newPathToId[path] = id
+        }
+        var srcIdToPath: [Int64: String] = [:]
+        let srcRows = fetchAll("SELECT id, path FROM scanned_file WHERE scan_run_id IN (\(placeholders))", sourceIds.map { $0 as Any? })
+        for r in srcRows {
+            guard let id = r[0] as? Int64, let path = r[1] as? String else { continue }
+            srcIdToPath[id] = path
+        }
+        let srcFileIds = Array(srcIdToPath.keys)
+        guard !srcFileIds.isEmpty else { return }
+        let notePlaceholders = srcFileIds.map { _ in "?" }.joined(separator: ",")
+        let noteRows = fetchAll("SELECT id, file_id, content, created_at FROM file_notes WHERE file_id IN (\(notePlaceholders))", srcFileIds.map { $0 as Any? })
+        for r in noteRows {
+            guard let fileId = r[1] as? Int64, let content = r[2] as? String else { continue }
+            guard let path = srcIdToPath[fileId], let newFileId = newPathToId[path], newFileId > 0 else { continue }
+            let createdAt = (r[3] as? Int64) ?? Int64(Date().timeIntervalSince1970 * 1000)
+            // 重复 (file_id, content) 会被唯一索引拒绝，用 INSERT OR IGNORE 静默忽略
+            execute("INSERT OR IGNORE INTO file_notes (file_id, content, created_at) VALUES (?, ?, ?)",
+                    [Int64(newFileId), content, createdAt])
+        }
     }
 
     // MARK: - keyword_replace_rules

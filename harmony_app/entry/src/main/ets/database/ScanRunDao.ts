@@ -1,5 +1,6 @@
 import { relationalStore } from '@kit.ArkData';
 import { RdbHelper } from './RdbHelper';
+import { FileNoteDao } from './FileNoteDao';
 import { ScanRun } from '../model/ScanRun';
 import { ScannedFileDao } from './ScannedFileDao';
 import { LogUtil } from '../utils/LogUtil';
@@ -222,6 +223,14 @@ export class ScanRunDao {
       await store.update({ file_count: fileCount2 } as relationalStore.ValuesBucket, updatePred);
       console.info(`[ScanRunDao] mergeRuns success newId=${newId} fileCount=${fileCount} fileCount2=${fileCount2}`);
       LogUtil.i('ScanRunDao', `合并文库成功 sourceIds=[${sourceIds.join(',')}] newId=${newId} name="${name}" 源文件总数=${sourceTotal} 去重后文件数=${fileCount}`);
+      // ⑤ 合并备注：按 path 把源文库文件备注复制到新文库文件下。
+      // 合并后相同 path 只保留一条（新 file_id），多个源对同一 path 的备注经
+      // file_notes 唯一索引 (file_id, content) 自动去重（区分大小写）。
+      try {
+        ScanRunDao.mergeNotesInto(store, sourceIds, newId);
+      } catch (en) {
+        LogUtil.w('ScanRunDao', `合并备注失败(忽略): ${(en as Error)?.message ?? '未知错误'}`);
+      }
       LogUtil.flushNow();
       return newId;
     } catch (e) {
@@ -235,6 +244,63 @@ export class ScanRunDao {
       LogUtil.e('ScanRunDao', `合并文库失败 sourceIds=[${sourceIds.join(',')}] name=${name}: ${err?.message ?? JSON.stringify(e)}${err?.stack ? ' | stack: ' + err.stack : ''}`);
       LogUtil.flushNow();
       return -1;
+    }
+  }
+
+  /**
+   * 把多个源文库的文件备注按 path 映射到新文库文件下（合并书库专用）。
+   * 通过查询新文库文件 path→newId、源文库文件 id→path，再把源备注写入新文件，
+   * 重复内容由 file_notes 唯一索引 (file_id, content) 自动去重（区分大小写）。
+   */
+  private static mergeNotesInto(store: relationalStore.RdbStore, sourceIds: number[], newRunId: number): void {
+    const srcPlaceholders: string = sourceIds.map(() => '?').join(',');
+    // 1) 新文库 path -> newFileId
+    const newRs = store.querySql!(
+      'SELECT id, path FROM scanned_file WHERE scan_run_id = ?',
+      [newRunId]
+    );
+    const newPathToId: Map<string, number> = new Map();
+    while (newRs.goToNextRow()) {
+      const idIdx = newRs.getColumnIndex('id');
+      const pathIdx = newRs.getColumnIndex('path');
+      const id = idIdx >= 0 ? newRs.getLong(idIdx) : 0;
+      const path = pathIdx >= 0 ? newRs.getString(pathIdx) : '';
+      if (path) {
+        newPathToId.set(path, id);
+      }
+    }
+    newRs.close();
+    // 2) 源文库文件 id -> path
+    const srcRs = store.querySql!(
+      `SELECT id, path FROM scanned_file WHERE scan_run_id IN (${srcPlaceholders})`,
+      sourceIds
+    );
+    const srcIdToPath: Map<number, string> = new Map();
+    while (srcRs.goToNextRow()) {
+      const idIdx = srcRs.getColumnIndex('id');
+      const pathIdx = srcRs.getColumnIndex('path');
+      const id = idIdx >= 0 ? srcRs.getLong(idIdx) : 0;
+      const path = pathIdx >= 0 ? srcRs.getString(pathIdx) : '';
+      if (path) {
+        srcIdToPath.set(id, path);
+      }
+    }
+    srcRs.close();
+    // 3) 取源备注并按 path 写入新文件
+    const srcFileIds: number[] = Array.from(srcIdToPath.keys());
+    if (!srcFileIds.length) {
+      return;
+    }
+    const notes = FileNoteDao.getNotesByFiles(srcFileIds);
+    for (const note of notes) {
+      const path = srcIdToPath.get(note.fileId);
+      if (!path) {
+        continue;
+      }
+      const newFileId = newPathToId.get(path);
+      if (newFileId && newFileId > 0) {
+        FileNoteDao.insert(newFileId, note.content, note.createdAt > 0 ? note.createdAt : Date.now());
+      }
     }
   }
 }

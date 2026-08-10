@@ -993,6 +993,12 @@ struct FileDetailView: View {
     let fileId: Int64
     @State private var file: ScannedFile?
     @State private var toastText: String? = nil
+    // 文件备注
+    @State private var notes: [FileNote] = []
+    @State private var showNoteSheet: Bool = false
+    @State private var noteEditId: Int64 = -1
+    @State private var noteDraft: String = ""
+    @State private var noteError: String = ""
 
     /// 轻提示（本视图独立持有，LibraryView 的 toast 是其私有成员，此处访问不到）
     private func toast(_ msg: String) {
@@ -1015,8 +1021,15 @@ struct FileDetailView: View {
                         DetailRow("路径", f.path.isEmpty ? "—" : FormatUtil.toHumanReadablePath(f.path), isPath: true)
                         actionSection(f)
                             .padding(.top, 8)
+                        noteSection(f)
+                            .padding(.top, 8)
                     }
                     .padding(16)
+                }
+                .sheet(isPresented: $showNoteSheet, onDismiss: {
+                    notes = DatabaseManager.shared.getFileNotes(fileId: fileId)
+                }) {
+                    noteEditSheet()
                 }
             } else {
                 ProgressView()
@@ -1036,7 +1049,10 @@ struct FileDetailView: View {
                     .transition(.opacity)
             }
         }
-        .onAppear { file = FileRepository.shared.getById(fileId) }
+        .onAppear {
+            file = FileRepository.shared.getById(fileId)
+            notes = DatabaseManager.shared.getFileNotes(fileId: fileId)
+        }
     }
 
     @ViewBuilder
@@ -1149,6 +1165,103 @@ struct FileDetailView: View {
                     .cornerRadius(10)
             }
         }
+    }
+
+    // MARK: - 文件备注区块
+    private func noteSection(_ f: ScannedFile) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("备注").font(.headline)
+            if notes.isEmpty {
+                Text("暂无备注，点击下方按钮添加")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(notes) { n in
+                    HStack(spacing: 8) {
+                        Text(n.content)
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button("编辑") {
+                            noteEditId = n.id
+                            noteDraft = n.content
+                            noteError = ""
+                            showNoteSheet = true
+                        }
+                        .font(.subheadline)
+                        Button("删除", role: .destructive) {
+                            DatabaseManager.shared.deleteFileNote(n.id)
+                            notes = DatabaseManager.shared.getFileNotes(fileId: fileId)
+                        }
+                        .font(.subheadline)
+                    }
+                    .padding(12)
+                    .background(Color.fsSecondaryBg)
+                    .cornerRadius(8)
+                }
+            }
+            Button("添加备注") {
+                noteEditId = -1
+                noteDraft = ""
+                noteError = ""
+                showNoteSheet = true
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(Color.accentColor)
+            .foregroundStyle(.white)
+            .cornerRadius(10)
+        }
+    }
+
+    // MARK: - 备注新增/编辑弹窗
+    private func noteEditSheet() -> some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                TextField("请输入备注内容（1~50 字）", text: $noteDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: noteDraft) { _, nv in
+                        if nv.count > 50 {
+                            noteDraft = String(nv.prefix(50))
+                        }
+                        noteError = ""
+                    }
+                Text("\(noteDraft.trimmingCharacters(in: .whitespacesAndNewlines).count)/50")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if !noteError.isEmpty {
+                    Text(noteError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+                Spacer()
+            }
+            .padding(16)
+            .navigationTitle(noteEditId < 0 ? "添加备注" : "编辑备注")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { showNoteSheet = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        let content = noteDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !content.isEmpty else {
+                            noteError = "备注内容不能为空"
+                            return
+                        }
+                        let ok = noteEditId < 0
+                            ? DatabaseManager.shared.insertFileNote(fileId: fileId, content: content)
+                            : DatabaseManager.shared.updateFileNote(noteId: noteEditId, fileId: fileId, content: content)
+                        if ok {
+                            showNoteSheet = false
+                        } else {
+                            noteError = (noteEditId < 0 ? "添加失败：" : "修改失败：") + "该文件已存在相同内容的备注"
+                        }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 

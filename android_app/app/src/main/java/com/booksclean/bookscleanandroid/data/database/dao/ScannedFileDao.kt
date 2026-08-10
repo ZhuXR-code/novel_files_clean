@@ -11,12 +11,23 @@ import androidx.sqlite.db.SupportSQLiteQuery
 import com.bookscleanandroid.app.data.database.entity.ScannedFileEntity
 import com.bookscleanandroid.app.data.database.entity.DuplicateRow
 import com.bookscleanandroid.app.data.model.NovelGroup
+import androidx.room.ColumnInfo
 import kotlinx.coroutines.flow.Flow
+
+/** 仅携带 path 与 id，用于合并书库时把备注按 path 重新映射到新文件 id。 */
+data class PathIdTuple(
+    @ColumnInfo(name = "path") val path: String,
+    @ColumnInfo(name = "id") val id: Long
+)
 
 @Dao
 interface ScannedFileDao {
     @Query("SELECT * FROM scanned_file WHERE id = :id")
     suspend fun getById(id: Long): ScannedFileEntity?
+
+    /** 取某文库下所有文件的 (path, id) 映射，供合并书库复制备注用。 */
+    @Query("SELECT path, id FROM scanned_file WHERE scan_run_id = :runId")
+    suspend fun getPathsAndIdsByRun(runId: Long): List<PathIdTuple>
 
     @Query("SELECT * FROM scanned_file WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<Long>): List<ScannedFileEntity>

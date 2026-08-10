@@ -33,7 +33,8 @@ class FileScannerApp : Application() {
                 database.scannedFileDao(),
                 database.scanRunDao(),
                 database.keywordReplaceDao(),
-                database.dupRuleConfigDao()
+                database.dupRuleConfigDao(),
+                database.fileNoteDao()
             )
             LogUtil.i("App", "Database and repository initialized")
             seedDefaultKeywordRules()

@@ -26,14 +26,18 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,12 +56,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bookscleanandroid.app.R
 import com.bookscleanandroid.app.data.database.entity.ScannedFileEntity
+import com.bookscleanandroid.app.data.database.entity.FileNoteEntity
 import com.bookscleanandroid.app.ui.components.TopBar
 import com.bookscleanandroid.app.ui.components.AppButton
 import com.bookscleanandroid.app.ui.components.AppOutlinedButton
 import com.bookscleanandroid.app.service.DeleteService
 import com.bookscleanandroid.app.util.FormatUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -82,6 +88,12 @@ fun FileDetailScreen(
     // 预览范围选择对话框：head=前50行，tail=后100行，all=全部内容
     var showPreviewDialog by remember { mutableStateOf(false) }
     var previewModeChoice by remember { mutableStateOf("head") }
+    // 备注相关状态
+    val notes by viewModel.getFileNotesFlow(fileId).collectAsStateWithLifecycle(initialValue = emptyList())
+    var showNoteDialog by remember { mutableStateOf(false) }
+    var noteEditTarget by remember { mutableStateOf<FileNoteEntity?>(null) }
+    var noteDraft by remember { mutableStateOf("") }
+    var noteError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(fileId) {
         file = withContext(Dispatchers.IO) { viewModel.getById(fileId) }
@@ -189,6 +201,79 @@ fun FileDetailScreen(
                     Icon(Icons.Filled.Delete, contentDescription = null)
                     Spacer(Modifier.size(8.dp))
                     Text(stringResource(R.string.delete_text))
+                }
+
+                Spacer(Modifier.height(20.dp))
+                // ===================== 文件备注 =====================
+                Text(
+                    stringResource(R.string.file_notes_title),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(8.dp))
+                if (notes.isEmpty()) {
+                    Text(
+                        stringResource(R.string.file_notes_empty),
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    notes.forEach { note ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                note.content,
+                                fontSize = 14.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = {
+                                    noteEditTarget = note
+                                    noteDraft = note.content
+                                    noteError = null
+                                    showNoteDialog = true
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Edit,
+                                    contentDescription = stringResource(R.string.note_edit),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    viewModel.deleteFileNote(note.id)
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Delete,
+                                    contentDescription = stringResource(R.string.note_delete),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                AppOutlinedButton(
+                    onClick = {
+                        noteEditTarget = null
+                        noteDraft = ""
+                        noteError = null
+                        showNoteDialog = true
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.note_add))
                 }
             } ?: run {
                 Text(
@@ -390,6 +475,79 @@ fun FileDetailScreen(
             },
             dismissButton = {
                 AppOutlinedButton(onClick = { showConfirmDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 备注新增/编辑对话框（同一对话框复用，noteEditTarget 非空表示编辑）
+    if (showNoteDialog) {
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        AlertDialog(
+            onDismissRequest = { showNoteDialog = false },
+            title = {
+                Text(
+                    if (noteEditTarget == null) stringResource(R.string.note_add_title)
+                    else stringResource(R.string.note_edit_title)
+                )
+            },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = noteDraft,
+                        onValueChange = {
+                            if (it.length <= 50) {
+                                noteDraft = it
+                                noteError = null
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = false,
+                        maxLines = 3,
+                        isError = noteError != null,
+                        placeholder = { Text(stringResource(R.string.note_placeholder)) },
+                        supportingText = {
+                            Text("${noteDraft.trim().length}/50")
+                        }
+                    )
+                    if (noteError != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            noteError!!,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                AppButton(
+                    onClick = {
+                        val content = noteDraft.trim()
+                        if (content.isEmpty()) {
+                            noteError = context.getString(R.string.note_empty_error)
+                            return@AppButton
+                        }
+                        scope.launch(Dispatchers.IO) {
+                            val err = if (noteEditTarget == null) {
+                                viewModel.addFileNote(fileId, content)
+                            } else {
+                                viewModel.updateFileNote(noteEditTarget!!.id, fileId, content)
+                            }
+                            withContext(Dispatchers.Main) {
+                                if (err == null) {
+                                    showNoteDialog = false
+                                } else {
+                                    noteError = err
+                                }
+                            }
+                        }
+                    }
+                ) { Text(stringResource(R.string.confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNoteDialog = false }) {
                     Text(stringResource(R.string.cancel))
                 }
             }
