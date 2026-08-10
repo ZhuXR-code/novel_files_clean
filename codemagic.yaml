@@ -234,9 +234,11 @@ workflows:
           script: |
             set -e
 
-            # 1) 从 base64 还原 p8 私钥文件
-            echo "$APPSTORE_API_KEY_B64" | base64 --decode > /tmp/AuthKey.p8
-            chmod 600 /tmp/AuthKey.p8
+            # 1) 从 base64 还原 p8 私钥，放到 altool 能识别的目录
+            #    altool 的 --private-key 传【目录】，且文件名必须是 AuthKey_<key_id>.p8
+            mkdir -p "$HOME/.private_keys"
+            echo "$APPSTORE_API_KEY_B64" | base64 --decode > "$HOME/.private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
+            chmod 600 "$HOME/.private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
 
             IPA_PATH=$(ls build/ipa/*.ipa | head -1)
             echo "=== 上传 IPA: $IPA_PATH ==="
@@ -244,16 +246,17 @@ workflows:
             echo "Issuer ID: $APPSTORE_API_ISSUER_ID"
 
             # 2) 用 xcrun altool --apiKey 上传（API Key 认证，不走 Apple ID 会话）
+            #    --private-key 传目录（altool 会找 AuthKey_<key_id>.p8）
             xcrun altool --upload-app \
               -f "$IPA_PATH" \
               -t ios \
               --apiKey "$APPSTORE_API_KEY_ID" \
               --apiIssuer "$APPSTORE_API_ISSUER_ID" \
-              --private-key /tmp/AuthKey.p8 \
+              --private-key "$HOME/.private_keys" \
               --output-format json
 
             UPLOAD_RESULT=$?
-            rm -f /tmp/AuthKey.p8
+            rm -f "$HOME/.private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
 
             if [ $UPLOAD_RESULT -eq 0 ]; then
               echo ""
