@@ -46,13 +46,15 @@ class FileRepository(
         name: String,
         folderUri: String,
         folderName: String,
-        fileTypes: String
+        fileTypes: String,
+        scanMode: String = "quick"
     ): Long = runDao.insert(
         ScanRunEntity(
             name = name,
             folderUri = folderUri,
             folderName = folderName,
-            fileTypes = fileTypes
+            fileTypes = fileTypes,
+            scanMode = scanMode
         )
     )
 

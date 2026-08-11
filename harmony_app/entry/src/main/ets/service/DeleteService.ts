@@ -1,7 +1,12 @@
 import { fileIo } from '@kit.CoreFileKit';
+import { common } from '@kit.AbilityKit';
+import { uri } from '@kit.ArkTS';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { ScannedFileDao } from '../database/ScannedFileDao';
 import { ScanRunDao } from '../database/ScanRunDao';
 import { LogUtil } from '../utils/LogUtil';
+import { FilePermissionUtil } from '../utils/FilePermissionUtil';
+import { AppContext } from '../utils/AppContext';
 
 export interface DeleteOptions {
   /** true=删除数据库记录 + 物理源文件（旧默认）；false=仅删除数据库记录，保留源文件。 */
@@ -20,6 +25,363 @@ export interface DeleteOptions {
  *  3) 删除完成后重算所有受影响文库的 file_count。
  */
 export class DeleteService {
+  /**
+   * 批量删除期间的「重新授权缓存」：key=父目录 URI，value=重新授权返回的新 URI。
+   * 同一批删除中，相同父目录下的多个文件只需弹一次 Picker，避免每个文件都让用户重新授权。
+   */
+  private static reauthCache: Map<string, string> = new Map<string, string>();
+
+  /**
+   * 删除单个物理文件，带权限恢复重试。
+   *
+   * 鸿蒙删除用户文件的根因与正确姿势（官方文档明确）：
+   *   a) Picker 授权返回的是「文档树 URI」（file://docs/storage/Users/...），授权记录
+   *      绑定该 URI 体系；若落库路径被拼成 file:///storage/...（本机 URI，三个斜杠），
+   *      读操作可走挂载路径，但删除/写操作会被判定「应用沙箱外未授权」而失败；
+   *   b) 官方明确「文档类 URI（file://docs/...）可直接用于 fs 接口」，且拼接 URI
+   *      默认未授权——因此删除必须用文档类 URI 或从其提取的虚拟路径；
+   *   c) 应用/设备重启后临时授权失效，需重新授权。
+   *
+   * 本方法以「文档类 URI」为基准，多形态多候选 + 多阶段重试：
+   *   1) 多形态直接删除（文档类 URI → 提取的虚拟 path → 原始串）；
+   *   2) 激活父目录持久化权限后重试；
+   *   3) 用「重新授权缓存」中已换新的父目录 URI 重建文件 URI 再删（避免同批重复弹 Picker）；
+   *   4) 对父目录重新授权（弹一次 Picker），用新目录 URI 重建文件 URI 再删。
+   * 全程记录最后一次 BusinessError 的真实 code/message，供 UI 定位（不再用固定文案掩盖）。
+   *
+   * @returns { ok, error } ok=删除成功（含重试成功）；error=失败原因（真实错误码）
+   */
+  private static async deleteFileWithRetry(
+    f: { id: number; fileName: string; path: string; scanRunId: number }
+  ): Promise<{ ok: boolean; error: string }> {
+    if (!f.path || f.path.length === 0) {
+      return { ok: false, error: 'empty path' };
+    }
+
+    // 基准统一为文档类 URI（存量数据可能是 file:///storage/...，一并归一化）
+    const fileUri: string = DeleteService.toDocUri(f.path);
+    const filePath: string = DeleteService.toRealPath(fileUri);
+    let parentUri: string | null = DeleteService.deriveParentUri(fileUri);
+    if (parentUri) {
+      parentUri = DeleteService.toDocUri(parentUri);
+    }
+    const fileName: string = DeleteService.basename(fileUri);
+
+    // 1) 多形态直接删除
+    let r: { ok: boolean; error: string } = await DeleteService.tryUnlink(fileUri, f.fileName, '直接删除');
+    if (r.ok) {
+      return { ok: true, error: '' };
+    }
+
+    // 1.5) 文件名漂移恢复：扫描后文件可能被外部改名（插入【草莓】/【精校】等装饰标记），
+    // 导致 DB 旧路径 unlink 报「文件不存在」。此时在父目录内查找去装饰后一致的真实文件，
+    // 用与 listFile 同款的「裸真实路径」直接 unlink（绕开文档类 URI 编码混合问题）。
+    // 这一步应在「重授权」之前，避免误弹 Picker。
+    if (parentUri && parentUri.length > 0) {
+      const drifted: { fileName: string; realPath: string } | null =
+        await DeleteService.findDriftedFile(parentUri, f.fileName);
+      if (drifted && drifted.realPath.length > 0) {
+        // 优先用裸真实路径删除（listFile 已验证该形态可访问）；失败再退回 URI 形态兼容。
+        try {
+          await fileIo.unlink(drifted.realPath);
+          LogUtil.i('DeleteService', `文件 ${f.fileName} 文件名漂移恢复删除成功(裸路径): ${drifted.realPath}`);
+          return { ok: true, error: '' };
+        } catch (e) {
+          const biz = e as BusinessError;
+          LogUtil.w('DeleteService', `文件 ${f.fileName} 文件名漂移恢复(裸路径)失败: code=${biz?.code} ${biz?.message}`);
+        }
+        // 退回 URI 形态再试（覆盖个别设备对裸路径拒绝的场景）
+        const driftedUri: string = DeleteService.rebuildFileUri(parentUri, drifted.fileName);
+        r = await DeleteService.tryUnlink(driftedUri, f.fileName, '文件名漂移恢复');
+        if (r.ok) {
+          return { ok: true, error: '' };
+        }
+      }
+    }
+
+    // 2) 激活父目录持久化权限后重试
+    if (parentUri && parentUri.length > 0) {
+      if (await FilePermissionUtil.activateUri(parentUri)) {
+        r = await DeleteService.tryUnlink(fileUri, f.fileName, '激活权限后');
+        if (r.ok) {
+          return { ok: true, error: '' };
+        }
+      }
+    }
+
+    // 3) 使用重新授权缓存中的新父目录 URI 重建文件 URI
+    if (parentUri && parentUri.length > 0) {
+      const cachedNewUri: string | undefined = DeleteService.reauthCache.get(parentUri);
+      if (cachedNewUri && cachedNewUri.length > 0) {
+        const rebuilt: string = DeleteService.rebuildFileUri(cachedNewUri, fileName);
+        r = await DeleteService.tryUnlink(rebuilt, f.fileName, '重建路径(缓存授权)');
+        if (r.ok) {
+          return { ok: true, error: '' };
+        }
+      }
+    }
+
+    // 4) 对父目录重新授权（同一目录只弹一次 Picker），并用新 URI 重建文件 URI
+    if (parentUri && parentUri.length > 0) {
+      const ctx: common.Context | null = AppContext.get();
+      if (ctx) {
+        try {
+          let newUri: string = DeleteService.reauthCache.get(parentUri) ?? '';
+          if (newUri.length === 0) {
+            newUri = await FilePermissionUtil.reauthorizeUri(ctx, parentUri, true);
+            if (newUri.length > 0) {
+              DeleteService.reauthCache.set(parentUri, newUri);
+            }
+          }
+          if (newUri.length > 0) {
+            const rebuilt: string = DeleteService.rebuildFileUri(newUri, fileName);
+            r = await DeleteService.tryUnlink(rebuilt, f.fileName, '重新授权后');
+            if (r.ok) {
+              return { ok: true, error: '' };
+            }
+          }
+        } catch (e2) {
+          LogUtil.w('DeleteService', `重新授权后重试仍失败: ${f.fileName} -> ${(e2 as Error).message}`);
+        }
+      }
+    }
+
+    LogUtil.w('DeleteService', `文件 ${f.fileName}（${f.path}）删除彻底失败: ${r.error}`);
+    return { ok: false, error: r.error };
+  }
+
+  /**
+   * 执行一次 unlink 尝试：对目标依次用「文档类 URI → 提取的虚拟 path → 原始串」多种
+   * 合法形态调用 fileIo.unlink，任一成功即返回成功；全部失败返回最后错误信息。
+   * 之所以要多种形态：文档树授权下 fileIo 对 URI 与 path 的支持在部分系统版本不一致，
+   * 全部尝试可覆盖「stat 可读但 unlink 对某一种形态拒绝授权」的场景。
+   */
+  private static async tryUnlink(target: string, name: string, stage: string): Promise<{ ok: boolean; error: string }> {
+    if (!target || target.length === 0) {
+      return { ok: false, error: 'empty target' };
+    }
+    const candidates: string[] = DeleteService.buildUnlinkCandidates(target);
+    let lastErr: string = '';
+    for (const c of candidates) {
+      try {
+        await fileIo.unlink(c);
+        LogUtil.i('DeleteService', `文件 ${name} ${stage}删除成功: ${c}`);
+        return { ok: true, error: '' };
+      } catch (e) {
+        const biz = e as BusinessError;
+        const code: number = biz && typeof biz.code === 'number' ? biz.code : -1;
+        lastErr = `code=${code} ${biz && biz.message ? biz.message : String(e)}`;
+        LogUtil.w('DeleteService', `文件 ${name} ${stage}删除失败[候选 ${c}]: ${lastErr}`);
+      }
+    }
+    return { ok: false, error: lastErr };
+  }
+
+  /**
+   * 生成 unlink 尝试的候选集合（去重），覆盖文档树授权下 fileIo 支持的多种合法形态：
+   *   1) 文档类 URI（file://docs/storage/...）—— 授权体系认可，文档类 URI 可直接用于 fs 接口；
+   *   2) 提取 path 后的虚拟路径（/storage/Users/...）—— listFile/stat 可用的形态；
+   *   3) 原始传入值。
+   */
+  private static buildUnlinkCandidates(target: string): string[] {
+    const list: string[] = [];
+    if (!target || target.length === 0) {
+      return list;
+    }
+    // 优先「裸真实路径」：文档树授权下，file://docs/... 的目录部分可能以 URL 编码形态
+    // 存在（如 %E3%80%90），而文件名部分保留原始中文，这种「混合 URI」直接 unlink 在部分
+    // 系统版本会报 13900002「文件不存在」。用 uri.URI().path 解码出的 /storage/... 裸路径
+    // 与 listFile 同款，最稳定，故置顶优先尝试。
+    const p1: string = DeleteService.toRealPath(target);
+    if (p1 && p1.length > 0 && !list.includes(p1)) {
+      list.push(p1);
+    }
+    const docUri: string = DeleteService.toDocUri(target);
+    if (!list.includes(docUri)) {
+      list.push(docUri);
+    }
+    const p2: string = DeleteService.toRealPath(docUri);
+    if (p2 && p2.length > 0 && !list.includes(p2)) {
+      list.push(p2);
+    }
+    if (!list.includes(target)) {
+      list.push(target);
+    }
+    return list;
+  }
+
+  /**
+   * 文件名「装饰标记」匹配：扫描后文件被外部改名（如插入【草莓】、【精校】、
+   * （更78）等中间词）时，DB 记录的旧路径 unlink 会报「文件不存在」。
+   * 去掉常见的插入型装饰标记（【...】、〖...〗、＜...＞、全角/半角括号、书名号对），
+   * 仅比较剩余 body，命中则认为「同一文件被改名」。
+   *
+   * 之所以只剥「成对括号类」装饰而非任意差异：避免把真正不同的文件（同名不同内容）
+   * 误删——仅当去装饰后完全一致才判定为漂移文件，安全且精准。
+   */
+  private static stripDecorations(name: string): string {
+    if (!name || name.length === 0) {
+      return name;
+    }
+    // 去扩展名后处理，避免 .txt 里的点被误剥
+    const dotIdx: number = name.lastIndexOf('.');
+    let body: string = name;
+    let ext: string = '';
+    if (dotIdx > 0) {
+      body = name.substring(0, dotIdx);
+      ext = name.substring(dotIdx);
+    }
+    // 成对装饰标记：【...】〖...〗〔...〕＜...＞《...》(...) [...]
+    let stripped: string = body;
+    for (let pass = 0; pass < 3; pass++) {
+      const next: string = stripped
+        .replace(/【[^】]*】/g, '')
+        .replace(/〖[^〗]*〗/g, '')
+        .replace(/〔[^〕]*〕/g, '')
+        .replace(/＜[^＞]*＞/g, '')
+        .replace(/《[^》]*》/g, '')
+        .replace(/\([^)]*\)/g, '')
+        .replace(/\[[^\]]*\]/g, '')
+        .replace(/【[^】]*】/g, '');
+      if (next === stripped) {
+        break;
+      }
+      stripped = next;
+    }
+    // 去除因剥离产生的多余空格/下划线，并压缩连续空白
+    stripped = stripped.replace(/[\s_]+/g, '').trim();
+    return stripped + ext;
+  }
+
+  /**
+   * 文件名漂移恢复：父目录内查找与 DB 文件名「去装饰后一致」的真实文件。
+   * 返回 { fileName, realPath }：realPath 是与 listFile 同款的「裸虚拟路径」
+   * （/storage/Users/.../真实文件名），该形态已被 listFile 验证可访问，直接用于
+   * unlink 可绕开文档类 URI 中「目录部分编码 + 文件名部分原始中文」混合导致的
+   * 13900002 找不到文件问题；fileName 用于日志/记录。找不到返回空。
+   *
+   * @param parentUri 父目录文档类 URI
+   * @param dbFileName DB 记录的旧文件名
+   */
+  private static async findDriftedFile(
+    parentUri: string,
+    dbFileName: string
+  ): Promise<{ fileName: string; realPath: string } | null> {
+    if (!parentUri || !dbFileName) {
+      return null;
+    }
+    try {
+      // 枚举父目录需要目录访问权限；确保激活（权限已持久化时激活即可枚举）
+      await FilePermissionUtil.activateUri(parentUri);
+      const parentRealPath: string = DeleteService.toRealPath(parentUri);
+      const entries: string[] = await fileIo.listFile(parentRealPath);
+      const targetBody: string = DeleteService.stripDecorations(dbFileName);
+      if (targetBody.length === 0) {
+        return null;
+      }
+      for (const entry of entries) {
+        const entryBase: string = DeleteService.basename(entry);
+        if (entryBase === dbFileName) {
+          continue; // 完全相同的已尝试过，跳过
+        }
+        if (DeleteService.stripDecorations(entryBase) === targetBody) {
+          const sep: string = parentRealPath.endsWith('/') ? '' : '/';
+          const realPath: string = `${parentRealPath}${sep}${entryBase}`;
+          LogUtil.i('DeleteService', `文件名漂移匹配: ${dbFileName} -> ${entryBase} (${realPath})`);
+          return { fileName: entryBase, realPath };
+        }
+      }
+    } catch (e) {
+      LogUtil.w('DeleteService', `目录枚举失败(${parentUri}): ${(e as Error).message}`);
+    }
+    return null;
+  }
+
+  /**
+   * 将 URI/路径归一化为鸿蒙「文档类 URI」（file://docs/storage/Users/...）。
+   * 只有文档类 URI 在授权体系内：file://docs/... 原样返回；file:///storage/...
+   * （本机 URI）或 /storage/...（裸虚拟路径）统一转成 file://docs + /storage/...。
+   * 其余形态（沙箱路径、content:// 等）原样返回。
+   */
+  private static toDocUri(fileUri: string): string {
+    if (!fileUri || fileUri.length === 0) {
+      return fileUri;
+    }
+    if (fileUri.startsWith('file://docs')) {
+      return fileUri;
+    }
+    let p: string = fileUri;
+    if (fileUri.startsWith('file:///')) {
+      p = fileUri.substring('file://'.length);
+    }
+    if (p.startsWith('/storage/')) {
+      return 'file://docs' + p;
+    }
+    return fileUri;
+  }
+
+  /**
+   * 将 URI 转为 fileIo 可操作的真实 path。
+   * 与 ScanService 的 listFile 处理一致：文档树 URI（file://docs/...）必须提取
+   * path 才能被 fileIo 识别；content:// / file:// 均按此处理；纯路径原样返回。
+   */
+  private static toRealPath(fileUri: string): string {
+    if (!fileUri || fileUri.length === 0) {
+      return fileUri;
+    }
+    try {
+      if (fileUri.startsWith('content://') || fileUri.startsWith('file://')) {
+        const p: string = new uri.URI(fileUri).path;
+        if (p && p.length > 0) {
+          return p;
+        }
+      }
+    } catch (e) {
+      // 提取失败则原样返回
+    }
+    return fileUri;
+  }
+
+  /**
+   * 用新的父目录 URI 重建文件 URI。
+   * 新 URI 可能带或不带末尾 /，统一拼接文件名。
+   */
+  private static rebuildFileUri(parentUri: string, fileName: string): string {
+    if (fileName.length === 0) {
+      return parentUri;
+    }
+    const sep: string = parentUri.endsWith('/') ? '' : '/';
+    return `${parentUri}${sep}${fileName}`;
+  }
+
+  /** 从 URI/路径提取末尾文件名（最后一段）。 */
+  private static basename(fileUri: string): string {
+    if (!fileUri || fileUri.length === 0) {
+      return '';
+    }
+    const idx: number = fileUri.lastIndexOf('/');
+    if (idx < 0) {
+      return fileUri;
+    }
+    return fileUri.substring(idx + 1);
+  }
+
+  /**
+   * 从文件 URI 推导其父目录 URI。
+   * 支持 content:// / file:// / 纯路径等格式。
+   */
+  private static deriveParentUri(fileUri: string): string | null {
+    if (!fileUri || fileUri.length === 0) {
+      return null;
+    }
+    // 去掉末尾文件名部分，保留到最后的 /
+    const idx: number = fileUri.lastIndexOf('/');
+    if (idx <= 0) {
+      return null;
+    }
+    return fileUri.substring(0, idx);
+  }
+
   /**
    * 删除指定 id 的文件。
    * @returns { deleted, failed } 成功/失败数。
@@ -56,17 +418,10 @@ export class DeleteService {
         let ok: boolean = false;
         let errMsg: string | undefined = undefined;
         if (deleteSource) {
-          try {
-            if (f.path && f.path.length > 0) {
-              // fileIo.unlink 返回 Promise，必须 await 才能捕获异常并确认删除结果；
-              // 原实现未 await 会导致「删除失败也被记为成功」，且异常无法进入 catch。
-              await fileIo.unlink(f.path);
-              ok = true;
-            }
-          } catch (e) {
-            ok = false;
-            errMsg = (e as Error).message ?? String(e);
-            LogUtil.w('DeleteService', `文件 ${f.fileName}（${f.path}）删除失败: ${errMsg}`);
+          const res = await DeleteService.deleteFileWithRetry(f);
+          ok = res.ok;
+          if (!ok) {
+            errMsg = res.error.length > 0 ? res.error : '权限失效或文件不存在';
           }
         } else {
           // 仅删记录，直接视为成功

@@ -2,6 +2,7 @@ import { router } from '@kit.ArkUI';
 import { promptAction } from '@kit.ArkUI';
 import { ScanConfig } from '../model/ScanConfig';
 import { ScanConfigDao } from '../database/ScanConfigDao';
+import { ScanRunDao } from '../database/ScanRunDao';
 import { ScanService, ScanProgress as ScanProgressData } from '../service/ScanService';
 import { AppContext } from '../utils/AppContext';
 import { LogUtil } from '../utils/LogUtil';
@@ -152,6 +153,12 @@ struct ScanProgress {
       this.processed = res.processed ?? this.processed;
       this.excludedCount = res.excluded ?? this.excludedCount;
       this.done = true;
+      // 扫描完成后把文件数写回 scan_run.file_count，否则首页「最近文库」会始终显示 0。
+      try {
+        await ScanRunDao.updateFileCount(res.runId, res.total);
+      } catch (e) {
+        LogUtil.e('ScanProgress', `更新文库文件数失败: ${(e as Error).message}`);
+      }
       // 推送全局刷新信号，让首页/文库列表在扫描完成后立即显示新文库
       AppStorage.setOrCreate('libraryRefreshTick', Date.now());
     } catch (e) {

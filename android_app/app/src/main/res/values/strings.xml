@@ -153,6 +153,8 @@
     <!-- 文库列表（按扫描） -->
     <string name="run_list_empty">还没有文库，去首页开始一次扫描吧</string>
     <string name="run_summary">%1$d 个文件 · %2$s</string>
+    <string name="scan_mode_quick_badge">快速扫描</string>
+    <string name="scan_mode_deep_badge">深度扫描</string>
     <string name="delete_run">删除文库</string>
     <string name="delete_run_confirm">将删除该文库及其全部文件，且不可恢复，确定？</string>
 
@@ -213,7 +215,7 @@
     <string name="clear_data_confirm">确定要清空全部扫描记录吗？此操作不可恢复。</string>
     <string name="cleared">已清空</string>
     <string name="about">关于</string>
-    <string name="about_text">文包整理清理助手 v1.0.0\n基于 Jetpack Compose 构建，本地扫描与清理文本文件。</string>
+    <string name="about_text">文包整理清理助手 v1.0.1\n基于 Jetpack Compose 构建，本地扫描与清理文本文件。</string>
 
     <!-- 日志 -->
     <string name="log">日志</string>

@@ -98,6 +98,9 @@ struct LibraryScreen {
   @State exportCurrentPageOnly: boolean = true;
   // 全局字号缩放（与「我的」-字号联动）：AppStorage('fontScale') 变化时自动重渲染。
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
+  // 删除/扫描等跨页面操作后推送的刷新信号：本页订阅后主动 reload，确保回到列表时
+  // 已删除的文件不再出现（不依赖 onPageShow，规避 router.back 复用实例不触发刷新的问题）。
+  @StorageLink('libraryRefreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
   private readonly MIN_PAGE_SIZE: number = 10;
   private readonly MAX_PAGE_SIZE: number = 2000;
   private searchTimer: number | null = null;
@@ -1779,6 +1782,19 @@ struct LibraryScreen {
         }
       }, 100);
     }
+  }
+
+  /** 全局刷新信号（删除/扫描完成后 DeleteProgress/ScanProgress 推送）：主动重新查库，
+   *  确保已删除的文件不再出现在列表中。保留滚动位置与合集展开状态，只静默刷新数据。 */
+  onRefreshTick(): void {
+    // aboutToAppear 之前 @StorageLink 初始化也可能触发，runId 未就绪时跳过。
+    if (this.runId === 0) {
+      return;
+    }
+    this.keepExpandedOnReload = true;
+    this.loadStats().then(() => this.reload()).then(() => {
+      this.keepExpandedOnReload = false;
+    });
   }
 
   onPageHide(): void {

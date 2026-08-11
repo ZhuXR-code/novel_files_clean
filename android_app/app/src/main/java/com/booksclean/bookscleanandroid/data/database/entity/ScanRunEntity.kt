@@ -23,5 +23,8 @@ data class ScanRunEntity(
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "file_count")
-    val fileCount: Int = 0
+    val fileCount: Int = 0,
+    /** "quick"=快速扫描(不检测编码), "deep"=深度扫描(检测编码)。默认 quick。 */
+    @ColumnInfo(name = "scan_mode", defaultValue = "'quick'")
+    val scanMode: String = "quick"
 )

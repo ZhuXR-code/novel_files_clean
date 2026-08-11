@@ -112,7 +112,7 @@ class ScanService : Service() {
         scanJob = serviceScope.launch {
             // 本次扫描对应一个文库（scan_run）：进入扫描前先建记录，拿到 runId 关联文件
             val runName = configName.ifBlank { folderName.ifBlank { "文库" } }
-            val runId = app.repository.createScanRun(runName, treeUri.toString(), folderName, fileTypes)
+            val runId = app.repository.createScanRun(runName, treeUri.toString(), folderName, fileTypes, scanMode)
             // 记录本次文库 runId，供"一键清理"等编排流程在扫描完成后使用
             ScanStateManager.setRunId(runId)
             try {

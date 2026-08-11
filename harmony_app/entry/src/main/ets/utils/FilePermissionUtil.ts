@@ -1,4 +1,5 @@
 import { fileShare, fileIo, picker } from '@kit.CoreFileKit';
+import { uri } from '@kit.ArkTS';
 import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { PreferencesUtil } from './PreferencesUtil';
@@ -146,22 +147,32 @@ export class FilePermissionUtil {
    * 路径应使用 fileIo.listFileSync；二者不要混用，否则对 URI 调用 listFileSync
    * 会抛「不支持的操作」而误判失效。
    */
-  public static async checkUriAccessible(uri: string): Promise<boolean> {
-    if (!uri || uri.length === 0) {
+  public static async checkUriAccessible(targetUri: string): Promise<boolean> {
+    if (!targetUri || targetUri.length === 0) {
       return false;
     }
-    // Picker 返回的 URI（content:// / file://）走异步 listFile
-    if (uri.startsWith('content://') || uri.startsWith('file://')) {
+    // Picker 返回的 URI（content:// / file://）走异步 listFile。
+    // 关键：fileIo.listFile 不能直接传文档树 URI（file://docs/...），否则会报
+    // No such file or directory 或返回空。必须先提取 path 再 listFile：
+    //   new uri.URI(targetUri).path
+    if (targetUri.startsWith('content://') || targetUri.startsWith('file://')) {
       try {
-        await fileIo.listFile(uri);
+        const pathStr: string = new uri.URI(targetUri).path;
+        await fileIo.listFile(pathStr);
         return true;
       } catch (e) {
-        return false;
+        // path 方式失败，再尝试直接传 URI（部分场景下 URI 直接可用）
+        try {
+          await fileIo.listFile(targetUri);
+          return true;
+        } catch (e2) {
+          return false;
+        }
       }
     }
     // 真实文件系统路径：listFileSync 同步校验
     try {
-      fileIo.listFileSync(uri);
+      fileIo.listFileSync(targetUri);
       return true;
     } catch (e) {
       return false;
@@ -174,9 +185,20 @@ export class FilePermissionUtil {
    * Picker 会以 defaultFilePathUri 为默认路径打开，用户确认后即重新获得授权。
    * 比「从头浏览选择」体验更好——用户只需确认，不用重新找目录。
    *
+   * 关键修正：删除时重新授权的目标是「目录 URI」（扫描时用 FOLDER 模式授权），
+   * 因此默认用 FOLDER 模式重新授权，Picker 会打开到目录树并定位到已授权目录，
+   * 用户确认即重新授权整目录。若错误地用默认的文件选择模式（select()）去重新授权
+   * 目录 URI，Picker 会打开到「最近」文件列表（通常为空），且用户选到的 URI 是文件
+   * 而非目录，导致后续重建路径错乱、删除继续失败（表现为「弹出文件管理器但显示失败」）。
+   *
+   * @param selectFolder true=目标为目录（FOLDER 模式，删除重授权用）；false=目标为文件。
    * @returns 返回重新授权后的新 URI（已持久化）；用户取消或失败返回空字符串
    */
-  public static async reauthorizeUri(context: common.Context, uri: string): Promise<string> {
+  public static async reauthorizeUri(
+    context: common.Context,
+    uri: string,
+    selectFolder: boolean = false
+  ): Promise<string> {
     if (!uri || uri.length === 0) {
       return '';
     }
@@ -198,14 +220,24 @@ export class FilePermissionUtil {
       options.maxSelectNumber = 1;
       options.authMode = true;
       options.defaultFilePathUri = uri;
+      if (selectFolder) {
+        // 目录重新授权：对齐扫描时 FOLDER 模式，Picker 打开到目录树并定位到目标目录，
+        // 用户确认即重新授权整目录，避免"最近"空列表 + 选到文件 URI 的错配。
+        options.selectMode = picker.DocumentSelectMode.FOLDER;
+      }
       const uris: string[] = await documentPicker.select(options);
       if (uris.length === 0) {
         return ''; // 用户取消
       }
       // 重新持久化，并返回新 URI 供调用方更新配置（模拟器上重新授权可能返回不同的 URI）
-      await FilePermissionUtil.persistFolderPermission(uris[0]);
-      LogUtil.i('FilePermission', `重新授权成功: ${uris[0]}`);
-      return uris[0];
+      const newUri: string = uris[0];
+      if (selectFolder) {
+        await FilePermissionUtil.persistFolderPermission(newUri);
+      } else {
+        await FilePermissionUtil.persistUris([newUri]);
+      }
+      LogUtil.i('FilePermission', `重新授权成功(${selectFolder ? '目录' : '文件'}): ${newUri}`);
+      return newUri;
     } catch (e) {
       const err = e as BusinessError;
       LogUtil.e('FilePermission', `重新授权失败: code=${err.code} msg=${err.message}`);

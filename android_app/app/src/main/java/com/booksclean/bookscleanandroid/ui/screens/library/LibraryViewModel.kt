@@ -116,7 +116,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private data class GroupPageParams(
         val arr: Array<Any>,
         val runId: Long?,
-        val key: Pair<Int, Int>,
+        val key: Triple<Int, Int, Long>,
         val checkedSortToFront: Boolean
     )
 
@@ -131,11 +131,14 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         val checkedSortToFront: Boolean = false
     )
 
-    /** 每页条数 + 当前页 合成一个键，便于放进 5 参数 combine。
-     *  额外并入 _reloadSignal：写库操作（清标记/清勾选/删除）后自增它，
-     *  即可让 listPageState / groupPageState 都重新查询当前页，使界面即时刷新。 */
-    private val _pageKey: Flow<Pair<Int, Int>> =
-        combine(_pageSize, _currentPage, _reloadSignal) { ps, page, sig -> ps to page }
+    /** 每页条数 + 当前页 + 重查信号 合成一个键，便于放进 5 参数 combine。
+     *  写库操作（清标记/清勾选/删除）后自增 _reloadSignal，
+     *  即可让 listPageState / groupPageState 都重新查询当前页，使界面即时刷新。
+     *  注意：必须把 _reloadSignal 真正并入返回值（作为 key 的一部分），
+     *  否则若 pageSize / currentPage 均未变，combine 返回的 Pair 值相等，
+     *  flatMapLatest 不会感知到“需要切换”，删除后返回列表会停留在缓存的旧数据上。 */
+    private val _pageKey: Flow<Triple<Int, Int, Long>> =
+        combine(_pageSize, _currentPage, _reloadSignal) { ps, page, sig -> Triple(ps, page, sig) }
 
     /** 当前文库【已勾选】(checked) 文件总数，供底部批量操作栏显隐与计数。 */
     val checkedCount: StateFlow<Int> = combine(_currentRunId, _pendingDeletedCheckedCount) { runId, pending ->
@@ -216,7 +219,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             combine(_filter, _sort, _queryDebounced) { f, s, q -> Triple(f, s, q) },
             combine(_currentRunId, _pageKey, _checkedSortToFront) { runId, key, c -> Triple(runId, key, c) }
         ) { (f, s, q), (runId, key, checkedSortToFront) ->
-            val (ps, page) = key
+            val (ps, page, _) = key
             ListPageKey(f, s, q, runId, ps, page, checkedSortToFront)
         }.flatMapLatest { k ->
             if (k.runId == null) return@flatMapLatest flowOf(ListPageState(loading = false))
@@ -265,7 +268,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                 val f = arr[4] as FilterMode
                 val sort = (arr[5] as GroupSortMode)
                 val filterName = f.name
-                val (ps, page) = key
+                val (ps, page, _) = key
                 if (runId == null) return@flatMapLatest flowOf(GroupPageState(loading = false))
                 combine(
                     repo.groupsCountFlow(min, max, exclude, q, runId, filterName),

@@ -1,4 +1,5 @@
 import { picker, fileIo, fileUri } from '@kit.CoreFileKit';
+import { uri } from '@kit.ArkTS';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { common } from '@kit.AbilityKit';
 import { deviceInfo } from '@kit.BasicServicesKit';
@@ -175,28 +176,60 @@ export class ScanService {
     // 先清空上次的文件缓存（内存 + 持久化），避免旧列表影响新配置。
     ScanService.clearFileFallback();
     // FOLDER 模式优先：直接选目录，授权整棵树，可递归遍历扫描。
+    // 仅当设备/系统具备 FolderPicker 能力位时才尝试 FOLDER，避免在无该能力的设备上
+    // 强行吊起文件夹选择器却无法选择、只能取消，造成「先调文件夹、退出后才选文件」的割裂体验。
     if (ScanService.canPickFolder()) {
       const folderResult: DirectoryPickResult = await ScanService.tryPickFolder(context, defaultUri);
       if (folderResult.uri.length > 0) {
         return folderResult;
       }
+      // 用户取消 / 未选中目录：明确提示后降級为「选择文件以定位文件夹」
       LogUtil.w('ScanService', 'FOLDER 模式未选中目录，降级为 FILE 多选');
+      await ScanService.notifyFolderFallback();
     } else {
+      // 设备不支持 FOLDER：直接提示用户改用「选择文件定位文件夹」方案，不再无谓吊起文件夹选择器
       LogUtil.i('ScanService', '当前设备不支持 FOLDER 模式，使用 FILE 多选兜底');
+      await ScanService.notifyFolderFallback();
     }
     return ScanService.pickFiles(context, defaultUri);
   }
 
   /**
+   * 提示用户：将改用「选择文件以定位文件夹」方案。
+   * FOLDER 模式不可用（设备不支持）或未选中（用户取消）时调用，避免体验割裂。
+   */
+  private static async notifyFolderFallback(): Promise<void> {
+    try {
+      await promptAction.showDialog({
+        title: '改为选择文件以定位文件夹',
+        message: '未能选择文件夹。\n\n请在接下来的文件选择器中，进入目标文件夹并选中其中的一个或多个文件：\n· 若所选文件所在文件夹可访问，将扫描整个文件夹（含子文件夹）；\n· 否则仅扫描您选中的文件。',
+        buttons: [{ text: '我知道了', color: '#2D6A4F' }]
+      });
+    } catch (e) {
+      // 弹窗失败不阻断主流程
+    }
+  }
+
+  /**
    * 设备是否支持 FOLDER（目录选择）模式。
-   * FOLDER 模式由 Picker 的 selectMode=DocumentSelectMode.FOLDER 提供，需 API 26+ 手机。
+   * FOLDER 模式由 Picker 的 selectMode=DocumentSelectMode.FOLDER 提供，
+   * 在 @kit.CoreFileKit 中自 API 12（HarmonyOS NEXT 首发）即支持，因此凡 NEXT 设备均可用。
+   * 注意：官方文档所述「从 API 版本 26.0.0 开始支持」指的是 HarmonyOS 系统版本号 26.0.0，
+   * 而非 SDK API level 26；此前误用 sdkApiVersion >= 26 作门槛，会在 NEXT 5.x/6.x（API 12~23）
+   * 上错误禁用 FOLDER 模式、降级成 FILE 多选，导致用户只能选文件、最终「只扫出少量文件」。
    */
   private static canPickFolder(): boolean {
     try {
-      return deviceInfo.sdkApiVersion >= 26;
+      // 运行时仅作保守下限保护（API 12 起支持 FOLDER 选择），同时需系统具备
+      // FolderPicker 能力位。部分设备/系统镜像虽 API>=12 但 FolderPicker 能力未开放，
+      // 吊起后用户无法选择目录、只能取消，体验割裂。能力位不支持时直接返回 false，
+      // 跳过 FOLDER 尝试，改走「选择文件以定位文件夹」的回退路径并由上层提示用户。
+      return deviceInfo.sdkApiVersion >= 12 &&
+        canIUse('SystemCapability.FileManagement.Documents.FolderPicker');
     } catch (e) {
-      // 拿不到 SDK 版本时保守降级为 FILE 多选
-      return false;
+      // 拿不到 SDK 版本或能力位查询异常时保守放行，让 Picker 实际尝试
+      // （失败会被 tryPickFolder 的 catch 捕获降级）
+      return deviceInfo.sdkApiVersion >= 12;
     }
   }
 
@@ -403,12 +436,101 @@ export class ScanService {
       throw new Error('未选择任何扫描目标，请先选择目录或文件');
     }
 
+    // 目录模式：统一交给 traverseDirs 做 BFS 递归遍历（同时供文件回退递归模式复用）。
+    // failOnFirstRootUnavailable=true：单一根目录不可访问时抛错，引导 UI 重新选择授权。
+    const stats = await ScanService.traverseDirs(
+      [config.folderUri], config, onProgress, runId, scanRules, parseRules, true
+    );
+    return { runId: runId, total: stats.found, processed: stats.processed, excluded: stats.excluded, stopped: ScanService.stopped };
+  }
+
+  /**
+   * 枚举目录的子项，返回可直接用于 stat/open 的子项 URI 数组。
+   *
+   * 鸿蒙 NEXT 关键限制：fileIo.listFile 不能直接传文档树 URI（file://docs/...），
+   * 否则会报 No such file or directory 或返回空。必须先提取 path 再 listFile：
+   *   const path = new uri.URI(dir).path; fileIo.listFile(path)。
+   * 这里优先用「提取 path 后 listFile」的方式，失败时再尝试直接用 URI。
+   *
+   * @param dir 目录 URI（文档树 URI 或沙箱路径）
+   * @returns 子项 URI 数组（含 scheme 的完整 URI，文档树形态）
+   */
+  private static async listChildEntries(dir: string): Promise<string[]> {
+    let raw: string[] = [];
+    try {
+      // 关键修复：文档树 URI 必须先提取 path 再 listFile（直接传 URI 会失败/返回空）
+      const pathStr: string = new uri.URI(dir).path;
+      raw = await fileIo.listFile(pathStr);
+    } catch (e) {
+      LogUtil.w('ScanService', `listFile(path) 失败，尝试直接 listFile(uri): ${dir} -> ${(e as Error).message}`);
+      try {
+        raw = await fileIo.listFile(dir);
+      } catch (e2) {
+        LogUtil.e('ScanService', `listFile 失败: ${dir} -> ${(e2 as Error).message}`);
+        return [];
+      }
+    }
+    // fileIo.listFile 返回文件名数组（或完整 URI），统一拼成文档树 URI 形态
+    const result: string[] = [];
+    for (const entry of raw) {
+      if (entry.includes('://')) {
+        result.push(entry); // 已是完整 URI
+      } else if (entry.startsWith('/')) {
+        // 关键：必须拼成「文档类 URI」file://docs/storage/...（授权体系认可的形态）。
+        // 若拼成 file:///storage/...（本机 URI，三个斜杠），读操作可工作，但删除/写
+        // 操作时系统按「应用沙箱外未授权 URI」拒绝（Permission denied），删除必失败。
+        result.push(ScanService.toDocUri(entry));
+      } else {
+        const sep: string = dir.endsWith('/') ? '' : '/';
+        result.push(`${dir}${sep}${entry}`); // 纯文件名：父 URI + '/' + 文件名
+      }
+    }
+    return result;
+  }
+
+  /**
+   * 将绝对路径/URI 归一化为鸿蒙「文档类 URI」（file://docs/storage/Users/...）。
+   * 通过 Picker 获得的是文档树授权 URI（file://docs/...），只有这种形态的 URI 才被
+   * 授权体系认可；file:///storage/...（本机 URI）或裸路径（/storage/...）不在授权链上，
+   * 扫描可读（读走挂载路径）但删除/写操作会被拒绝。
+   * @param p 绝对路径（如 /storage/Users/currentUser/Documents/xxx）或已是 URI 的字符串
+   */
+  private static toDocUri(p: string): string {
+    if (p.startsWith('file://docs')) {
+      return p;
+    }
+    if (p.startsWith('file:///')) {
+      p = p.substring('file://'.length);
+    }
+    if (p.startsWith('/storage/')) {
+      return 'file://docs' + p;
+    }
+    return 'file://' + p;
+  }
+
+  /**
+   * 目录递归遍历核心（BFS 逐层 listFile）。
+   * 供两种入口复用：
+   *  - 目录模式（FOLDER 选中目录，或 FILE 推导出可访问父目录）；
+   *  - 文件回退递归模式（FILE 多选 + 勾选递归：对每个选中文件取父目录，遍历父目录下所有符合后缀的文件与子文件夹）。
+   *
+   * @param roots  待遍历的根目录 URI 列表（可多个）
+   */
+  private static async traverseDirs(
+    roots: string[],
+    config: ScanConfig,
+    onProgress: (p: ScanProgress) => void,
+    runId: number,
+    scanRules: KeywordReplaceRule[],
+    parseRules: KeywordReplaceRule[],
+    failOnFirstRootUnavailable: boolean = false
+  ): Promise<{ processed: number; found: number; excluded: number }> {
     const batch: ScannedFile[] = [];
     let processed: number = 0;
     let found: number = 0;
     let excluded: number = 0;
     let lastReportProcessed: number = 0;
-    let currentLevel: string[] = [config.folderUri];
+    let currentLevel: string[] = [...roots];
 
     const flushBatch = async (): Promise<void> => {
       if (batch.length > 0) {
@@ -429,119 +551,100 @@ export class ScanService {
 
     while (currentLevel.length > 0 && !ScanService.stopped) {
       const nextLevel: string[] = [];
-      // 根目录访问自愈（修复「扫描目录无法访问」核心场景）：
-      // 鸿蒙 NEXT 安全模型下 Picker 返回的目录 URI 是临时授权，应用重启/重装后失效，
-      // 持久化授权（fileShare.persistPermission）在模拟器/多数手机上不支持（801）。
-      // 这里先探测根目录可达性，失败则尝试激活持久化权限后重试一次；仍失败则抛出明确错误，
-      // 引导 UI 层用 tryAccessOrReauthorize 重新拉起系统选择器授权。
-      try {
-        await fileIo.listFile(config.folderUri);
-      } catch (rootErr) {
-        LogUtil.w('ScanService', `根目录首次访问失败，尝试激活持久化权限: ${config.folderUri} -> ${(rootErr as Error).message}`);
-        try {
-          await FilePermissionUtil.activateUri(config.folderUri);
-        } catch (actErr) {
-          LogUtil.w('ScanService', `激活根目录权限失败（模拟器上常返回 801，属预期）: ${(actErr as Error).message}`);
-        }
-        try {
-          await fileIo.listFile(config.folderUri);
-        } catch (e3) {
-          throw new Error(`无法访问扫描目录，请重新选择目录授权。错误: ${(e3 as Error).message}`);
-        }
-      }
-
       for (const dir of currentLevel) {
         if (ScanService.stopped) {
           break;
         }
+        // 目录访问自愈（修复「扫描目录无法访问」核心场景）：
+        // 鸿蒙 NEXT 安全模型下 Picker 返回的目录 URI 是临时授权，应用重启/重装后失效，
+        // 持久化授权（fileShare.persistPermission）在模拟器/多数手机上不支持（801）。
+        // 这里先探测目录可达性，失败则尝试激活持久化权限后重试一次；仍失败则跳过该目录。
         let names: string[] = [];
         try {
-          names = await fileIo.listFile(dir);
-        } catch (e) {
-          // URI 访问失败，尝试转换为 path 再试
-          LogUtil.w('ScanService', `listFile(URI) 失败，尝试 path: ${dir} -> ${(e as Error).message}`);
+          // 优先用 fileAccess.listFile 枚举文档树 URI 的子项（返回「子项完整 URI」数组，
+          // 可直接用于 stat/open，是官方推荐的遍历用户文档方式）；
+          // 失败或不支持时回退到 fileIo.listFile（返回文件名数组，需自行拼接）。
+          names = await ScanService.listChildEntries(dir);
+        } catch (rootErr) {
+          LogUtil.w('ScanService', `目录首次访问失败，尝试激活持久化权限: ${dir} -> ${(rootErr as Error).message}`);
           try {
-            let pathStr: string = dir;
-            if (dir.startsWith('file://')) {
-              pathStr = new fileUri.FileUri(dir).path;
+            await FilePermissionUtil.activateUri(dir);
+          } catch (actErr) {
+            LogUtil.w('ScanService', `激活目录权限失败（模拟器上常返回 801，属预期）: ${(actErr as Error).message}`);
+          }
+          try {
+            names = await ScanService.listChildEntries(dir);
+          } catch (e3) {
+            // 目录模式（单一根目录）不可访问时，抛出明确错误引导 UI 重新选择授权；
+            // 文件回退递归模式（多个父目录根）则跳过该不可访问的父目录，继续其余。
+            if (failOnFirstRootUnavailable && dir === roots[0]) {
+              throw new Error(`无法访问扫描目录，请重新选择目录授权。错误: ${(e3 as Error).message}`);
             }
-            // 异步枚举，避免同步 listFileSync 在 10w+ 文件目录下阻塞 UI 线程。
-            names = await fileIo.listFile(pathStr);
-          } catch (e2) {
-            LogUtil.e('ScanService', `遍历目录失败(URI+path 均失败): ${dir} -> ${(e2 as Error).message}`);
-            // 如果是根目录就失败，向上抛出明确错误
-            if (dir === config.folderUri) {
-              throw new Error(`无法访问扫描目录，请重新选择目录。错误: ${(e2 as Error).message}`);
-            }
+            LogUtil.e('ScanService', `目录不可访问，跳过: ${dir} -> ${(e3 as Error).message}`);
             continue;
           }
+        }
+        if (names.length === 0) {
+          LogUtil.w('ScanService', `目录列举为空: ${dir}`);
         }
         for (const name of names) {
           if (ScanService.stopped) {
             break;
           }
-          // fileIo.listFile 对文档树/文件 URI 的返回值有两种形态：
-          //   1) 子项「完整 URI」（含 scheme，如 file:///.../Books/sub）——官方文档主形态；
-          //   2) 子项「纯文件名」（如 "sub"）——对真实文件系统路径文件 URI 的返回。
-          // 之前一律按纯文件名做 `${dir}/${name}` 字符串拼接，当 name 已是完整 URI 时
-          // 会拼出 `${docTreeUri}/file:///.../sub` 这种非法 URI，fileIo.stat 抛异常被
-          // catch 跳过，子目录永远进不了 nextLevel，递归只跑第一层就结束——即「递归
-          // 扫描没有生效」。这里先归一化为正确的子项 URI。
+          // listChildEntries 返回的 childUri 可能是两种形态：
+          //   a) 完整子项 URI（fileAccess.listFile 返回，如 file://docs/.../sub）；
+          //   b) 纯文件名（fileIo.listFile 回退时返回，如 "sub"），需自行拼接为文档树 URI 形态。
+          // 关键：文档树 URI（FOLDER 模式选中的 file://docs/...）不能转换为沙箱外真实
+          // 路径访问（应用无权限），始终用「文档树 URI 形态」。早期版本用 new FileUri(dir).path
+          // 拿真实路径拼接，导致 stat/open 全部失败、子目录进不了 nextLevel、文件被跳过。
           let childUri: string;
           if (name.includes('://')) {
-            childUri = name; // listFile 已返回完整子项 URI，直接用
+            childUri = name; // fileAccess.listFile 返回完整子项 URI，直接用
           } else if (name.startsWith('/')) {
-            childUri = `file://${name}`; // 真实绝对路径，补 scheme
+            childUri = ScanService.toDocUri(name); // 真实绝对路径，归一化为文档类 URI
           } else {
-            // 纯文件名：优先用 FileUri 基于父 URI 正确构造层级 URI（文档树 URI 不能简单拼接）
-            try {
-              const parentObj = new fileUri.FileUri(dir);
-              const basePath: string = parentObj.path ?? '';
-              if (basePath.length > 0) {
-                const subPath: string = basePath.endsWith('/') ? `${basePath}${name}` : `${basePath}/${name}`;
-                childUri = new fileUri.FileUri(subPath).toString();
-              } else {
-                childUri = dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`;
-              }
-            } catch (e) {
-              childUri = dir.endsWith('/') ? `${dir}${name}` : `${dir}/${name}`;
-            }
+            // 纯文件名：父 URI + '/' + 文件名（文档树 URI 与 file:/// 真实路径 URI 均适用）
+            const sep: string = dir.endsWith('/') ? '' : '/';
+            childUri = `${dir}${sep}${name}`;
           }
+          // 子项显示名：fileAccess 返回的是 URI 时取末尾段；fileIo 返回的是文件名，直接用
+          const childName: string = name.includes('://')
+            ? ScanService.getFileNameFromUri(name)
+            : name;
 
           let stat: fileIo.Stat | null = null;
           try {
             stat = await fileIo.stat(childUri);
           } catch (e) {
-            // stat 失败：可能是文档树 URI 子项 stat 不可靠，用 listFile 兜底判定目录。
-            if (config.recursive && !ScanService.isExcluded(name, config.excludedFolders)) {
-              try {
-                const probe: string[] = await fileIo.listFile(childUri);
-                if (Array.isArray(probe)) {
-                  nextLevel.push(childUri);
-                }
-              } catch (e2) {
-                // listFile 也失败，跳过该子项
-              }
+            // stat 失败：文档树 URI 子项的 stat 有时不可靠。用 fileAccess.listFile(childUri)
+            // 兜底判定是否为目录（返回数组即目录）。对文件则尝试 fileAccess 的递归列举判定。
+            const isDirFallback: boolean = await ScanService.isDirectoryUri(childUri);
+            if (isDirFallback && config.recursive && !ScanService.isExcluded(childName, config.excludedFolders)) {
+              LogUtil.i('ScanService', `子项判定为目录(兜底): ${childName}`);
+              nextLevel.push(childUri);
+              continue;
             }
+            // 非目录且 stat 失败：视为无法访问的文件，跳过（不计入 processed，与原行为一致）
+            LogUtil.w('ScanService', `子项 stat 失败且非目录，跳过: ${childUri} -> ${(e as Error).message}`);
             continue;
           }
           // 判定目录：以 stat.isDirectory() 为主；stat 已成功，绝大多数场景下直接可信，
           // 避免对每个文件再发一次无意义的 listFile 探测（10w 文件场景会多出 10w 次 IPC）。
           const isDir: boolean = stat.isDirectory();
           if (isDir) {
-            if (config.recursive && !ScanService.isExcluded(name, config.excludedFolders)) {
+            if (config.recursive && !ScanService.isExcluded(childName, config.excludedFolders)) {
               nextLevel.push(childUri);
             }
           } else {
             processed++;
-            const ext: string = FormatUtil.getExtension(name);
+            const ext: string = FormatUtil.getExtension(childName);
             if (!ScanService.matchExt(ext, config.fileTypes)) {
               continue;
             }
             if (stat.size / 1024 < config.minSizeKb) {
               continue;
             }
-            let fileName: string = name;
+            let fileName: string = childName;
             if (scanRules.length > 0) {
               fileName = KeywordReplace.applyRules(fileName, scanRules) ?? fileName;
             }
@@ -574,7 +677,7 @@ export class ScanService {
             if (ScanService.titleExcluded(rec.title, titleExcludes.exact, titleExcludes.keywords)) {
               processed++;
               excluded++;
-              reportProgress(name);
+              reportProgress(childName);
               continue;
             }
             batch.push(rec);
@@ -590,15 +693,20 @@ export class ScanService {
     }
 
     await flushBatch();
-    await ScanRunDao.updateFileCount(runId, found);
-    const status: string = ScanService.stopped ? '已停止' : '完成';
-    LogUtil.operation('扫描', `文库=${config.name} 目录=${config.folderName} 命中=${found} 排除=${excluded} 状态=${status} 文库ID=${runId}`);
-    return { runId: runId, total: found, processed: processed, excluded: excluded, stopped: ScanService.stopped };
+    return { processed, found, excluded };
   }
 
   /**
-   * FILE 多选回退模式下的扫描：直接处理 selectDirectory 缓存的已授权文件 URI 列表。
-   * 不递归、不遍历父目录，只处理用户明确选中的文件。扫描结束后清空缓存。
+   * FILE 多选回退模式下的扫描：处理 selectDirectory 缓存的已授权文件 URI 列表。
+   *
+   * 递归处理：
+   *  - 勾选「递归扫描」(config.recursive=true) 时，对每个选中文件推导其父目录，
+   *    若父目录可访问则交给 traverseDirs 递归扫描父目录下所有符合后缀要求的文件与
+   *    子文件夹（即扫描父目录下的全部文件，含子目录递归）；父目录不可访问的文件则
+   *    降级为只扫描该文件本身。
+   *  - 未勾选递归时，仅扫描用户明确选中的文件。
+   *
+   * 扫描结束后清空缓存。
    */
   private static async runScanFromFiles(
     config: ScanConfig,
@@ -611,10 +719,94 @@ export class ScanService {
     const fileUris: string[] = [...ScanService.selectedFileUris];
     ScanService.clearFileFallback(); // 立即清空（内存+持久化），避免重复扫描或旧数据残留
 
+    let processed: number = 0;
+    let found: number = 0;
+    let excluded: number = 0;
+
+    if (config.recursive === true) {
+      // 递归模式：收集可访问的父目录作为遍历根；父目录不可访问的选中文件单独扫描。
+      const dirRoots: string[] = [];
+      const singleFiles: string[] = [];
+      for (const f of fileUris) {
+        if (ScanService.stopped) { break; }
+        if (!(await FilePermissionUtil.checkUriAccessible(f))) {
+          LogUtil.w('ScanService', `选中文件不可访问，跳过: ${f}`);
+          continue;
+        }
+        const parentDir: string | null = ScanService.deriveParentUri(f);
+        if (parentDir && (await FilePermissionUtil.checkUriAccessible(parentDir))) {
+          if (!parentDir.endsWith('/')) {
+            dirRoots.push(parentDir + '/');
+          } else {
+            dirRoots.push(parentDir);
+          }
+        } else {
+          singleFiles.push(f);
+        }
+      }
+      if (dirRoots.length > 0) {
+        // 文件回退递归模式：多个父目录根，任一不可访问则跳过（不抛错中断整个扫描）
+        const stats = await ScanService.traverseDirs(dirRoots, config, onProgress, runId, scanRules, parseRules, false);
+        processed += stats.processed;
+        found += stats.found;
+        excluded += stats.excluded;
+        LogUtil.i('ScanService', `文件回退递归模式：遍历 ${dirRoots.length} 个父目录，命中=${stats.found}`);
+      }
+      // 父目录不可访问的选中文件：逐文件扫描（不递归）
+      for (const f of singleFiles) {
+        if (ScanService.stopped) { break; }
+        const r = await ScanService.scanSingleSelectedFile(f, config, runId, scanRules, parseRules);
+        processed += r.processed; found += r.found; excluded += r.excluded;
+        onProgress({ processed: processed, found: found, currentFile: ScanService.getFileNameFromUri(f) });
+      }
+    } else {
+      // 非递归模式：仅扫描选中的文件
+      for (const f of fileUris) {
+        if (ScanService.stopped) { break; }
+        if (!(await FilePermissionUtil.checkUriAccessible(f))) {
+          LogUtil.w('ScanService', `选中文件不可访问，跳过: ${f}`);
+          continue;
+        }
+        const r = await ScanService.scanSingleSelectedFile(f, config, runId, scanRules, parseRules);
+        processed += r.processed; found += r.found; excluded += r.excluded;
+        onProgress({ processed: processed, found: found, currentFile: ScanService.getFileNameFromUri(f) });
+      }
+    }
+
+    await ScanRunDao.updateFileCount(runId, found);
+    const status: string = ScanService.stopped ? '已停止' : '完成';
+    LogUtil.operation('扫描', `文库=${config.name} 目录=${config.folderName} 命中=${found} 排除=${excluded} 状态=${status} 文库ID=${runId} [FILE多选回退]`);
+    return { runId: runId, total: found, processed: processed, excluded: excluded, stopped: ScanService.stopped };
+  }
+
+  /** 从文件 URI 中提取文件名（末尾段），供进度展示。 */
+  private static getFileNameFromUri(uri: string): string {
+    try {
+      const n: string | undefined = new fileUri.FileUri(uri).name;
+      if (n && n.length > 0) { return n; }
+    } catch (e) {
+      // 忽略，走字符串兜底
+    }
+    const idx: number = uri.lastIndexOf('/');
+    return idx >= 0 ? uri.substring(idx + 1) : uri;
+  }
+
+  /**
+   * 扫描单个「已选文件」（FILE 回退模式逐文件分支）。
+   * 用于递归模式下父目录不可访问的降级，以及非递归模式逐文件扫描。
+   * 返回扫描统计（processed 至少为 1，命中算 found，排除算 excluded）。
+   */
+  private static async scanSingleSelectedFile(
+    childUri: string,
+    config: ScanConfig,
+    runId: number,
+    scanRules: KeywordReplaceRule[],
+    parseRules: KeywordReplaceRule[]
+  ): Promise<{ processed: number; found: number; excluded: number }> {
     const batch: ScannedFile[] = [];
     let processed: number = 0;
     let found: number = 0;
-    let lastReportProcessed: number = 0;
+    let excluded: number = 0;
 
     const flushBatch = async (): Promise<void> => {
       if (batch.length > 0) {
@@ -623,82 +815,64 @@ export class ScanService {
       }
     };
 
-    const reportProgress = (currentFile: string, force: boolean = false): void => {
-      if (force || processed - lastReportProcessed >= ScanService.PROGRESS_INTERVAL) {
-        onProgress({ processed: processed, found: found, currentFile: currentFile });
-        lastReportProcessed = processed;
-      }
-    };
+    const titleExcludes = ScanService.parseTitleExcludes(config);
 
-    for (const childUri of fileUris) {
-      if (ScanService.stopped) {
-        break;
-      }
-      let stat: fileIo.Stat | null = null;
-      try {
-        stat = await fileIo.stat(childUri);
-      } catch (e) {
-        LogUtil.w('ScanService', `无法 stat 已选文件: ${childUri} -> ${(e as Error).message}`);
-        continue;
-      }
-      if (stat.isDirectory()) {
-        continue;
-      }
-      processed++;
-      let name: string = '';
-      try {
-        name = new fileUri.FileUri(childUri).name ?? '';
-      } catch (e) {
-        name = childUri.substring(childUri.lastIndexOf('/') + 1);
-      }
-      const ext: string = FormatUtil.getExtension(name);
-      if (!ScanService.matchExt(ext, config.fileTypes)) {
-        continue;
-      }
-      if (stat.size / 1024 < config.minSizeKb) {
-        continue;
-      }
-      let fileName: string = name;
-      if (scanRules.length > 0) {
-        fileName = KeywordReplace.applyRules(fileName, scanRules) ?? fileName;
-      }
-      const parsed = Parser.parseFileName(fileName);
-      if (parseRules.length > 0) {
-        parsed.title = KeywordReplace.applyRules(parsed.title, parseRules) ?? parsed.title;
-        parsed.author = KeywordReplace.applyRules(parsed.author, parseRules) ?? parsed.author;
-        parsed.progress = KeywordReplace.applyRules(parsed.progress, parseRules) ?? parsed.progress;
-        parsed.source = KeywordReplace.applyRules(parsed.source, parseRules) ?? parsed.source;
-      }
-      const rec: ScannedFile = new ScannedFile();
-      rec.path = childUri;
-      rec.fileName = fileName;
-      rec.fileSize = stat.size;
-      rec.title = parsed.title;
-      rec.author = parsed.author;
-      rec.progress = parsed.progress;
-      rec.source = parsed.source;
-      rec.encoding = await ScanService.detectEncoding(childUri);
-      rec.titlePinyin = ChineseConverter.toPinyin(parsed.title);
-      rec.authorPinyin = ChineseConverter.toPinyin(parsed.author);
-      rec.contentHash = config.exactHash ? await ScanService.computeMd5(childUri) : '';
-      rec.ext = ext;
-      rec.scanRunId = runId;
-      rec.createdAt = Date.now();
-      const rawMtime: number = stat.mtime ? Number(stat.mtime) : 0;
-      rec.fileDate = rawMtime > 0 ? (rawMtime < 1e12 ? rawMtime * 1000 : rawMtime) : 0;
-      batch.push(rec);
-      found++;
-      if (batch.length >= ScanService.BATCH_SIZE) {
-        await flushBatch();
-      }
-      reportProgress(name);
+    let stat: fileIo.Stat | null = null;
+    try {
+      stat = await fileIo.stat(childUri);
+    } catch (e) {
+      LogUtil.w('ScanService', `无法 stat 已选文件: ${childUri} -> ${(e as Error).message}`);
+      return { processed, found, excluded };
     }
-
+    if (stat.isDirectory()) {
+      return { processed, found, excluded };
+    }
+    processed++;
+    const name: string = ScanService.getFileNameFromUri(childUri);
+    const ext: string = FormatUtil.getExtension(name);
+    if (!ScanService.matchExt(ext, config.fileTypes)) {
+      return { processed, found, excluded };
+    }
+    if (stat.size / 1024 < config.minSizeKb) {
+      return { processed, found, excluded };
+    }
+    let fileName: string = name;
+    if (scanRules.length > 0) {
+      fileName = KeywordReplace.applyRules(fileName, scanRules) ?? fileName;
+    }
+    const parsed = Parser.parseFileName(fileName);
+    if (parseRules.length > 0) {
+      parsed.title = KeywordReplace.applyRules(parsed.title, parseRules) ?? parsed.title;
+      parsed.author = KeywordReplace.applyRules(parsed.author, parseRules) ?? parsed.author;
+      parsed.progress = KeywordReplace.applyRules(parsed.progress, parseRules) ?? parsed.progress;
+      parsed.source = KeywordReplace.applyRules(parsed.source, parseRules) ?? parsed.source;
+    }
+    const rec: ScannedFile = new ScannedFile();
+    rec.path = childUri;
+    rec.fileName = fileName;
+    rec.fileSize = stat.size;
+    rec.title = parsed.title;
+    rec.author = parsed.author;
+    rec.progress = parsed.progress;
+    rec.source = parsed.source;
+    rec.encoding = await ScanService.detectEncoding(childUri);
+    rec.titlePinyin = ChineseConverter.toPinyin(parsed.title);
+    rec.authorPinyin = ChineseConverter.toPinyin(parsed.author);
+    rec.contentHash = config.exactHash ? await ScanService.computeMd5(childUri) : '';
+    rec.ext = ext;
+    rec.scanRunId = runId;
+    rec.createdAt = Date.now();
+    const rawMtime: number = stat.mtime ? Number(stat.mtime) : 0;
+    rec.fileDate = rawMtime > 0 ? (rawMtime < 1e12 ? rawMtime * 1000 : rawMtime) : 0;
+    if (ScanService.titleExcluded(rec.title, titleExcludes.exact, titleExcludes.keywords)) {
+      excluded++;
+      await flushBatch();
+      return { processed, found, excluded };
+    }
+    batch.push(rec);
+    found++;
     await flushBatch();
-    await ScanRunDao.updateFileCount(runId, found);
-    const status: string = ScanService.stopped ? '已停止' : '完成';
-    LogUtil.operation('扫描', `文库=${config.name} 目录=${config.folderName} 命中=${found} 状态=${status} 文库ID=${runId} [FILE多选回退]`);
-    return { runId: runId, total: found, processed: processed, excluded: 0, stopped: ScanService.stopped };
+    return { processed, found, excluded };
   }
 
   private static isExcluded(name: string, excluded: string): boolean {

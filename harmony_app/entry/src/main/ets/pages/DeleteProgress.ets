@@ -117,9 +117,18 @@ struct DeleteProgress {
   }
 
   private finish(): void {
-    router.replaceUrl({ url: 'pages/LibraryScreen', params: { runId: this.runId } }).catch((err: Error) => {
-      LogUtil.e('DeleteProgress', `跳转失败: ${err.message}`);
-    });
+    // 推送全局刷新信号：让已存在的 LibraryScreen（onPageShow 会 reload）与首页最近文库刷新显示。
+    AppStorage.setOrCreate('libraryRefreshTick', Date.now());
+    // 删除完成后应回到原先的文库列表（LibraryScreen 实例会 onPageShow→reload 显示删除后剩余文件），
+    // 而非新建 LibraryScreen 实例，避免返回栈出现重复页、且旧实例不刷新的问题。
+    // 若 LibraryScreen 不在栈中（异常分支）则降级为 replaceUrl。
+    try {
+      router.back({ url: 'pages/LibraryScreen' });
+    } catch (e) {
+      router.replaceUrl({ url: 'pages/LibraryScreen', params: { runId: this.runId } }).catch((err: Error) => {
+        LogUtil.e('DeleteProgress', `回到文库列表失败: ${err.message}`);
+      });
+    }
   }
 
   build() {

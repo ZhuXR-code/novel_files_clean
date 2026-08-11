@@ -289,6 +289,25 @@ private fun RunListScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(top = 4.dp)
                                     )
+                                    val isDeep = run.scanMode == "deep"
+                                    Surface(
+                                        tonalElevation = 0.dp,
+                                        shape = MaterialTheme.shapes.small,
+                                        color = if (isDeep) MaterialTheme.colorScheme.tertiaryContainer
+                                        else MaterialTheme.colorScheme.secondaryContainer,
+                                        modifier = Modifier.padding(top = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = stringResource(
+                                                if (isDeep) R.string.scan_mode_deep_badge
+                                                else R.string.scan_mode_quick_badge
+                                            ),
+                                            fontSize = 11.sp,
+                                            color = if (isDeep) MaterialTheme.colorScheme.onTertiaryContainer
+                                            else MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
                                 }
                                 if (!selectionMode) {
                                     IconButton(onClick = { toDelete = run }) {
