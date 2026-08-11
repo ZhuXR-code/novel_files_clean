@@ -115,7 +115,18 @@ enum DupRuleLogic {
 
             // 规则 1：完全相等去重
             if enabledBuiltinKeys.contains("rule1") {
-                let exact = Dictionary(grouping: S) { "\($0.fileSize)\u{0000}\($0.progress.trimmingCharacters(in: .whitespaces))" }
+                // 判定键：默认 (大小 + 进度)。
+                // 但当本子组「书名与作者均为空」(无解析身份，如图片/未解析文件) 时，
+                // 不同文件完全可能大小相同而内容完全不同，不能仅凭"大小+进度"判重复。
+                // 此时把文件名也并入判定键，仅 (文件名 + 大小 + 进度) 完全相同的才算同一副本。
+                let hasIdentity = !S[0].title.trimmingCharacters(in: .whitespaces).isEmpty
+                    || !S[0].author.trimmingCharacters(in: .whitespaces).isEmpty
+                let exact: [String: [DuplicateRow]]
+                if hasIdentity {
+                    exact = Dictionary(grouping: S) { "\($0.fileSize)\u{0000}\($0.progress.trimmingCharacters(in: .whitespaces))" }
+                } else {
+                    exact = Dictionary(grouping: S) { "\($0.fileName)\u{0000}\($0.fileSize)\u{0000}\($0.progress.trimmingCharacters(in: .whitespaces))" }
+                }
                 for (_, g) in exact where g.count >= 2 {
                     let newest = g.max { a, b in
                         // 优先按文件真实修改时间(fileDate)判断最新；缺失时回退到扫描入库时间(createdAt)。

@@ -62,9 +62,16 @@ export class DupLogic {
 
       // ── 规则 1：完全相等去重 ──
       if (enabled.has('rule1')) {
+        // 判定键：默认 (大小 + 进度)。
+        // 但当本子组「书名与作者均为空」(无解析身份，如图片/未解析文件) 时，
+        // 不同文件完全可能大小相同而内容完全不同，不能仅凭"大小+进度"判重复。
+        // 此时把文件名也并入判定键，仅 (文件名 + 大小 + 进度) 完全相同的才算同一副本。
+        const hasIdentity: boolean = S[0].title.trim().length > 0 || S[0].author.trim().length > 0;
         const exact: Map<string, DuplicateRow[]> = new Map<string, DuplicateRow[]>();
         for (const f of S) {
-          const key: string = `${f.fileSize}\u0000${f.progress.trim()}`;
+          const key: string = hasIdentity
+            ? `${f.fileSize}\u0000${f.progress.trim()}`
+            : `${f.fileName}\u0000${f.fileSize}\u0000${f.progress.trim()}`;
           if (!exact.has(key)) {
             exact.set(key, []);
           }
