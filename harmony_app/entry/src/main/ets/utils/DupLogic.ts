@@ -260,14 +260,9 @@ export class DupLogic {
     // 仅对「已扫描内容哈希(contentHash 非空)」的文件生效：按 contentHash 全局（跨合集）分组，
     // 同哈希值内保留「最新」一个（fileDate 优先 → 回退 createdAt → 并列取最大 id）不勾选，
     // 其余（哈希相同但非最新的）强制勾选。无哈希的文件不受此规则影响，仍走其它规则。
-    //
-    // 【重要】内容哈希去重仅针对有身份的书籍文件（书名或作者非空）。
-    // 若书名与作者均为空（无解析身份，如图片/未解析二进制），不上报内容哈希分组。
-    // 否则大量不同来源的同内容文件（如图片、配置文件）会被全局哈希误判为"重复书籍"，
-    // 导致勾选单个文件却找不到对应副本，用户无法理解。
     if (enabled.has('rule_hash')) {
       try {
-        const hashed: DuplicateRow[] = rows.filter((r) => r.contentHash && r.contentHash.length > 0 && (r.title.trim().length > 0 || r.author.trim().length > 0));
+        const hashed: DuplicateRow[] = rows.filter((r) => r.contentHash && r.contentHash.length > 0);
         const groups: Map<string, DuplicateRow[]> = new Map<string, DuplicateRow[]>();
         for (const r of hashed) {
           const arr: DuplicateRow[] = groups.get(r.contentHash) ?? [];

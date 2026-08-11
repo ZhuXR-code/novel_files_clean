@@ -266,4 +266,48 @@ class DupRuleLogicTest {
         }
         assertEquals(setOf(2L), result) // 未匹配的文件仍被勾选
     }
+
+    // ===================== 规则 1 对「无身份文件」的误判修复 =====================
+    // 复现用户场景：图片/未解析文件（书名作者为空），文件名各异但大小碰巧相同。
+    // 修复前：这些文件被 (大小+进度) 判为同一组并被勾选非最新 → 误删不同图片。
+
+    @Test
+    fun rule1NoIdentityDiffNamesSameSizeNotChecked() {
+        // 3 个文件名完全不同（模拟不同 jpg），同大小，无进度，无书名作者
+        val rows = listOf(
+            row(id = 1, fileName = "75c6....jpg", title = "", author = "", progress = "", fileSize = 187699L),
+            row(id = 2, fileName = "a1b2....jpg", title = "", author = "", progress = "", fileSize = 187699L),
+            row(id = 3, fileName = "c3d4....jpg", title = "", author = "", progress = "", fileSize = 187699L),
+        )
+        val (checked, _) = DupRuleLogic.computeDuplicateChecks(
+            rows, setOf("rule1", "rule_hash"), emptyList()
+        )
+        assertTrue("无身份且文件名不同的文件不应被按大小判重复", checked.isEmpty())
+    }
+
+    @Test
+    fun rule1NoIdentitySameFileNameSameSizeChecked() {
+        // 无身份，但文件名完全相同（真正的同名副本）→ 应勾选非最新
+        val rows = listOf(
+            row(id = 1, fileName = "copy.txt", title = "", author = "", progress = "", fileSize = 187699L, createdAt = 1000L),
+            row(id = 2, fileName = "copy.txt", title = "", author = "", progress = "", fileSize = 187699L, createdAt = 2000L),
+        )
+        val (checked, _) = DupRuleLogic.computeDuplicateChecks(
+            rows, setOf("rule1", "rule_hash"), emptyList()
+        )
+        assertEquals("同文件名同大小同名副本应勾选较早一个", setOf(1L), checked)
+    }
+
+    @Test
+    fun rule1HasIdentitySameSizeStillChecked() {
+        // 有身份（同书名作者），不同文件名但同大小无进度 → 规则 1 仍应勾选非最新（回归保证）
+        val rows = listOf(
+            row(id = 1, fileName = "x.txt", title = "书A", author = "作者甲", progress = "", fileSize = 187699L, createdAt = 1000L),
+            row(id = 2, fileName = "y.txt", title = "书A", author = "作者甲", progress = "", fileSize = 187699L, createdAt = 2000L),
+        )
+        val (checked, _) = DupRuleLogic.computeDuplicateChecks(
+            rows, setOf("rule1", "rule_hash"), emptyList()
+        )
+        assertEquals("有身份同大小应判重复", setOf(1L), checked)
+    }
 }
