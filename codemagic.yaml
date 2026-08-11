@@ -76,6 +76,8 @@ workflows:
           # 自动生成递增 build 号 (YYYYMMDD + 当日分钟序号)，避免 App Store Connect 报 DUPLICATE
           BUILD_NUMBER="$(date +%Y%m%d)$(date +%H%M)"
           echo ">>> 本次 build 号: $BUILD_NUMBER"
+          # 直接改写 Info.plist 的 CFBundleVersion，确保无论 build setting 优先级都生效
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" booksclean/Info.plist
           mkdir -p $CM_BUILD_DIR/build
           xcodebuild archive \
             -project booksclean.xcodeproj \
@@ -191,6 +193,8 @@ workflows:
           # 自动生成递增 build 号 (YYYYMMDD + 当日分钟序号)，避免 App Store Connect 报 DUPLICATE
           BUILD_NUMBER="$(date +%Y%m%d)$(date +%H%M)"
           echo ">>> 本次 build 号: $BUILD_NUMBER"
+          # 直接改写 Info.plist 的 CFBundleVersion，确保无论 build setting 优先级都生效
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" booksclean/Info.plist
           mkdir -p $CM_BUILD_DIR/build
           xcodebuild archive \
             -project booksclean.xcodeproj \
