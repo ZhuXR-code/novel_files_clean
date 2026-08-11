@@ -81,4 +81,23 @@ export class FormatUtil {
     }
     return name;
   }
+
+  /**
+   * 给定一个文件/目录 URI，返回其父文件夹的展示名称。
+   * 用于「只能选文件、无法选文件夹」的回退场景，避免把文件名当成文件夹名。
+   */
+  public static getParentFolderDisplay(uri: string): string {
+    if (!uri || uri.trim().length === 0) {
+      return '';
+    }
+    // 去掉 file:// 前缀与末尾斜杠，再截掉最后一段，得到父目录路径
+    let path: string = uri.replace(/^file:\/\//i, '');
+    path = path.replace(/[\/\\]+$/, '');
+    const idx: number = path.lastIndexOf('/');
+    if (idx <= 0) {
+      return FormatUtil.formatFolderDisplay(uri);
+    }
+    const parentUri: string = path.substring(0, idx + 1);
+    return FormatUtil.formatFolderDisplay(parentUri);
+  }
 }

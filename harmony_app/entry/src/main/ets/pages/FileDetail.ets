@@ -42,9 +42,9 @@ struct FileDetail {
     this.loadNotes();
   }
 
-  private loadNotes(): void {
+  private async loadNotes(): Promise<void> {
     if (this.fileId > 0) {
-      this.notes = FileNoteDao.getNotesByFile(this.fileId);
+      this.notes = await FileNoteDao.getNotesByFile(this.fileId);
     }
   }
 
@@ -74,21 +74,21 @@ struct FileDetail {
     }
     let ok = false;
     if (this.noteEditId < 0) {
-      ok = FileNoteDao.insert(this.fileId, content, Date.now());
+      ok = await FileNoteDao.insert(this.fileId, content, Date.now());
     } else {
-      ok = FileNoteDao.update(this.noteEditId, this.fileId, content);
+      ok = await FileNoteDao.update(this.noteEditId, this.fileId, content);
     }
     if (ok) {
       this.showNoteDialog = false;
-      this.loadNotes();
+      await this.loadNotes();
     } else {
       this.noteError = (this.noteEditId < 0 ? '添加失败：' : '修改失败：') + '该文件已存在相同内容的备注';
     }
   }
 
-  private deleteNote(note: FileNote): void {
-    FileNoteDao.delete(note.id);
-    this.loadNotes();
+  private async deleteNote(note: FileNote): Promise<void> {
+    await FileNoteDao.delete(note.id);
+    await this.loadNotes();
   }
 
   private async onMarkChanged(marked: boolean): Promise<void> {
@@ -283,13 +283,13 @@ struct FileDetail {
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
                 .fontColor($r('app.color.text_primary'))
-                .alignSelf(HorizontalAlign.Start)
+                .alignSelf(ItemAlign.Start)
 
               if (this.notes.length === 0) {
                 Text('暂无备注，点击下方按钮添加')
                   .fontSize(13)
                   .fontColor($r('app.color.text_secondary'))
-                  .alignSelf(HorizontalAlign.Start)
+                  .alignSelf(ItemAlign.Start)
               } else {
                 ForEach(this.notes, (note: FileNote) => {
                   Row({ space: 8 }) {
@@ -297,7 +297,7 @@ struct FileDetail {
                       .fontSize(14)
                       .fontColor($r('app.color.text_primary'))
                       .layoutWeight(1)
-                      .alignSelf(VerticalAlign.Center)
+                      .alignSelf(ItemAlign.Center)
                     Button('编辑')
                       .height(32)
                       .fontSize(13)
@@ -523,13 +523,13 @@ struct FileDetail {
         Text(`${this.noteDraft.trim().length}/50`)
           .fontSize(12)
           .fontColor($r('app.color.text_secondary'))
-          .alignSelf(HorizontalAlign.End)
+          .alignSelf(ItemAlign.End)
 
         if (this.noteError) {
           Text(this.noteError)
             .fontSize(12)
             .fontColor($r('app.color.danger'))
-            .alignSelf(HorizontalAlign.Start)
+            .alignSelf(ItemAlign.Start)
         }
 
         Row({ space: 8 }) {

@@ -3,6 +3,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { LogUtil } from '../utils/LogUtil';
 import { PreferencesUtil } from '../utils/PreferencesUtil';
+import { EncodingUtil } from '../utils/EncodingUtil';
 import { TopBar } from '../components/TopBar';
 
 // 对齐安卓端：流式分块读取，无文件大小上限
@@ -121,30 +122,26 @@ struct FilePreview {
           const combined: Uint8Array = this.concatBytes(leftoverBytes, chunkBytes);
           const isLast: boolean = fileOffset >= fileSize;
 
-          // 首个非空块检测编码
+          // 首个非空块检测编码（关键修复：用 EncodingUtil.decodeStrict 统一评分对齐 iOS/安卓）
           if (!encodingDetected && combined.length > 0) {
             if (combined.length >= 3 && combined[0] === 0xEF && combined[1] === 0xBB && combined[2] === 0xBF) {
               encoding = 'utf-8';
               bomSkip = 3;
               this.encoding = 'UTF-8\u2009BOM';
-            } else if (this.isValidUtf8(combined)) {
-              encoding = 'utf-8';
-              this.encoding = 'UTF-8';
             } else {
-              // 对齐安卓：GB18030 兜底（GBK 超集），失败再回退 GBK
-              const testText: string = this.decodeBytes(combined.slice(0, Math.min(combined.length, 1024)), 'gb18030');
-              if (testText.length > 0) {
+              // decodeStrict 内部做 CJK 占比评分 + 异常字符惩罚，
+              // 纠正「GBK 文件被误判为合法 UTF-8 → 解码成乱码（损坏文件）」，
+              // 并以 GB18030 兜底（GBK 超集），失败回退 GBK。
+              const encName: string = EncodingUtil.decodeStrict(combined);
+              if (encName === 'GB18030') {
                 encoding = 'gb18030';
                 this.encoding = 'GB18030';
+              } else if (encName === 'GBK') {
+                encoding = 'gbk';
+                this.encoding = 'GBK';
               } else {
-                const gbkText: string = this.decodeBytes(combined, 'gbk');
-                if (gbkText.length > 0) {
-                  encoding = 'gbk';
-                  this.encoding = 'GBK';
-                } else {
-                  encoding = 'utf-8';
-                  this.encoding = 'UTF-8';
-                }
+                encoding = 'utf-8';
+                this.encoding = 'UTF-8';
               }
             }
             encodingDetected = true;
@@ -247,33 +244,41 @@ struct FilePreview {
     }
   }
 
+  // 对齐 iOS/安卓：采样尾部被截断的不完整多字节序列视为合法前缀（避免采样边界误判）
   private isValidUtf8(bytes: Uint8Array): boolean {
     let i: number = 0;
-    while (i < bytes.length) {
+    const len: number = bytes.length;
+    while (i < len) {
       const b: number = bytes[i];
       if (b <= 0x7F) {
         i++;
       } else if (b >= 0xC2 && b <= 0xDF) {
-        if (i + 1 >= bytes.length || (bytes[i + 1] & 0xC0) !== 0x80) return false;
+        if (i + 1 >= len) return true;
+        if ((bytes[i + 1] & 0xC0) !== 0x80) return false;
         i += 2;
       } else if (b === 0xE0) {
-        if (i + 2 >= bytes.length || bytes[i + 1] < 0xA0 || bytes[i + 1] > 0xBF ||
+        if (i + 2 >= len) return true;
+        if (bytes[i + 1] < 0xA0 || bytes[i + 1] > 0xBF ||
           (bytes[i + 2] & 0xC0) !== 0x80) return false;
         i += 3;
       } else if (b >= 0xE1 && b <= 0xEF) {
-        if (i + 2 >= bytes.length || (bytes[i + 1] & 0xC0) !== 0x80 ||
+        if (i + 2 >= len) return true;
+        if ((bytes[i + 1] & 0xC0) !== 0x80 ||
           (bytes[i + 2] & 0xC0) !== 0x80) return false;
         i += 3;
       } else if (b === 0xF0) {
-        if (i + 3 >= bytes.length || bytes[i + 1] < 0x90 || bytes[i + 1] > 0xBF ||
+        if (i + 3 >= len) return true;
+        if (bytes[i + 1] < 0x90 || bytes[i + 1] > 0xBF ||
           (bytes[i + 2] & 0xC0) !== 0x80 || (bytes[i + 3] & 0xC0) !== 0x80) return false;
         i += 4;
       } else if (b >= 0xF1 && b <= 0xF3) {
-        if (i + 3 >= bytes.length || (bytes[i + 1] & 0xC0) !== 0x80 ||
+        if (i + 3 >= len) return true;
+        if ((bytes[i + 1] & 0xC0) !== 0x80 ||
           (bytes[i + 2] & 0xC0) !== 0x80 || (bytes[i + 3] & 0xC0) !== 0x80) return false;
         i += 4;
       } else if (b >= 0xF4 && b <= 0xF7) {
-        if (i + 3 >= bytes.length || bytes[i + 1] < 0x80 || bytes[i + 1] > 0x8F ||
+        if (i + 3 >= len) return true;
+        if (bytes[i + 1] < 0x80 || bytes[i + 1] > 0x8F ||
           (bytes[i + 2] & 0xC0) !== 0x80 || (bytes[i + 3] & 0xC0) !== 0x80) return false;
         i += 4;
       } else {

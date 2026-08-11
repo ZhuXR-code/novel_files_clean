@@ -227,7 +227,7 @@ export class ScanRunDao {
       // 合并后相同 path 只保留一条（新 file_id），多个源对同一 path 的备注经
       // file_notes 唯一索引 (file_id, content) 自动去重（区分大小写）。
       try {
-        ScanRunDao.mergeNotesInto(store, sourceIds, newId);
+        await ScanRunDao.mergeNotesInto(store, sourceIds, newId);
       } catch (en) {
         LogUtil.w('ScanRunDao', `合并备注失败(忽略): ${(en as Error)?.message ?? '未知错误'}`);
       }
@@ -252,7 +252,7 @@ export class ScanRunDao {
    * 通过查询新文库文件 path→newId、源文库文件 id→path，再把源备注写入新文件，
    * 重复内容由 file_notes 唯一索引 (file_id, content) 自动去重（区分大小写）。
    */
-  private static mergeNotesInto(store: relationalStore.RdbStore, sourceIds: number[], newRunId: number): void {
+  private static async mergeNotesInto(store: relationalStore.RdbStore, sourceIds: number[], newRunId: number): Promise<void> {
     const srcPlaceholders: string = sourceIds.map(() => '?').join(',');
     // 单语句 JOIN 复制备注：在 DB 内部完成「源备注 -> 新文件」的按 path 重映射，
     // 避免 20w 级别书库下「全量读取 path + 巨型 IN + 内存 map + 逐条 INSERT」的内存与性能问题。

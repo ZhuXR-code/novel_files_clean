@@ -1,4 +1,4 @@
-import { router, CustomDialogController } from '@kit.ArkUI';
+import { router } from '@kit.ArkUI';
 import { ScannedFile } from '../model/ScannedFile';
 import { ScanRun } from '../model/ScanRun';
 import { GroupInfo } from '../model/GroupInfo';
@@ -1301,166 +1301,6 @@ struct LibraryScreen {
     Circle({ width: this.isStepActive(index) ? 16 : 14, height: this.isStepActive(index) ? 16 : 14 })
       .fill(this.isStepActive(index) ? $r('app.color.primary') : $r('app.color.divider'))
   }
-}
-
-// ===== 以下两个 CustomDialog 为「弹出的悬浮框」实现（对齐安卓删除确认 / 合集排序） =====
-
-@CustomDialog
-struct DeleteChoiceDialog {
-  @State deleteSource: boolean = false;
-  controller: CustomDialogController;
-  onConfirm?: (deleteSource: boolean) => void;
-  onCancel?: () => void;
-
-  private fs(base: number): number {
-    return Math.round(base * (AppStorage.get<number>('fontScale') ?? 1.0));
-  }
-
-  build() {
-    Column({ space: 12 }) {
-      Text('删除选择')
-        .fontSize(this.fs(16))
-        .fontWeight(FontWeight.Bold)
-        .fontColor($r('app.color.text_primary'))
-
-      Row() {
-        Radio({ value: 'record', group: 'deleteChoice' })
-          .checked(!this.deleteSource)
-          .onChange((isOn: boolean) => { if (isOn) { this.deleteSource = false; } })
-        Column({ space: 2 }) {
-          Text('仅删除记录')
-            .fontSize(this.fs(14))
-            .fontColor($r('app.color.text_primary'))
-          Text('只删除数据库中的扫描记录，保留源文件')
-            .fontSize(this.fs(12))
-            .fontColor($r('app.color.text_secondary'))
-        }
-        .margin({ left: 8 })
-        .layoutWeight(1)
-      }
-      .width('100%')
-      .onClick(() => { this.deleteSource = false; })
-
-      Row() {
-        Radio({ value: 'source', group: 'deleteChoice' })
-          .checked(this.deleteSource)
-          .onChange((isOn: boolean) => { if (isOn) { this.deleteSource = true; } })
-        Column({ space: 2 }) {
-          Text('删除记录和源文件')
-            .fontSize(this.fs(14))
-            .fontColor($r('app.color.text_primary'))
-          Text('同时删除数据库记录和磁盘上的源文件')
-            .fontSize(this.fs(12))
-            .fontColor($r('app.color.text_secondary'))
-        }
-        .margin({ left: 8 })
-        .layoutWeight(1)
-      }
-      .width('100%')
-      .onClick(() => { this.deleteSource = true; })
-
-      Row({ space: 8 }) {
-        Button('取消')
-          .layoutWeight(1)
-          .backgroundColor($r('app.color.bg_page'))
-          .fontColor($r('app.color.text_primary'))
-          .onClick(() => {
-            if (this.onCancel) { this.onCancel(); }
-            this.controller.close();
-          })
-        Button('确认删除')
-          .layoutWeight(1)
-          .backgroundColor($r('app.color.danger'))
-          .fontColor($r('app.color.text_on_primary'))
-          .onClick(() => {
-            this.controller.close();
-            if (this.onConfirm) { this.onConfirm(this.deleteSource); }
-          })
-      }
-      .width('100%')
-      .margin({ top: 4 })
-    }
-    .width('100%')
-    .padding(20)
-    .backgroundColor($r('app.color.bg_card'))
-    .borderRadius(12)
-    .margin({ left: 24, right: 24 })
-  }
-}
-
-@CustomDialog
-struct GroupSortDialog {
-  @State localSort: GroupSortMode = 'COUNT_DESC';
-  controller: CustomDialogController;
-  onConfirm?: (mode: GroupSortMode) => void;
-  onCancel?: () => void;
-
-  private fs(base: number): number {
-    return Math.round(base * (AppStorage.get<number>('fontScale') ?? 1.0));
-  }
-
-  build() {
-    Column({ space: 8 }) {
-      Text('合集排序')
-        .fontSize(this.fs(16))
-        .fontWeight(FontWeight.Bold)
-        .fontColor($r('app.color.text_primary'))
-        .margin({ bottom: 8 })
-
-      this.groupSortOption('数量 多→少', 'COUNT_DESC')
-      this.groupSortOption('数量 少→多', 'COUNT_ASC')
-      this.groupSortOption('大小 大→小', 'SIZE_DESC')
-      this.groupSortOption('大小 小→大', 'SIZE_ASC')
-      this.groupSortOption('书名 A→Z', 'NAME_ASC')
-      this.groupSortOption('书名 Z→A', 'NAME_DESC')
-      this.groupSortOption('日期 新→旧', 'DATE_NEWEST')
-      this.groupSortOption('日期 旧→新', 'DATE_OLDEST')
-
-      Button('取消')
-        .fontSize(this.fs(13))
-        .height(36)
-        .width('100%')
-        .backgroundColor($r('app.color.bg_card'))
-        .fontColor($r('app.color.text_secondary'))
-        .margin({ top: 8 })
-        .onClick(() => {
-          if (this.onCancel) { this.onCancel(); }
-          this.controller.close();
-        })
-    }
-    .width('100%')
-    .padding(20)
-    .backgroundColor($r('app.color.bg_card'))
-    .borderRadius(12)
-    .margin({ left: 24, right: 24 })
-  }
-
-  @Builder
-  groupSortOption(label: string, mode: GroupSortMode) {
-    Row() {
-      Text(label)
-        .fontSize(this.fs(14))
-        .fontColor(this.localSort === mode ? $r('app.color.primary') : $r('app.color.text_primary'))
-        .layoutWeight(1)
-      if (this.localSort === mode) {
-        Text('✓')
-          .fontSize(this.fs(14))
-          .fontColor($r('app.color.primary'))
-      }
-    }
-    .width('100%')
-    .height(40)
-    .padding({ left: 12, right: 12 })
-    .borderRadius(8)
-    .backgroundColor(this.localSort === mode ? $r('app.color.primary_light') : $r('app.color.bg_page'))
-    .onClick(() => {
-      this.controller.close();
-      if (this.onConfirm) { this.onConfirm(mode); }
-    })
-  }
-}
-
-  // FAB 可见性：仅在内容可滚动时显示（对齐安卓 FAB up/down 仅在可滚动时出现，避免小列表遮挡）
   get scrollTopVisible(): boolean {
     if (this.mode === 'list') {
       return this.listFirstVisible > 0 && this.listFirstVisible < this.viewItems.length;
@@ -1946,3 +1786,161 @@ struct GroupSortDialog {
     this.savedScrollIndex = Math.max(0, this.firstVisibleIndex - this.page * this.pageSize);
   }
 }
+
+// ===== 以下两个 CustomDialog 为「弹出的悬浮框」实现（对齐安卓删除确认 / 合集排序） =====
+
+@CustomDialog
+struct DeleteChoiceDialog {
+  @State deleteSource: boolean = false;
+  controller: CustomDialogController;
+  onConfirm?: (deleteSource: boolean) => void;
+  onCancel?: () => void;
+
+  private fs(base: number): number {
+    return Math.round(base * (AppStorage.get<number>('fontScale') ?? 1.0));
+  }
+
+  build() {
+    Column({ space: 12 }) {
+      Text('删除选择')
+        .fontSize(this.fs(16))
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+
+      Row() {
+        Radio({ value: 'record', group: 'deleteChoice' })
+          .checked(!this.deleteSource)
+          .onChange((isOn: boolean) => { if (isOn) { this.deleteSource = false; } })
+        Column({ space: 2 }) {
+          Text('仅删除记录')
+            .fontSize(this.fs(14))
+            .fontColor($r('app.color.text_primary'))
+          Text('只删除数据库中的扫描记录，保留源文件')
+            .fontSize(this.fs(12))
+            .fontColor($r('app.color.text_secondary'))
+        }
+        .margin({ left: 8 })
+        .layoutWeight(1)
+      }
+      .width('100%')
+      .onClick(() => { this.deleteSource = false; })
+
+      Row() {
+        Radio({ value: 'source', group: 'deleteChoice' })
+          .checked(this.deleteSource)
+          .onChange((isOn: boolean) => { if (isOn) { this.deleteSource = true; } })
+        Column({ space: 2 }) {
+          Text('删除记录和源文件')
+            .fontSize(this.fs(14))
+            .fontColor($r('app.color.text_primary'))
+          Text('同时删除数据库记录和磁盘上的源文件')
+            .fontSize(this.fs(12))
+            .fontColor($r('app.color.text_secondary'))
+        }
+        .margin({ left: 8 })
+        .layoutWeight(1)
+      }
+      .width('100%')
+      .onClick(() => { this.deleteSource = true; })
+
+      Row({ space: 8 }) {
+        Button('取消')
+          .layoutWeight(1)
+          .backgroundColor($r('app.color.bg_page'))
+          .fontColor($r('app.color.text_primary'))
+          .onClick(() => {
+            if (this.onCancel) { this.onCancel(); }
+            this.controller.close();
+          })
+        Button('确认删除')
+          .layoutWeight(1)
+          .backgroundColor($r('app.color.danger'))
+          .fontColor($r('app.color.text_on_primary'))
+          .onClick(() => {
+            this.controller.close();
+            if (this.onConfirm) { this.onConfirm(this.deleteSource); }
+          })
+      }
+      .width('100%')
+      .margin({ top: 4 })
+    }
+    .width('100%')
+    .padding(20)
+    .backgroundColor($r('app.color.bg_card'))
+    .borderRadius(12)
+    .margin({ left: 24, right: 24 })
+  }
+}
+
+@CustomDialog
+struct GroupSortDialog {
+  @State localSort: GroupSortMode = 'COUNT_DESC';
+  controller: CustomDialogController;
+  onConfirm?: (mode: GroupSortMode) => void;
+  onCancel?: () => void;
+
+  private fs(base: number): number {
+    return Math.round(base * (AppStorage.get<number>('fontScale') ?? 1.0));
+  }
+
+  build() {
+    Column({ space: 8 }) {
+      Text('合集排序')
+        .fontSize(this.fs(16))
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.text_primary'))
+        .margin({ bottom: 8 })
+
+      this.groupSortOption('数量 多→少', 'COUNT_DESC')
+      this.groupSortOption('数量 少→多', 'COUNT_ASC')
+      this.groupSortOption('大小 大→小', 'SIZE_DESC')
+      this.groupSortOption('大小 小→大', 'SIZE_ASC')
+      this.groupSortOption('书名 A→Z', 'NAME_ASC')
+      this.groupSortOption('书名 Z→A', 'NAME_DESC')
+      this.groupSortOption('日期 新→旧', 'DATE_NEWEST')
+      this.groupSortOption('日期 旧→新', 'DATE_OLDEST')
+
+      Button('取消')
+        .fontSize(this.fs(13))
+        .height(36)
+        .width('100%')
+        .backgroundColor($r('app.color.bg_card'))
+        .fontColor($r('app.color.text_secondary'))
+        .margin({ top: 8 })
+        .onClick(() => {
+          if (this.onCancel) { this.onCancel(); }
+          this.controller.close();
+        })
+    }
+    .width('100%')
+    .padding(20)
+    .backgroundColor($r('app.color.bg_card'))
+    .borderRadius(12)
+    .margin({ left: 24, right: 24 })
+  }
+
+  @Builder
+  groupSortOption(label: string, mode: GroupSortMode) {
+    Row() {
+      Text(label)
+        .fontSize(this.fs(14))
+        .fontColor(this.localSort === mode ? $r('app.color.primary') : $r('app.color.text_primary'))
+        .layoutWeight(1)
+      if (this.localSort === mode) {
+        Text('✓')
+          .fontSize(this.fs(14))
+          .fontColor($r('app.color.primary'))
+      }
+    }
+    .width('100%')
+    .height(40)
+    .padding({ left: 12, right: 12 })
+    .borderRadius(8)
+    .backgroundColor(this.localSort === mode ? $r('app.color.primary_light') : $r('app.color.bg_page'))
+    .onClick(() => {
+      this.controller.close();
+      if (this.onConfirm) { this.onConfirm(mode); }
+    })
+  }
+}
+  // FAB 可见性：仅在内容可滚动时显示（对齐安卓 FAB up/down 仅在可滚动时出现，避免小列表遮挡）

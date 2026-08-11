@@ -124,3 +124,6 @@ iOS签名打包排障记录.md
 
 # 多平台同步 skill 的临时脚本目录（commit message、adb 包装脚本等，用完即删，不入库）
 tmp_scripts/
+
+# CodeBuddy 本地技能/配置目录（含本机专属路径与工作流配置，不入库）
+.codebuddy/

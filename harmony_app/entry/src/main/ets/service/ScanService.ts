@@ -14,6 +14,7 @@ import { KeywordReplaceDao } from '../database/KeywordReplaceDao';
 import { Parser } from '../utils/Parser';
 import { KeywordReplace } from '../utils/KeywordReplace';
 import { FormatUtil } from '../utils/FormatUtil';
+import { EncodingUtil } from '../utils/EncodingUtil';
 import { LogUtil } from '../utils/LogUtil';
 import { FilePermissionUtil } from '../utils/FilePermissionUtil';
 import { PreferencesUtil } from '../utils/PreferencesUtil';
@@ -53,6 +54,11 @@ export interface ScanProgress {
 export interface DirectoryPickResult {
   uri: string;
   isFileFallback: boolean;
+  /**
+   * 仅 isFileFallback=true 时使用：供 UI 展示的文件夹/文件名称（例如父文件夹名）。
+   * 此时 uri 可能是被选中的文件 URI，实际扫描不依赖它。
+   */
+  displayName?: string;
 }
 
 export class ScanService {
@@ -60,6 +66,44 @@ export class ScanService {
   private static readonly PROGRESS_INTERVAL: number = 16;
   private static readonly MAX_FILE_PICK: number = 99999;
   private static stopped: boolean = false;
+
+  /**
+   * 把任意 URI 转成父目录 URI（带末尾斜杠）。
+   * 兼容 file:// URI 与纯字符串兜底，避免 FileUri 在特殊 URI 上抛异常。
+   */
+  private static deriveParentUri(uri: string): string | null {
+    try {
+      let parent = new fileUri.FileUri(uri).getFullDirectoryUri();
+      if (!parent.endsWith('/')) {
+        parent += '/';
+      }
+      return parent;
+    } catch (e) {
+      LogUtil.w('ScanService', `FileUri parent fail for ${uri}: ${(e as Error).message}`);
+      let s = uri.replace(/[\/\\]+$/, '');
+      const idx = s.lastIndexOf('/');
+      if (idx <= 0) {
+        return null;
+      }
+      return s.substring(0, idx + 1);
+    }
+  }
+
+  /**
+   * 判断 URI 是否真的是目录。
+   * 优先用 stat.isDirectory()；失败时回退到 listFile 校验。
+   */
+  private static async isDirectoryUri(uri: string): Promise<boolean> {
+    try {
+      const stat = await fileIo.stat(uri);
+      if (stat && typeof (stat as fileIo.Stat).isDirectory === 'function') {
+        return (stat as fileIo.Stat).isDirectory();
+      }
+    } catch (e) {
+      // ignore, fallback below
+    }
+    return FilePermissionUtil.checkUriAccessible(uri);
+  }
   /**
    * 低版本系统（API < 26）不支持 FOLDER 模式时，selectDirectory 会改为 FILE 多选。
    * 选中的文件 URI 临时存于此，runScan 检测到非空时直接逐文件扫描，不再 listFile 父目录。
@@ -76,6 +120,7 @@ export class ScanService {
    * 当前是否处于「多选文件回退」模式。UI 可据此给出不同提示。
    */
   public static useFileFallback(): boolean {
+    ScanService.restoreFileFallback();
     return ScanService.selectedFileUris.length > 0;
   }
 
@@ -177,16 +222,39 @@ export class ScanService {
       if (!uris || uris.length === 0) {
         return { uri: '', isFileFallback: false };
       }
-      const folderUri: string = uris[0];
+      const pickedUri: string = uris[0];
+
+      // 部分设备/系统虽然声明了 FOLDER 模式，但 Picker 实际仍返回文件 URI。
+      // 这里做一层兜底：若选中的不是目录，则尝试取它的父目录；父目录可访问就
+      // 按整目录扫描，避免界面上把文件名当成文件夹名，也避免扫描时出错。
+      if (!(await ScanService.isDirectoryUri(pickedUri))) {
+        LogUtil.w('ScanService', `FOLDER 模式返回了非目录，尝试推导父目录: ${pickedUri}`);
+        const parentUri = ScanService.deriveParentUri(pickedUri);
+        if (parentUri && (await FilePermissionUtil.checkUriAccessible(parentUri))) {
+          try {
+            await FilePermissionUtil.persistFolderPermission(parentUri);
+          } catch (e) {
+            LogUtil.w('ScanService', `持久化父目录授权失败: ${(e as Error).message}`);
+          }
+          LogUtil.i('ScanService', `已降级为父目录扫描: ${parentUri}`);
+          return { uri: parentUri, isFileFallback: false };
+        }
+        // 父目录也不可访问：降级为逐文件扫描（至少能扫选中的这个文件）
+        ScanService.saveFileFallback([pickedUri]);
+        const displayName = FormatUtil.getParentFolderDisplay(pickedUri);
+        LogUtil.i('ScanService', `父目录不可访问，逐文件扫描: ${pickedUri}`);
+        return { uri: pickedUri, isFileFallback: true, displayName };
+      }
+
       // 持久化目录授权（读写模式），重启后自动激活
       try {
-        await FilePermissionUtil.persistFolderPermission(folderUri);
-        LogUtil.i('ScanService', `已持久化目录授权: ${folderUri}`);
+        await FilePermissionUtil.persistFolderPermission(pickedUri);
+        LogUtil.i('ScanService', `已持久化目录授权: ${pickedUri}`);
       } catch (e) {
         LogUtil.w('ScanService', `持久化目录授权失败: ${(e as Error).message}`);
       }
-      LogUtil.i('ScanService', `FOLDER 模式选择成功: ${folderUri}`);
-      return { uri: folderUri, isFileFallback: false };
+      LogUtil.i('ScanService', `FOLDER 模式选择成功: ${pickedUri}`);
+      return { uri: pickedUri, isFileFallback: false };
     } catch (e) {
       LogUtil.w('ScanService', `FOLDER 模式选择失败，降级 FILE 多选: ${(e as Error).message}`);
       return { uri: '', isFileFallback: false };
@@ -226,23 +294,24 @@ export class ScanService {
       LogUtil.w('ScanService', `持久化文件授权失败: ${(e as Error).message}`);
     }
 
-    // 取共同父目录
-    let parentDirUri: string = '';
-    try {
-      const fileUriObj = new fileUri.FileUri(uris[0]);
-      parentDirUri = fileUriObj.getFullDirectoryUri();
-    } catch (e) {
-      LogUtil.w('ScanService', `推导父目录失败: ${(e as Error).message}`);
-      parentDirUri = uris[0];
+    // 取共同父目录（优先使用 FileUri，失败时字符串兜底）
+    let parentDirUri: string | null = ScanService.deriveParentUri(uris[0]);
+    if (!parentDirUri) {
+      LogUtil.w('ScanService', `推导父目录失败，回退逐文件: ${uris[0]}`);
+      ScanService.saveFileFallback(uris);
+      return { uri: uris[0] || '', isFileFallback: true, displayName: FormatUtil.getParentFolderDisplay(uris[0] || '') };
     }
 
     // 优先整目录扫描：父目录可访问（listFile 成功）时，选中文件仅用于定位文件夹，
     // runScan 对父目录做 BFS 遍历，扫描其下全部文件——保留「选文件→推导父目录→扫文件夹」模式。
-    if (parentDirUri.length > 0 && (await FilePermissionUtil.checkUriAccessible(parentDirUri))) {
+    if (await FilePermissionUtil.checkUriAccessible(parentDirUri)) {
       ScanService.selectedFileUris = [];
       // 关键：仅持久化选中文件们，重启后父目录授权不会自动恢复（picker 授权的是
       // 文件而非父目录），再次扫描 listFile 父目录必然失败。这里同时持久化父目录
       // 授权，保证应用重启后仍可遍历整个文件夹。
+      if (!parentDirUri.endsWith('/')) {
+        parentDirUri += '/';
+      }
       try {
         await FilePermissionUtil.persistFolderPermission(parentDirUri);
         LogUtil.i('ScanService', `已持久化父目录授权: ${parentDirUri}`);
@@ -259,7 +328,7 @@ export class ScanService {
     // 返回第一个选中的文件 URI 给 UI 展示/保存配置；runScan 优先使用 selectedFileUris 走逐文件分支。
     ScanService.saveFileFallback(uris);
     LogUtil.i('ScanService', `FILE 多选：共选 ${uris.length} 个文件，父目录不可遍历，逐文件扫描`);
-    return { uri: uris[0] || '', isFileFallback: true };
+    return { uri: uris[0] || '', isFileFallback: true, displayName: FormatUtil.getParentFolderDisplay(uris[0] || '') };
   }
 
   /**
@@ -317,14 +386,15 @@ export class ScanService {
     const scanRules: KeywordReplaceRule[] = await KeywordReplaceDao.getEnabledByScope(KeywordReplace.SCOPE_SCAN);
     const parseRules: KeywordReplaceRule[] = await KeywordReplaceDao.getEnabledByScope(KeywordReplace.SCOPE_PARSE);
 
-    // 模式判定（以「本次传入的 config.folderUri」为准，避免旧文件 URI 残留误触发）：
-    //  - folderUri 非空（FOLDER 模式选中目录，或 pickFiles 推导出可访问的父目录）
+    // 模式判定（以「本次传入的 config.folderUri 是否可访问且为目录」为准，避免旧
+    // 文件 URI 残留误触发）：
+    //  - folderUri 非空且可访问为目录（FOLDER 模式选中目录，或 pickFiles 推导出可访问的父目录）
     //    → 走目录递归遍历（BFS 逐层 listFile，子目录入队下一层）。
-    //  - folderUri 为空且存在已选文件列表（FILE 多选回退，父目录不可访问）
+    //  - folderUri 为空或不可访问，但存在已选文件列表（FILE 多选回退，父目录不可访问）
     //    → 逐文件扫描 selectedFileUris（含内存列表，或从 Preferences 恢复）。
     // 旧实现用 restoreFileFallback() 读 Preferences 的旧文件 URI 来决定模式，
     // 会导致「这次明明选了目录、却因为历史残留文件 URI 而只扫那一个文件」的问题。
-    const hasDirMode: boolean = config.folderUri.length > 0;
+    const hasDirMode: boolean = config.folderUri.length > 0 && (await FilePermissionUtil.checkUriAccessible(config.folderUri));
     if (!hasDirMode) {
       if (ScanService.restoreFileFallback() || ScanService.selectedFileUris.length > 0) {
         return ScanService.runScanFromFiles(config, onProgress, run, runId, scanRules, parseRules);
@@ -359,6 +429,27 @@ export class ScanService {
 
     while (currentLevel.length > 0 && !ScanService.stopped) {
       const nextLevel: string[] = [];
+      // 根目录访问自愈（修复「扫描目录无法访问」核心场景）：
+      // 鸿蒙 NEXT 安全模型下 Picker 返回的目录 URI 是临时授权，应用重启/重装后失效，
+      // 持久化授权（fileShare.persistPermission）在模拟器/多数手机上不支持（801）。
+      // 这里先探测根目录可达性，失败则尝试激活持久化权限后重试一次；仍失败则抛出明确错误，
+      // 引导 UI 层用 tryAccessOrReauthorize 重新拉起系统选择器授权。
+      try {
+        await fileIo.listFile(config.folderUri);
+      } catch (rootErr) {
+        LogUtil.w('ScanService', `根目录首次访问失败，尝试激活持久化权限: ${config.folderUri} -> ${(rootErr as Error).message}`);
+        try {
+          await FilePermissionUtil.activateUri(config.folderUri);
+        } catch (actErr) {
+          LogUtil.w('ScanService', `激活根目录权限失败（模拟器上常返回 801，属预期）: ${(actErr as Error).message}`);
+        }
+        try {
+          await fileIo.listFile(config.folderUri);
+        } catch (e3) {
+          throw new Error(`无法访问扫描目录，请重新选择目录授权。错误: ${(e3 as Error).message}`);
+        }
+      }
+
       for (const dir of currentLevel) {
         if (ScanService.stopped) {
           break;
@@ -731,52 +822,15 @@ export class ScanService {
       if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
         return 'UTF-16BE';
       }
-      // UTF-8 严格校验
-      if (ScanService.isValidUtf8(bytes)) {
-        return 'UTF-8';
-      }
-      // 兜底 GBK
-      return 'GBK';
+      // 关键修复：用 EncodingUtil.decodeStrict 做严格解码 + CJK 占比评分，
+      // 对齐 iOS decodeStrict + 安卓 Charset 严格解码语义。
+      // 直接返回带 BOM 时已在上文命中；无 BOM 时统一交由 decodeStrict 评分择优，
+      // 避免「GBK 文件被误判为合法 UTF-8 → 用 UTF-8 解码成乱码（损坏文件）」。
+      return EncodingUtil.decodeStrict(bytes);
     } catch (e) {
       return '';
     } finally {
       await fileIo.close(file);
     }
-  }
-
-  private static isValidUtf8(bytes: Uint8Array): boolean {
-    let i: number = 0;
-    while (i < bytes.length) {
-      const b: number = bytes[i];
-      if (b <= 0x7F) {
-        i++;
-      } else if (b >= 0xC2 && b <= 0xDF) {
-        if (i + 1 >= bytes.length || (bytes[i + 1] & 0xC0) !== 0x80) return false;
-        i += 2;
-      } else if (b === 0xE0) {
-        if (i + 2 >= bytes.length || bytes[i + 1] < 0xA0 || bytes[i + 1] > 0xBF ||
-          (bytes[i + 2] & 0xC0) !== 0x80) return false;
-        i += 3;
-      } else if (b >= 0xE1 && b <= 0xEF) {
-        if (i + 2 >= bytes.length || (bytes[i + 1] & 0xC0) !== 0x80 ||
-          (bytes[i + 2] & 0xC0) !== 0x80) return false;
-        i += 3;
-      } else if (b === 0xF0) {
-        if (i + 3 >= bytes.length || bytes[i + 1] < 0x90 || bytes[i + 1] > 0xBF ||
-          (bytes[i + 2] & 0xC0) !== 0x80 || (bytes[i + 3] & 0xC0) !== 0x80) return false;
-        i += 4;
-      } else if (b >= 0xF1 && b <= 0xF3) {
-        if (i + 3 >= bytes.length || (bytes[i + 1] & 0xC0) !== 0x80 ||
-          (bytes[i + 2] & 0xC0) !== 0x80 || (bytes[i + 3] & 0xC0) !== 0x80) return false;
-        i += 4;
-      } else if (b >= 0xF4 && b <= 0xF7) {
-        if (i + 3 >= bytes.length || bytes[i + 1] < 0x80 || bytes[i + 1] > 0x8F ||
-          (bytes[i + 2] & 0xC0) !== 0x80 || (bytes[i + 3] & 0xC0) !== 0x80) return false;
-        i += 4;
-      } else {
-        return false;
-      }
-    }
-    return true;
   }
 }

@@ -33,8 +33,8 @@ struct ScanProgress {
       if (this.config) {
         this.folderUri = this.config.folderUri;
         this.folderName = this.config.folderName;
-        // 配置已有目录时直接开始扫描，不再要求用户重新选择路径
-        if (this.folderUri.length > 0) {
+        // 配置已有目录时直接开始扫描；文件回退模式（folderUri 为空但有已选文件）也直接开始
+        if (this.folderUri.length > 0 || ScanService.restoreFileFallback()) {
           this.startScan();
         }
       }
@@ -48,13 +48,25 @@ struct ScanProgress {
     }
     try {
       const result = await ScanService.selectDirectory(ctx, this.folderUri);
-      if (result.uri.length === 0) {
+      if (result.uri.length === 0 && !result.isFileFallback) {
         return; // 用户取消选择
       }
-      this.folderUri = result.uri;
-      this.folderName = FormatUtil.formatFolderDisplay(result.uri);
       if (result.isFileFallback) {
+        // 文件回退模式：folderUri 留空走逐文件扫描，界面上显示父文件夹名
+        this.folderUri = '';
+        this.folderName = result.displayName || FormatUtil.getParentFolderDisplay(result.uri);
+        if (this.config) {
+          this.config.folderUri = '';
+          this.config.folderName = this.folderName;
+        }
         ToastUtil.show('当前设备不支持选择文件夹，已选中文件用于定位扫描');
+      } else {
+        this.folderUri = result.uri;
+        this.folderName = FormatUtil.formatFolderDisplay(result.uri);
+        if (this.config) {
+          this.config.folderUri = this.folderUri;
+          this.config.folderName = this.folderName;
+        }
       }
     } catch (e) {
       LogUtil.e('ScanProgress', `选择目录失败: ${(e as Error).message}`);
@@ -63,7 +75,8 @@ struct ScanProgress {
   }
 
   private async startScan(): Promise<void> {
-    if (this.folderUri.length === 0) {
+    const hasFileFallback: boolean = ScanService.useFileFallback();
+    if (this.folderUri.length === 0 && !hasFileFallback) {
       ToastUtil.show('请先选择扫描目录');
       return;
     }

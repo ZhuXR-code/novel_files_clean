@@ -1,4 +1,4 @@
-import { router } from '@kit.ArkUI';
+import { router, promptAction } from '@kit.ArkUI';
 import { ScanConfig } from '../model/ScanConfig';
 import { ScannedFile } from '../model/ScannedFile';
 import { ScannedFileDao } from '../database/ScannedFileDao';
@@ -119,13 +119,17 @@ struct OneClickCleanup {
     }
     try {
       const result = await ScanService.selectDirectory(ctx, this.folderUri);
-      if (result.uri.length === 0) {
+      if (result.uri.length === 0 && !result.isFileFallback) {
         return; // 用户取消
       }
-      this.folderUri = result.uri;
-      this.folderName = FormatUtil.formatFolderDisplay(result.uri);
       if (result.isFileFallback) {
+        // 文件回退模式：folderUri 留空走逐文件扫描，界面上显示父文件夹名而非文件名
+        this.folderUri = '';
+        this.folderName = result.displayName || FormatUtil.getParentFolderDisplay(result.uri);
         ToastUtil.show('当前设备不支持选择文件夹，已选中文件用于定位扫描');
+      } else {
+        this.folderUri = result.uri;
+        this.folderName = FormatUtil.formatFolderDisplay(result.uri);
       }
     } catch (e) {
       LogUtil.e('OneClickCleanup', `选择目录失败: ${(e as Error).message}`);
@@ -187,9 +191,53 @@ struct OneClickCleanup {
    * 对齐 PC 端 pipeline._run() 的节点1-4。
    */
   private async startCleanup(): Promise<void> {
-    if (this.folderUri.length === 0) {
+    const hasFileFallback: boolean = ScanService.useFileFallback();
+    if (this.folderUri.length === 0 && !hasFileFallback) {
       ToastUtil.show('请先选择扫描目录');
       return;
+    }
+
+    // 权限预检（对齐 ScanProgress.startScan，修复「目录权限失效导致扫描失败」）：
+    // 鸿蒙 NEXT 安全模型下，Picker 返回的目录 URI 是临时授权，应用重启/重装后失效；
+    // 持久化授权（fileShare.persistPermission）在模拟器/多数手机上不支持（801），
+    // 因此必须从持久化激活 → 失败则引导用户重新选择目录。
+    // 文件回退模式（folderUri 为空）无需目录权限预检，直接走逐文件扫描。
+    if (this.folderUri.length > 0) {
+      const accessibleUri: string = await ScanService.tryAccessOrReauthorize(AppContext.get(), this.folderUri);
+      if (accessibleUri.length === 0) {
+        const dialogRes: promptAction.ShowDialogSuccessResponse = await promptAction.showDialog({
+          title: '目录权限已失效',
+          message: '鸿蒙系统出于安全限制，应用无法自行恢复已过期的目录授权，'
+            + '需通过系统文件选择器由你重新确认。\n请重新选择扫描目录（选择原目录即可）。',
+          buttons: [
+            { text: '取消', color: $r('app.color.text_secondary') },
+            { text: '重新选择', color: $r('app.color.primary') }
+          ]
+        });
+        if (dialogRes.index !== 1) {
+          return;
+        }
+        const ctx = AppContext.get();
+        if (ctx) {
+          const result = await ScanService.selectDirectory(ctx, this.folderUri);
+          if (result.uri.length === 0 && !result.isFileFallback) {
+            return;
+          }
+          if (result.isFileFallback) {
+            this.folderUri = '';
+            this.folderName = result.displayName || FormatUtil.getParentFolderDisplay(result.uri);
+          } else {
+            this.folderUri = result.uri;
+            this.folderName = FormatUtil.formatFolderDisplay(result.uri);
+          }
+        }
+        if (this.folderUri.length === 0 && !ScanService.useFileFallback()) {
+          return;
+        }
+      } else if (accessibleUri !== this.folderUri) {
+        this.folderUri = accessibleUri;
+        this.folderName = FormatUtil.formatFolderDisplay(accessibleUri);
+      }
     }
 
     // 重置状态
@@ -648,7 +696,7 @@ struct OneClickCleanup {
         .height(46)
         .backgroundColor($r('app.color.primary'))
         .fontColor($r('app.color.text_on_primary'))
-        .enabled(this.folderUri.length > 0)
+        .enabled(this.folderUri.length > 0 || ScanService.useFileFallback())
         .onClick(() => this.startCleanup())
     }
     .width('100%')

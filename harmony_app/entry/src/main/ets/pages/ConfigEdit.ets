@@ -136,13 +136,17 @@ struct ConfigEdit {
     }
     try {
       const result = await ScanService.selectDirectory(ctx, this.folderUri);
-      if (result.uri.length === 0) {
+      if (result.uri.length === 0 && !result.isFileFallback) {
         return; // 用户取消选择
       }
-      this.folderUri = result.uri;
-      this.folderName = FormatUtil.formatFolderDisplay(result.uri);
       if (result.isFileFallback) {
+        // 文件回退模式：folderUri 留空走逐文件扫描，界面上显示父文件夹名而非文件名
+        this.folderUri = '';
+        this.folderName = result.displayName || FormatUtil.getParentFolderDisplay(result.uri);
         ToastUtil.show('当前设备不支持选择文件夹，已选中文件用于定位扫描');
+      } else {
+        this.folderUri = result.uri;
+        this.folderName = FormatUtil.formatFolderDisplay(result.uri);
       }
     } catch (e) {
       LogUtil.e('ConfigEdit', `选择目录失败: ${(e as Error).message}`);
@@ -151,7 +155,7 @@ struct ConfigEdit {
   }
 
   private async save(): Promise<void> {
-    if (this.folderUri.length === 0) {
+    if (this.folderUri.length === 0 && !ScanService.useFileFallback()) {
       ToastUtil.show('请先选择扫描目录');
       return;
     }
