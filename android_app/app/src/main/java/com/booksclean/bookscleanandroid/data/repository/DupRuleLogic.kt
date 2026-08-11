@@ -175,7 +175,17 @@ internal object DupRuleLogic {
 
             // ── 规则 1：完全相等去重 ──
             if ("rule1" in enabledBuiltinKeys) {
-                val exact = S.groupBy { it.fileSize to it.progress.trim() }
+                // 判定键：默认 (大小 + 进度)。
+                // 但当本子组「书名与作者均为空」(无解析身份，如图片/未解析文件) 时，
+                // 不同文件完全可能大小相同而内容完全不同，不能仅凭"大小+进度"判重复
+                // （否则大量同名无身份文件会被误判为一组并勾选非最新）。
+                // 此时把文件名也并入判定键，仅 (文件名 + 大小 + 进度) 完全相同的才算同一副本。
+                val hasIdentity = S[0].title.isNotBlank() || S[0].author.isNotBlank()
+                val exact = if (hasIdentity) {
+                    S.groupBy { it.fileSize to it.progress.trim() }
+                } else {
+                    S.groupBy { Triple(it.fileName, it.fileSize, it.progress.trim()) }
+                }
                 for ((_, g) in exact) {
                     if (g.size < 2) continue
                     // 优先按文件真实修改时间(fileDate)判断最新；缺失时回退到扫描入库时间(createdAt)。
@@ -300,8 +310,13 @@ internal object DupRuleLogic {
         // 仅对「已扫描内容哈希(contentHash 非空)」的文件生效：按 contentHash 全局（跨合集）分组，
         // 同哈希值内保留「最新」一个（fileDate 优先 → 回退 createdAt → 并列取最大 id）不勾选，
         // 其余（哈希相同但非最新的）强制勾选。无哈希的文件不受此规则影响，仍走其它规则。
+        //
+        // 【重要】内容哈希去重仅针对有身份的书籍文件（书名或作者非空）。
+        // 若书名与作者均为空（无解析身份，如图片/未解析二进制），不上报内容哈希分组。
+        // 否则大量不同来源的同内容文件（如图片、配置文件）会被全局哈希误判为"重复书籍"，
+        // 导致勾选单个文件却找不到对应副本，用户无法理解。
         if (enabledBuiltinKeys.contains("rule_hash")) {
-            val byHash = rows.filter { it.contentHash.isNotBlank() }
+            val byHash = rows.filter { it.contentHash.isNotBlank() && (it.title.isNotBlank() || it.author.isNotBlank()) }
                 .groupBy { it.contentHash }
                 .filter { it.value.size >= 2 }
             if (byHash.isNotEmpty()) {
