@@ -1,0 +1,109 @@
+[2026-08-11 18:18:24] [I] DeleteService: [操作] 开始删除：共 1 个文件（删除记录+源文件）
+[2026-08-11 18:18:24] [W] DeleteService: 文件 [1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽.txt 直接删除删除失败(file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽【草莓】.txt): code=13900002 No such file or directory
+[2026-08-11 18:18:24] [I] FilePermission: 激活单个权限成功: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载
+[2026-08-11 18:18:24] [W] DeleteService: 文件 [1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽.txt 激活权限后删除失败(file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽【草莓】.txt): code=13900002 No such file or directory
+[2026-08-11 18:18:26] [W] DeleteService: 文件 [1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽.txt（file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽【草莓】.txt）删除彻底失败: code=13900002 No such file or directory
+[2026-08-11 18:18:26] [W] DeleteService: 物理删除失败，保留记录: [1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽.txt (file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽【草莓】.txt)
+[2026-08-11 18:18:26] [OP] 删除: 共=1 成功=0 失败=1 deleteSource=true
+[2026-08-11 18:24:32] [I] EntryAbility: 数据库初始化完成
+[2026-08-11 18:24:33] [I] Permission: 动态权限申请 ohos.permission.READ_WRITE_DOCUMENTS_DIRECTORY: 未授予
+[2026-08-11 18:24:33] [I] Permission: 动态权限申请 ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY: 未授予
+[2026-08-11 18:24:33] [I] EntryAbility: 已确保 7 条内置去重规则
+[2026-08-11 18:24:33] [I] FilePermission: 已激活 2/2 个持久化权限
+[2026-08-11 18:26:05] [I] ScanService: 当前设备不支持 FOLDER 模式，使用 FILE 多选兜底
+[2026-08-11 18:26:13] [I] FilePermission: 批量持久化授权成功: 1 个 URI
+[2026-08-11 18:26:13] [I] ScanService: 已持久化 1 个选中文件的授权
+[2026-08-11 18:26:13] [I] FilePermission: 批量持久化授权成功: 1 个 URI
+[2026-08-11 18:26:13] [I] ScanService: 已持久化父目录授权: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/
+[2026-08-11 18:26:13] [I] ScanService: 已定位目录（选中 1 个文件），将扫描整个文件夹: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/
+[2026-08-11 18:26:18] [I] DupLogic: 勾选重复 完成 run=8 enabledRules=rule1,rule2,rule3a,rule3b,rule4,rule5,rule_hash 重复子组=6 应勾选=6 个
+[2026-08-11 18:26:18] [I] DupLogic: 勾选重复-重复子组 书名=我对皇妹欲罢不能（1v1、骨科、高H、甜肉） 作者=司鱼 共2本 -> 勾选1个: 62
+勾选重复-重复子组 书名=恶毒女配又被强取豪夺了（快穿） 作者=青衫 共2本 -> 勾选1个: 67
+勾选重复-重复子组 书名=狗男人（糙汉vs硬妹） 作者=苏玛丽 共2本 -> 勾选1个: 57
+勾选重复-重复子组 书名=我和我的教官丈夫（高H同人 体型差） 作者=兔子游击队队长 共2本 -> 勾选1个: 64
+勾选重复-重复子组 书名=快穿之她是心中月 作者=迢迢 共2本 -> 勾选1个: 58
+勾选重复-重复子组 书名=快穿之我的弟弟是变态吗 作者=秦树人 共2本 -> 勾选1个: 59
+[2026-08-11 18:26:27] [I] DeleteService: [操作] 开始删除：共 1 个文件（删除记录+源文件）
+[2026-08-11 18:26:27] [W] DeleteService: 文件 [1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽.txt 直接删除删除失败(file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽【草莓】.txt): code=13900002 No such file or directory
+[2026-08-11 18:26:27] [I] FilePermission: 激活单个权限成功: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载
+[2026-08-11 18:26:27] [I] DeleteService: 文件名漂移匹配: [1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽.txt -> [1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽【草莓】.txt
+[2026-08-11 18:26:27] [W] DeleteService: 文件 [1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽.txt 文件名漂移恢复删除失败(file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽【草莓】.txt): code=13900002 No such file or directory
+[2026-08-11 18:26:27] [I] FilePermission: 激活单个权限成功: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载
+[2026-08-11 18:26:27] [W] DeleteService: 文件 [1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽.txt 激活权限后删除失败(file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽【草莓】.txt): code=13900002 No such file or directory
+[2026-08-11 18:26:53] [W] DeleteService: 文件 [1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽.txt（file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽【草莓】.txt）删除彻底失败: code=13900002 No such file or directory
+[2026-08-11 18:26:53] [W] DeleteService: 物理删除失败，保留记录: [1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽.txt (file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[1v1 更78]《狗男人（糙汉vs硬妹）》作者：苏玛丽【草莓】.txt)
+[2026-08-11 18:26:53] [OP] 删除: 共=1 成功=0 失败=1 deleteSource=true
+[2026-08-11 18:53:19] [I] EntryAbility: 数据库初始化完成
+[2026-08-11 18:53:20] [I] Permission: 动态权限申请 ohos.permission.READ_WRITE_DOCUMENTS_DIRECTORY: 未授予
+[2026-08-11 18:53:20] [I] Permission: 动态权限申请 ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY: 未授予
+[2026-08-11 18:53:20] [I] EntryAbility: 已确保 7 条内置去重规则
+[2026-08-11 18:53:20] [I] FilePermission: 已激活 2/2 个持久化权限
+[2026-08-11 18:53:30] [I] DeleteService: [操作] 开始删除：共 1 个文件（删除记录+源文件）
+[2026-08-11 18:53:30] [W] DeleteService: 文件 [np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫.txt 直接删除删除失败[候选 file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫3167937770.txt]: code=13900002 No such file or directory
+[2026-08-11 18:53:30] [I] FilePermission: 激活单个权限成功: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载
+[2026-08-11 18:53:30] [I] FilePermission: 激活单个权限成功: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载
+[2026-08-11 18:53:30] [W] DeleteService: 文件 [np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫.txt 激活权限后删除失败[候选 file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫3167937770.txt]: code=13900002 No such file or directory
+[2026-08-11 18:53:33] [W] DeleteService: 文件 [np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫.txt（file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫3167937770.txt）删除彻底失败: code=13900002 No such file or directory
+[2026-08-11 18:53:33] [W] DeleteService: 物理删除失败，保留记录: [np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫.txt (file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫3167937770.txt)
+[2026-08-11 18:53:33] [OP] 删除: 共=1 成功=0 失败=1 deleteSource=true
+[2026-08-11 18:53:43] [I] DupLogic: 勾选重复 完成 run=6 enabledRules=rule1,rule2,rule3a,rule3b,rule4,rule5,rule_hash 重复子组=1 应勾选=1 个
+[2026-08-11 18:53:43] [I] DupLogic: 勾选重复-重复子组 书名=恶毒女配又被强取豪夺了（快穿） 作者=青衫 共2本 -> 勾选1个: 23
+[2026-08-11 18:53:53] [I] ScanRunDao: 合并文库准备 sourceIds=[9,8] 源文件总数=34 新名称="合并文库"
+[2026-08-11 18:53:53] [I] ScanRunDao: 合并文库成功 sourceIds=[9,8] newId=10 name="合并文库" 源文件总数=34 去重后文件数=0
+[2026-08-11 18:53:53] [OP] 合并文库: 源文库ID=[9,8] 新文库ID=10
+[2026-08-11 18:55:00] [I] DeleteService: [操作] 开始删除：共 1 个文件（删除记录+源文件）
+[2026-08-11 18:55:00] [W] DeleteService: 文件 [1v1 更13]《我对皇妹欲罢不能（1v1、骨科、高H、甜肉）》作者：司鱼 (2).txt 直接删除删除失败[候选 file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[1v1 更13]《我对皇妹欲罢不能（1v1、骨科、高H、甜肉）》作者：司鱼 (2).txt]: code=13900002 No such file or directory
+[2026-08-11 18:55:00] [I] FilePermission: 激活单个权限成功: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载
+[2026-08-11 18:55:00] [I] DeleteService: 文件名漂移匹配: [1v1 更13]《我对皇妹欲罢不能（1v1、骨科、高H、甜肉）》作者：司鱼 (2).txt -> [1v1 更13]《我对皇妹欲罢不能（1v1、骨科、高H、甜肉）》作者：司鱼.txt (/storage/Users/currentUser/Download/【0120】AB文合集/连载/[1v1 更13]《我对皇妹欲罢不能（1v1、骨科、高H、甜肉）》作者：司鱼.txt)
+[2026-08-11 18:55:00] [I] DeleteService: 文件 [1v1 更13]《我对皇妹欲罢不能（1v1、骨科、高H、甜肉）》作者：司鱼 (2).txt 文件名漂移恢复删除成功(裸路径): /storage/Users/currentUser/Download/【0120】AB文合集/连载/[1v1 更13]《我对皇妹欲罢不能（1v1、骨科、高H、甜肉）》作者：司鱼.txt
+[2026-08-11 18:55:00] [I] DeleteService: 重算 1 个文库文件数完成
+[2026-08-11 18:55:00] [OP] 删除: 共=1 成功=1 失败=0 deleteSource=true
+[2026-08-11 18:55:16] [I] ScanService: 当前设备不支持 FOLDER 模式，使用 FILE 多选兜底
+[2026-08-11 18:55:23] [I] FilePermission: 批量持久化授权成功: 1 个 URI
+[2026-08-11 18:55:23] [I] ScanService: 已持久化 1 个选中文件的授权
+[2026-08-11 18:55:23] [I] FilePermission: 批量持久化授权成功: 1 个 URI
+[2026-08-11 18:55:23] [I] ScanService: 已持久化父目录授权: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/
+[2026-08-11 18:55:23] [I] ScanService: 已定位目录（选中 1 个文件），将扫描整个文件夹: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/
+[2026-08-11 18:55:29] [I] DupLogic: 勾选重复 完成 run=11 enabledRules=rule1,rule2,rule3a,rule3b,rule4,rule5,rule_hash 重复子组=1 应勾选=1 个
+[2026-08-11 18:55:29] [I] DupLogic: 勾选重复-重复子组 书名=恶毒女配又被强取豪夺了（快穿） 作者=青衫 共2本 -> 勾选1个: 135
+[2026-08-12 17:18:54] [I] EntryAbility: 数据库初始化完成
+[2026-08-12 17:18:55] [I] Permission: 动态权限申请 ohos.permission.READ_WRITE_DOCUMENTS_DIRECTORY: 未授予
+[2026-08-12 17:18:55] [I] Permission: 动态权限申请 ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY: 未授予
+[2026-08-12 17:18:55] [I] EntryAbility: 已确保 7 条内置去重规则
+[2026-08-12 17:18:55] [I] FilePermission: 已激活 2/2 个持久化权限
+[2026-08-12 17:24:45] [I] EntryAbility: 数据库初始化完成
+[2026-08-12 17:24:46] [I] Permission: 动态权限申请 ohos.permission.READ_WRITE_DOCUMENTS_DIRECTORY: 未授予
+[2026-08-12 17:24:46] [I] Permission: 动态权限申请 ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY: 未授予
+[2026-08-12 17:24:46] [I] EntryAbility: 已确保 7 条内置去重规则
+[2026-08-12 17:24:46] [I] FilePermission: 已激活 2/2 个持久化权限
+[2026-08-12 17:32:20] [I] ScanService: 当前设备(phone)不支持 FOLDER 模式，使用「选择文件定位文件夹」方案
+[2026-08-12 17:33:11] [I] ScanService: 当前设备(phone)不支持 FOLDER 模式，使用「选择文件定位文件夹」方案
+[2026-08-12 17:35:44] [I] FilePermission: 批量持久化授权成功: 1 个 URI
+[2026-08-12 17:35:44] [I] ScanService: 已持久化 1 个选中文件的授权
+[2026-08-12 17:35:44] [I] FilePermission: 批量持久化授权成功: 1 个 URI
+[2026-08-12 17:35:44] [I] ScanService: 已持久化父目录授权: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/
+[2026-08-12 17:35:44] [I] ScanService: 已定位目录（选中 1 个文件），将扫描整个文件夹: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/
+[2026-08-12 17:43:10] [OP] 创建配置: 配置ID=4 名称=testcfg0812
+[2026-08-12 17:44:23] [OP] 删除配置: 配置ID=4 名称=testcfg0812
+[2026-08-12 17:47:08] [I] ScanService: 当前设备(phone)不支持 FOLDER 模式，使用「选择文件定位文件夹」方案
+[2026-08-12 17:47:42] [I] FilePermission: 批量持久化授权成功: 1 个 URI
+[2026-08-12 17:47:42] [I] ScanService: 已持久化 1 个选中文件的授权
+[2026-08-12 17:47:42] [I] FilePermission: 批量持久化授权成功: 1 个 URI
+[2026-08-12 17:47:42] [I] ScanService: 已持久化父目录授权: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/
+[2026-08-12 17:47:42] [I] ScanService: 已定位目录（选中 1 个文件），将扫描整个文件夹: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/
+[2026-08-12 17:51:01] [I] ScanService: 当前设备(phone)不支持 FOLDER 模式，使用「选择文件定位文件夹」方案
+[2026-08-12 17:51:10] [I] FilePermission: 批量持久化授权成功: 1 个 URI
+[2026-08-12 17:51:10] [I] ScanService: 已持久化 1 个选中文件的授权
+[2026-08-12 17:51:10] [I] FilePermission: 批量持久化授权成功: 1 个 URI
+[2026-08-12 17:51:10] [I] ScanService: 已持久化父目录授权: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/
+[2026-08-12 17:51:10] [I] ScanService: 已定位目录（选中 1 个文件），将扫描整个文件夹: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/
+[2026-08-12 17:55:12] [I] DupLogic: 勾选重复 完成 run=15 enabledRules=rule1,rule2,rule3a,rule3b,rule4,rule5,rule_hash 重复子组=1 应勾选=1 个
+[2026-08-12 17:55:12] [I] DupLogic: 勾选重复-重复子组 书名=恶毒女配又被强取豪夺了（快穿） 作者=青衫 共2本 -> 勾选1个: 199
+[2026-08-12 17:58:46] [I] DeleteService: [操作] 开始删除：共 1 个文件（删除记录+源文件）
+[2026-08-12 17:58:46] [W] DeleteService: 文件 [np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫.txt 直接删除删除失败[候选 file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫3167937770.txt]: code=13900002 No such file or directory
+[2026-08-12 17:58:46] [I] FilePermission: 激活单个权限成功: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载
+[2026-08-12 17:58:46] [I] FilePermission: 激活单个权限成功: file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载
+[2026-08-12 17:58:46] [W] DeleteService: 文件 [np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫.txt 激活权限后删除失败[候选 file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫3167937770.txt]: code=13900002 No such file or directory
+[2026-08-12 17:59:29] [W] DeleteService: 文件 [np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫.txt（file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫3167937770.txt）删除彻底失败: code=13900002 No such file or directory
+[2026-08-12 17:59:29] [W] DeleteService: 物理删除失败，保留记录: [np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫.txt (file://docs/storage/Users/currentUser/Download/%E3%80%900120%E3%80%91AB%E6%96%87%E5%90%88%E9%9B%86/连载/[np 更378]《恶毒女配又被强取豪夺了（快穿）》作者：青衫3167937770.txt)
+[2026-08-12 17:59:29] [OP] 删除: 共=1 成功=0 失败=1 deleteSource=true
