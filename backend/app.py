@@ -834,7 +834,7 @@ def _init_default_data():
             engine = db.get_bind()
             _safe_add_columns(engine, 'scan_results', {
                 'content_hash': 'VARCHAR(64) NULL DEFAULT '
-                                + ("''" if _IS_SQLITE else "''"),
+                                + "''",
             })
         except Exception as e:
             logger.warning(f'scan_results 表迁移 content_hash 失败（可能是首次启动自动建表无需迁移）: {e}')
@@ -3363,6 +3363,41 @@ def update_dup_rule_configs(payload: List[dict], db: Session = Depends(get_db)):
                 rule.sort_order = int(item['sort_order'])
     db.commit()
     return {'status': 'ok', 'updated': len(payload)}
+
+
+@app.put('/api/dup-rule-configs/{rule_id}')
+def update_dup_rule_config(rule_id: int, payload: dict, db: Session = Depends(get_db)):
+    """更新单条勾选重复规则，body = {"enabled":false,"rule_name":"...","description":"..."}
+    内置规则仅允许切换 enabled；自定义规则还可改 rule_name/description/conditions/action/sort_order。"""
+    rule = db.query(DupRuleConfig).filter(DupRuleConfig.id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail='规则不存在')
+    if 'enabled' in payload:
+        rule.enabled = bool(payload['enabled'])
+    if not rule.is_builtin:
+        if 'rule_name' in payload:
+            rule.rule_name = str(payload['rule_name'])[:100]
+        if 'description' in payload:
+            rule.description = str(payload['description'])[:500]
+        if 'conditions' in payload:
+            rule.conditions = json.dumps(payload['conditions']) if payload['conditions'] else None
+        if 'action' in payload:
+            rule.action = str(payload['action']) if payload['action'] else None
+        if 'sort_order' in payload:
+            rule.sort_order = int(payload['sort_order'])
+    db.commit()
+    db.refresh(rule)
+    return {
+        'id': rule.id,
+        'rule_key': rule.rule_key,
+        'rule_name': rule.rule_name,
+        'enabled': rule.enabled,
+        'description': rule.description or '',
+        'is_builtin': rule.is_builtin,
+        'conditions': json.loads(rule.conditions) if rule.conditions else None,
+        'action': rule.action,
+        'sort_order': rule.sort_order,
+    }
 
 
 @app.post('/api/dup-rule-configs')

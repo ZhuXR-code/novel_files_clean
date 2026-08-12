@@ -94,11 +94,18 @@ def compute_duplicate_ids(rows, enabled_rules=None, user_rules=None):
 
         # ── 规则 1：完全相等去重 ──
         if enabled_rules is None or 'rule1' in enabled_rules:
-            # (小说名+作者+进度+文件大小) 完全相等的精确重复组（不含文件名）。
-            #   子分组已保证 小说名+作者 相同，这里只比 (文件大小, 进度)。
+            # 判定键：默认 (文件大小, 进度)。
+            # 但当本子组「书名与作者均为空」(无解析身份，如图片/未解析文件) 时，
+            # 不同文件完全可能大小相同而内容完全不同，不能仅凭"大小+进度"判重复。
+            # 此时把文件名也并入判定键，仅 (文件名+大小+进度) 完全相同的才算同一副本。
+            # 对齐 Android/iOS/鸿蒙 三端共识实现，修复无身份文件按大小误判导致误删。
+            has_identity = bool((S[0].get('novel_name') or '').strip() or (S[0].get('author') or '').strip())
             exact = defaultdict(list)
             for f in S:
-                ek = (f['file_size'] or 0, (f['progress'] or '').strip())
+                if has_identity:
+                    ek = (f['file_size'] or 0, (f['progress'] or '').strip())
+                else:
+                    ek = (f['file_name'] or '', f['file_size'] or 0, (f['progress'] or '').strip())
                 exact[ek].append(f)
             for _ek, g in exact.items():
                 if len(g) < 2:
@@ -121,10 +128,11 @@ def compute_duplicate_ids(rows, enabled_rules=None, user_rules=None):
         max_size = max(sizes) if sizes else 0
 
         # ── 规则 2：纯数字进度对比 ──
-        # 仅当【组内无中文进度文件时】应用：纯数字组内，非最大进度本全部勾选。
-        # 混合组（同时有中文进度）中，规则2不应勾选非最大本（由规则3B单独处理最大本）。
+        # 纯数字进度组内，非最大进度本全部勾选（强制勾选，覆盖规则3A的中文进度保护也仅作用于
+        # 含中文进度的文件，互不影响）。混合组（同时含中文进度）中同样适用：非最大数字进度本仍勾选，
+        # 含中文进度者由规则3A保护不被勾选。对齐 Android/iOS/鸿蒙 三端共识实现。
         if enabled_rules is None or 'rule2' in enabled_rules:
-            if len(numeric_files) >= 2 and not chinese_files:
+            if len(numeric_files) >= 2:
                 max_val = max(_dup_progress_value(f['progress']) for f in numeric_files)
                 max_files = [f for f in numeric_files
                              if _dup_progress_value(f['progress']) == max_val]
@@ -139,6 +147,9 @@ def compute_duplicate_ids(rows, enabled_rules=None, user_rules=None):
         if enabled_rules is None or 'rule3a' in enabled_rules:
             for f in chinese_files:
                 nc.add(f['id'])
+                # 若此前规则1/规则2已将含中文进度文件强制勾选，这里撤销，
+                # 保证含中文进度文件最终不被勾选（对齐 Android/iOS/鸿蒙）。
+                fc.discard(f['id'])
 
         # ── 规则 3B：完结特例 ──
         if enabled_rules is None or 'rule3b' in enabled_rules:

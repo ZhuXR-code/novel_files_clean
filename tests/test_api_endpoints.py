@@ -5,7 +5,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 LOG = []
 def log(m): print(m); LOG.append(m)
 
-base = "http://localhost:8000"
+base = os.environ.get("API_BASE", "http://localhost:8000")
 PASS = 0; FAIL = 0
 
 def check(name, ok, detail=""):
@@ -30,7 +30,7 @@ try:
     data = get_list(f"{base}/api/dup-rule-configs")
     check("返回列表", isinstance(data, list), f"type={type(data)}")
     builtin_count = sum(1 for item in data if item.get('is_builtin'))
-    check("6条内置规则", builtin_count == 6, f"got {builtin_count}")
+    check("7条内置规则", builtin_count == 7, f"got {builtin_count}")
 except Exception as e:
     check("获取列表", False, str(e))
 
@@ -83,7 +83,7 @@ if rule_id_2:
 log("\n=== 6. 验证最终列表 ===")
 try:
     data5 = get_list(f"{base}/api/dup-rule-configs")
-    check("总条数=7(6内置+1自定义)", len(data5) == 7, f"got {len(data5)}")
+    check("总条数=8(7内置+1自定义)", len(data5) == 8, f"got {len(data5)}")
     for item in data5:
         log(f"    id={item['id']} name={item.get('rule_name','')[:25]} is_builtin={item.get('is_builtin')} enabled={item.get('enabled')}")
     if rule_id_1:
