@@ -124,7 +124,9 @@ struct DupRuleSettings {
               this.ruleToggle(r.ruleName, r.description, r.enabled === 1, (v: boolean) => {
                 this.toggleBuiltin(r, v)
               })
-            }, (r: DupRuleConfig) => `b_${r.id.toString()}`)
+            },
+              // key 中加入 enabled 状态，切换开关后强制重建卡片，避免 Toggle 视觉不同步
+              (r: DupRuleConfig) => `b_${r.id}_${r.enabled === 1 ? 1 : 0}`)
 
             Row() {
               Text('自定义规则').fontSize(14).fontWeight(FontWeight.Bold)
@@ -140,7 +142,9 @@ struct DupRuleSettings {
 
             ForEach(this.customRules, (r: DupRuleConfig) => {
               this.customCard(r)
-            }, (r: DupRuleConfig) => `c_${r.id.toString()}`)
+            },
+              // key 中加入 enabled 状态，切换开关后强制重建卡片，避免 Toggle 视觉不同步
+              (r: DupRuleConfig) => `c_${r.id}_${r.enabled === 1 ? 1 : 0}`)
           }
           .width('100%')
           .padding(16)

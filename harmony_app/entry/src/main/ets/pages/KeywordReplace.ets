@@ -4,6 +4,7 @@ import { LogUtil } from '../utils/LogUtil';
 import { TopBar } from '../components/TopBar';
 import { AppTextInput } from '../components/AppTextInput';
 import { ToastUtil } from '../utils/ToastUtil';
+import { promptAction } from '@kit.ArkUI';
 
 /**
  * 关键词替换规则页（对齐安卓端 KeywordReplaceScreen）。
@@ -26,6 +27,9 @@ struct KeywordReplace {
   @State batchEnabled: boolean = true;
   @State searchOpen: boolean = false;
   @State searchQuery: string = '';
+  // 列表版本号：每次批量操作/增删后自增，拼入 ForEach key 强制重建卡片，
+  // 保证 Toggle 视觉状态一定刷新（部分真机上仅靠对象字段变更不触发重建）
+  @State listVersion: number = 0;
 
   aboutToAppear(): void {
     this.load();
@@ -146,6 +150,7 @@ struct KeywordReplace {
       LogUtil.operation('关键词替换', `批量新增 ${lines.length} 条 scope=${this.scope} mode=${this.batchMode}`);
       this.batching = false;
       await this.load();
+      this.listVersion++;
     } catch (e) {
       LogUtil.e('KeywordReplace', `批量新增失败: ${(e as Error).message}`);
       ToastUtil.show(`保存失败: ${(e as Error).message}`);
@@ -181,6 +186,7 @@ struct KeywordReplace {
       LogUtil.operation('关键词替换', `保存规则 scope=${this.scope}`);
       this.editing = null;
       await this.load();
+      this.listVersion++;
     } catch (e) {
       LogUtil.e('KeywordReplace', `保存规则失败: ${(e as Error).message}`);
       ToastUtil.show(`保存失败: ${(e as Error).message}`);
@@ -211,8 +217,11 @@ struct KeywordReplace {
   /**
    * 批量启用 / 不启用：仅对当前列表（搜索命中）的规则生效，写入数据库，
    * 返回上一页再进来状态依旧保留。
+   * 确认弹窗用 promptAction.showDialog（本应用其它页面已在真机验证可用）；
+   * 此前用 AlertDialog.show，部分真机（HarmonyOS 6.x）上不弹或按钮回调不触发，
+   * 表现为「点击批量启用/不启用，下方开关无变化」。
    */
-  private batchSetEnabled(enabled: boolean): void {
+  private async batchSetEnabled(enabled: boolean): Promise<void> {
     const targets: KeywordReplaceRule[] = this.currentVisible();
     if (targets.length === 0) {
       ToastUtil.show('当前没有可操作的规则');
@@ -221,48 +230,59 @@ struct KeywordReplace {
     const action: string = enabled ? '启用' : '不启用';
     const searching: boolean = this.searchQuery.trim().length > 0;
     const range: string = searching ? `搜索结果中的 ${targets.length} 条` : `当前 ${targets.length} 条`;
-    AlertDialog.show({
-      title: `批量${action}`,
-      message: `确定将${range}规则设为「${action}」？`,
-      autoCancel: true,
-      alignment: DialogAlignment.Center,
-      primaryButton: { value: '取消', action: () => {} },
-      secondaryButton: {
-        value: '确定',
-        action: async () => {
-          try {
-            const ids: number[] = targets.map((r: KeywordReplaceRule): number => r.id);
-            await KeywordReplaceDao.setEnabledBatch(ids, enabled);
-            LogUtil.operation('关键词替换', `批量${action} ${ids.length} 条 scope=${this.scope}`);
-            ToastUtil.show(`已${action} ${ids.length} 条规则`);
-            await this.load();
-          } catch (e) {
-            LogUtil.e('KeywordReplace', `批量操作失败: ${(e as Error).message}`);
-            ToastUtil.show(`操作失败: ${(e as Error).message}`);
-          }
-        }
-      }
-    });
+    let confirmed: boolean = false;
+    try {
+      const res: promptAction.ShowDialogSuccessResponse = await promptAction.showDialog({
+        title: `批量${action}`,
+        message: `确定将${range}规则设为「${action}」？`,
+        buttons: [
+          { text: '取消', color: $r('app.color.text_secondary') },
+          { text: '确定', color: $r('app.color.primary') }
+        ]
+      });
+      confirmed = res.index === 1;
+    } catch (e) {
+      LogUtil.e('KeywordReplace', `批量确认弹窗异常: ${(e as Error).message}`);
+      return;
+    }
+    if (!confirmed) {
+      return;
+    }
+    try {
+      const ids: number[] = targets.map((r: KeywordReplaceRule): number => r.id);
+      await KeywordReplaceDao.setEnabledBatch(ids, enabled);
+      LogUtil.operation('关键词替换', `批量${action} ${ids.length} 条 scope=${this.scope}`);
+      ToastUtil.show(`已${action} ${ids.length} 条规则`);
+    } catch (e) {
+      LogUtil.e('KeywordReplace', `批量操作失败: ${(e as Error).message}`);
+      ToastUtil.show(`操作失败: ${(e as Error).message}`);
+    }
+    // 无论成败都重新加载：成功时同步数据库最新状态，失败时回滚内存改动；
+    // 并自增 listVersion 强制 ForEach 重建卡片，确保 Toggle 开关视觉刷新
+    await this.load();
+    this.listVersion++;
   }
 
-  private deleteRule(r: KeywordReplaceRule): void {
-    AlertDialog.show({
-      title: '确认删除规则？',
-      message: `匹配: ${r.pattern}\n删除后不可恢复，此规则将不再生效。`,
-      autoCancel: true,
-      alignment: DialogAlignment.Center,
-      primaryButton: {
-        value: '取消',
-        action: () => {}
-      },
-      secondaryButton: {
-        value: '确认删除',
-        fontColor: $r('app.color.danger'),
-        action: () => {
-          this.confirmDelete(r);
-        }
-      }
-    });
+  private async deleteRule(r: KeywordReplaceRule): Promise<void> {
+    // 与批量操作一致改用 promptAction.showDialog（AlertDialog.show 部分真机不弹）
+    let confirmed: boolean = false;
+    try {
+      const res: promptAction.ShowDialogSuccessResponse = await promptAction.showDialog({
+        title: '确认删除规则？',
+        message: `匹配: ${r.pattern}\n删除后不可恢复，此规则将不再生效。`,
+        buttons: [
+          { text: '取消', color: $r('app.color.text_secondary') },
+          { text: '确认删除', color: $r('app.color.danger') }
+        ]
+      });
+      confirmed = res.index === 1;
+    } catch (e) {
+      LogUtil.e('KeywordReplace', `删除确认弹窗异常: ${(e as Error).message}`);
+      return;
+    }
+    if (confirmed) {
+      this.confirmDelete(r);
+    }
   }
 
   private async confirmDelete(r: KeywordReplaceRule): Promise<void> {
@@ -270,6 +290,7 @@ struct KeywordReplace {
       await KeywordReplaceDao.delete(r.id);
       LogUtil.operation('关键词替换', `删除规则 id=${r.id} pattern=${r.pattern}`);
       await this.load();
+      this.listVersion++;
     } catch (e) {
       LogUtil.e('KeywordReplace', `删除规则失败: ${(e as Error).message}`);
       ToastUtil.show(`删除失败: ${(e as Error).message}`);
@@ -476,7 +497,8 @@ struct KeywordReplace {
               (r: KeywordReplaceRule) => {
                 this.builtinRuleCard(r)
               },
-              (r: KeywordReplaceRule) => `b_${r.id.toString()}`
+              // key 中加入 listVersion + enabled 状态，批量启用/禁用后强制重建卡片，确保 Toggle 视觉刷新
+              (r: KeywordReplaceRule) => `b_${this.listVersion}_${r.id}_${r.enabled ? 1 : 0}`
             )
 
             // 自定义规则区
@@ -571,7 +593,8 @@ struct KeywordReplace {
               (r: KeywordReplaceRule) => {
                 this.customRuleCard(r)
               },
-              (r: KeywordReplaceRule) => `c_${r.id.toString()}`
+              // key 中加入 listVersion + enabled 状态，批量启用/禁用后强制重建卡片，确保 Toggle 视觉刷新
+              (r: KeywordReplaceRule) => `c_${this.listVersion}_${r.id}_${r.enabled ? 1 : 0}`
             )
           }
           .width('100%')

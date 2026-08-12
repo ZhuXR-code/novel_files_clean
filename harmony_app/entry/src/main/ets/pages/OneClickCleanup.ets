@@ -126,7 +126,7 @@ struct OneClickCleanup {
         // 文件回退模式：folderUri 留空走逐文件扫描，界面上显示父文件夹名而非文件名
         this.folderUri = '';
         this.folderName = result.displayName || FormatUtil.getParentFolderDisplay(result.uri);
-        ToastUtil.show('当前设备不支持选择文件夹，已选中文件用于定位扫描');
+        ToastUtil.show('已通过所选文件定位扫描范围');
       } else {
         this.folderUri = result.uri;
         this.folderName = FormatUtil.formatFolderDisplay(result.uri);
@@ -154,15 +154,13 @@ struct OneClickCleanup {
       // 复用 ScanService.selectDirectory + FormatUtil.formatFolderDisplay 选文件夹并取末级目录名
       // （与 ConfigEdit.ets 的 selectExcludeFolder 行为一致）
       const result = await ScanService.selectDirectory(ctx, this.folderUri);
-      if (result.uri.length === 0) {
+      if (result.uri.length === 0 && !result.isFileFallback) {
         return; // 用户取消
       }
-      // FILE 多选兜底模式下选中的是文件，无法作为「排除文件夹」使用
-      if (result.isFileFallback) {
-        ToastUtil.show('当前设备不支持选择文件夹，请手动输入排除目录');
-        return;
-      }
-      const folderName: string = FormatUtil.formatFolderDisplay(result.uri);
+      // 文件回退模式：用户选中了一个文件，取其所在文件夹名作为排除目录
+      const folderName: string = result.isFileFallback
+        ? (result.displayName || FormatUtil.getParentFolderDisplay(result.uri))
+        : FormatUtil.formatFolderDisplay(result.uri);
       if (folderName.length === 0) {
         ToastUtil.show('无法解析文件夹名称');
         return;

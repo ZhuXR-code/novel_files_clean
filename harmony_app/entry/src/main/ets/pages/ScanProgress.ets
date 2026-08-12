@@ -59,19 +59,36 @@ struct ScanProgress {
         if (this.config) {
           this.config.folderUri = '';
           this.config.folderName = this.folderName;
+          // 修复：选择结果立即写库。此前仅改内存对象，startScan 的写回条件
+          // (config.folderUri !== folderUri) 因两者已被同步成相等而永不触发，
+          // 导致重进扫描页总是需要重新选择目录。
+          await this.persistConfig();
         }
-        ToastUtil.show('当前设备不支持选择文件夹，已选中文件用于定位扫描');
+        ToastUtil.show('已通过所选文件定位扫描范围');
       } else {
         this.folderUri = result.uri;
         this.folderName = FormatUtil.formatFolderDisplay(result.uri);
         if (this.config) {
           this.config.folderUri = this.folderUri;
           this.config.folderName = this.folderName;
+          await this.persistConfig();
         }
       }
     } catch (e) {
       LogUtil.e('ScanProgress', `选择目录失败: ${(e as Error).message}`);
       ToastUtil.show(`选择失败: ${(e as Error).message}`);
+    }
+  }
+
+  /** 将当前内存中的配置（目录 URI/名称等）写回数据库，失败仅记日志不阻断扫描。 */
+  private async persistConfig(): Promise<void> {
+    if (!this.config) {
+      return;
+    }
+    try {
+      await ScanConfigDao.update(this.config);
+    } catch (e) {
+      LogUtil.e('ScanProgress', `保存扫描配置失败: ${(e as Error).message}`);
     }
   }
 
@@ -105,7 +122,8 @@ struct ScanProgress {
           return; // 用户取消
         }
         await this.selectDir();
-        if (this.folderUri.length === 0) {
+        // 文件回退模式下 folderUri 故意为空（扫描目标在 selectedFileUris），不能仅用 folderUri 判空
+        if (this.folderUri.length === 0 && !ScanService.useFileFallback()) {
           return; // 用户未选择新目录
         }
       } else if (accessibleUri !== this.folderUri) {

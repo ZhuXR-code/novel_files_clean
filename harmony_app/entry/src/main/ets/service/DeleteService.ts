@@ -68,7 +68,7 @@ export class DeleteService {
     const fileName: string = DeleteService.basename(fileUri);
 
     // 1) 多形态直接删除
-    let r: { ok: boolean; error: string } = await DeleteService.tryUnlink(fileUri, f.fileName, '直接删除');
+    let r: { ok: boolean; error: string; code: number } = await DeleteService.tryUnlink(fileUri, f.fileName, '直接删除');
     if (r.ok) {
       return { ok: true, error: '' };
     }
@@ -122,7 +122,11 @@ export class DeleteService {
     }
 
     // 4) 对父目录重新授权（同一目录只弹一次 Picker），并用新 URI 重建文件 URI
-    if (parentUri && parentUri.length > 0) {
+    // 修复：仅当失败原因是「权限类」错误时才弹 Picker 重授权；13900002=文件不存在
+    // （路径形态问题或文件确实缺失）时重授权毫无意义，反而会莫名拉起系统
+    // 文件选择器打断删除流程（缺陷：删除过程弹 picker）。
+    const ENOENT: number = 13900002;
+    if (parentUri && parentUri.length > 0 && r.code !== ENOENT) {
       const ctx: common.Context | null = AppContext.get();
       if (ctx) {
         try {
@@ -144,6 +148,8 @@ export class DeleteService {
           LogUtil.w('DeleteService', `重新授权后重试仍失败: ${f.fileName} -> ${(e2 as Error).message}`);
         }
       }
+    } else if (parentUri && parentUri.length > 0 && r.code === ENOENT) {
+      LogUtil.w('DeleteService', `文件 ${f.fileName} 失败原因为文件不存在(13900002)，跳过 Picker 重授权`);
     }
 
     LogUtil.w('DeleteService', `文件 ${f.fileName}（${f.path}）删除彻底失败: ${r.error}`);
@@ -156,25 +162,27 @@ export class DeleteService {
    * 之所以要多种形态：文档树授权下 fileIo 对 URI 与 path 的支持在部分系统版本不一致，
    * 全部尝试可覆盖「stat 可读但 unlink 对某一种形态拒绝授权」的场景。
    */
-  private static async tryUnlink(target: string, name: string, stage: string): Promise<{ ok: boolean; error: string }> {
+  private static async tryUnlink(target: string, name: string, stage: string): Promise<{ ok: boolean; error: string; code: number }> {
     if (!target || target.length === 0) {
-      return { ok: false, error: 'empty target' };
+      return { ok: false, error: 'empty target', code: -1 };
     }
     const candidates: string[] = DeleteService.buildUnlinkCandidates(target);
     let lastErr: string = '';
+    let lastCode: number = -1;
     for (const c of candidates) {
       try {
         await fileIo.unlink(c);
         LogUtil.i('DeleteService', `文件 ${name} ${stage}删除成功: ${c}`);
-        return { ok: true, error: '' };
+        return { ok: true, error: '', code: 0 };
       } catch (e) {
         const biz = e as BusinessError;
         const code: number = biz && typeof biz.code === 'number' ? biz.code : -1;
+        lastCode = code;
         lastErr = `code=${code} ${biz && biz.message ? biz.message : String(e)}`;
         LogUtil.w('DeleteService', `文件 ${name} ${stage}删除失败[候选 ${c}]: ${lastErr}`);
       }
     }
-    return { ok: false, error: lastErr };
+    return { ok: false, error: lastErr, code: lastCode };
   }
 
   /**
@@ -324,22 +332,52 @@ export class DeleteService {
    * 将 URI 转为 fileIo 可操作的真实 path。
    * 与 ScanService 的 listFile 处理一致：文档树 URI（file://docs/...）必须提取
    * path 才能被 fileIo 识别；content:// / file:// 均按此处理；纯路径原样返回。
+   *
+   * 修复：不再依赖 new uri.URI().path 提取+解码——扫描落库的路径常为「目录部分
+   * percent-encoded + 文件名部分裸中文/空格」的混合 URI，uri.URI 对含裸空格/中文
+   * 的串解析会抛错或返回未解码 path，导致「裸真实路径」候选缺失，unlink 只剩混合
+   * URI 一种形态而报 13900002。这里手动剥离 scheme 前缀后 decodeURIComponent，
+   * 稳定产出 /storage/... 裸路径（该形态已被 listFile/漂移删除验证可访问可删）。
    */
   private static toRealPath(fileUri: string): string {
     if (!fileUri || fileUri.length === 0) {
       return fileUri;
     }
     try {
-      if (fileUri.startsWith('content://') || fileUri.startsWith('file://')) {
-        const p: string = new uri.URI(fileUri).path;
-        if (p && p.length > 0) {
-          return p;
-        }
+      let p: string = '';
+      if (fileUri.startsWith('file://docs')) {
+        p = fileUri.substring('file://docs'.length);
+      } else if (fileUri.startsWith('file://')) {
+        p = fileUri.substring('file://'.length);
+      } else if (fileUri.startsWith('content://')) {
+        // content:// 需要真正的 URI 解析，保留原实现并兜底
+        const up: string = new uri.URI(fileUri).path;
+        return (up && up.length > 0) ? up : fileUri;
+      } else {
+        // 裸路径：仍需解码可能残留的 percent 编码（存量数据）
+        p = fileUri;
       }
+      return DeleteService.decodePercent(p);
     } catch (e) {
       // 提取失败则原样返回
+      return fileUri;
     }
-    return fileUri;
+  }
+
+  /**
+   * 解码路径中的 percent 编码（%E3%80%90 → 【 等）。
+   * decodeURIComponent 按 UTF-8 多字节正确解码；异常（孤立 % 等非法序列）时
+   * 原样返回，避免为解码失败而丢失整个裸路径候选。
+   */
+  private static decodePercent(p: string): string {
+    if (p.indexOf('%') < 0) {
+      return p;
+    }
+    try {
+      return decodeURIComponent(p);
+    } catch (e) {
+      return p;
+    }
   }
 
   /**

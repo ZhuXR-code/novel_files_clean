@@ -176,33 +176,48 @@ export class ScanService {
     // 先清空上次的文件缓存（内存 + 持久化），避免旧列表影响新配置。
     ScanService.clearFileFallback();
     // FOLDER 模式优先：直接选目录，授权整棵树，可递归遍历扫描。
-    // 仅当设备/系统具备 FolderPicker 能力位时才尝试 FOLDER，避免在无该能力的设备上
-    // 强行吊起文件夹选择器却无法选择、只能取消，造成「先调文件夹、退出后才选文件」的割裂体验。
+    // 官方口径：DocumentSelectMode.FOLDER 仅对 PC/2in1/TV 设备生效；手机/平板上强行调用
+    // 会让系统选择器提示「不支持选择文件夹」（Pura 系列真机 HarmonyOS 6.x 实测如此），
+    // 因此按设备类型判定，手机/平板直接走「选择文件定位文件夹」方案，不再吊起文件夹选择器。
     if (ScanService.canPickFolder()) {
       const folderResult: DirectoryPickResult = await ScanService.tryPickFolder(context, defaultUri);
       if (folderResult.uri.length > 0) {
         return folderResult;
       }
-      // 用户取消 / 未选中目录：明确提示后降級为「选择文件以定位文件夹」
+      // 用户在 FOLDER 选择器中未选中目录（取消等）：提示后降级为「选择文件以定位文件夹」
       LogUtil.w('ScanService', 'FOLDER 模式未选中目录，降级为 FILE 多选');
-      await ScanService.notifyFolderFallback();
+      await ScanService.notifyFolderFallback(false);
     } else {
-      // 设备不支持 FOLDER：直接提示用户改用「选择文件定位文件夹」方案，不再无谓吊起文件夹选择器
-      LogUtil.i('ScanService', '当前设备不支持 FOLDER 模式，使用 FILE 多选兜底');
-      await ScanService.notifyFolderFallback();
+      // 手机/平板等设备不支持 FOLDER：直接用友好文案引导「选择文件定位文件夹」，
+      // 避免出现「不支持选择文件夹」这类让用户误以为功能损坏的提示。
+      LogUtil.i('ScanService', `当前设备(${ScanService.safeDeviceType()})不支持 FOLDER 模式，使用「选择文件定位文件夹」方案`);
+      await ScanService.notifyFolderFallback(true);
     }
     return ScanService.pickFiles(context, defaultUri);
   }
 
-  /**
-   * 提示用户：将改用「选择文件以定位文件夹」方案。
-   * FOLDER 模式不可用（设备不支持）或未选中（用户取消）时调用，避免体验割裂。
-   */
-  private static async notifyFolderFallback(): Promise<void> {
+  /** 读取设备类型（异常时返回 unknown），仅用于日志与 FOLDER 能力判定。 */
+  private static safeDeviceType(): string {
     try {
+      return deviceInfo.deviceType;
+    } catch (e) {
+      return 'unknown';
+    }
+  }
+
+  /**
+   * 提示用户改用「选择文件以定位文件夹」方案（FOLDER 模式不可用或未选中时调用）。
+   * @param deviceUnsupported true=设备形态不支持（手机/平板），文案说明系统限制；
+   *                          false=FOLDER 选择器中用户未选中，仅引导继续选文件。
+   */
+  private static async notifyFolderFallback(deviceUnsupported: boolean): Promise<void> {
+    try {
+      const prefix: string = deviceUnsupported
+        ? '鸿蒙手机/平板暂不支持直接选择文件夹，'
+        : '';
       await promptAction.showDialog({
-        title: '改为选择文件以定位文件夹',
-        message: '未能选择文件夹。\n\n请在接下来的文件选择器中，进入目标文件夹并选中其中的一个或多个文件：\n· 若所选文件所在文件夹可访问，将扫描整个文件夹（含子文件夹）；\n· 否则仅扫描您选中的文件。',
+        title: '请选择文件以定位文件夹',
+        message: `${prefix}请在接下来的文件选择器中，进入目标文件夹并选中其中的任意一个（或多个）文件：\n· 应用会自动定位并扫描整个文件夹（含子文件夹）；\n· 若文件夹不可访问，则仅扫描您选中的文件。`,
         buttons: [{ text: '我知道了', color: '#2D6A4F' }]
       });
     } catch (e) {
@@ -212,24 +227,20 @@ export class ScanService {
 
   /**
    * 设备是否支持 FOLDER（目录选择）模式。
-   * FOLDER 模式由 Picker 的 selectMode=DocumentSelectMode.FOLDER 提供，
-   * 在 @kit.CoreFileKit 中自 API 12（HarmonyOS NEXT 首发）即支持，因此凡 NEXT 设备均可用。
-   * 注意：官方文档所述「从 API 版本 26.0.0 开始支持」指的是 HarmonyOS 系统版本号 26.0.0，
-   * 而非 SDK API level 26；此前误用 sdkApiVersion >= 26 作门槛，会在 NEXT 5.x/6.x（API 12~23）
-   * 上错误禁用 FOLDER 模式、降级成 FILE 多选，导致用户只能选文件、最终「只扫出少量文件」。
+   * 官方口径（华为 Core File Kit FAQ）：DocumentSelectMode.FOLDER 仅对 PC/2in1/TV 设备生效，
+   * 手机/平板等非 PC 形态当前只能通过批量选择文件来获取目录。
+   * 此前仅以 sdkApiVersion>=12 作门槛，导致手机（如 Pura 80 Ultra / HarmonyOS 6.x）上
+   * 吊起 FOLDER 选择器后被系统提示「不支持选择文件夹」，用户误以为功能损坏。
    */
   private static canPickFolder(): boolean {
     try {
-      // 运行时仅作保守下限保护（API 12 起支持 FOLDER 选择），同时需系统具备
-      // FolderPicker 能力位。部分设备/系统镜像虽 API>=12 但 FolderPicker 能力未开放，
-      // 吊起后用户无法选择目录、只能取消，体验割裂。能力位不支持时直接返回 false，
-      // 跳过 FOLDER 尝试，改走「选择文件以定位文件夹」的回退路径并由上层提示用户。
-      return deviceInfo.sdkApiVersion >= 12 &&
-        canIUse('SystemCapability.FileManagement.Documents.FolderPicker');
+      if (deviceInfo.sdkApiVersion < 12) {
+        return false;
+      }
+      const type: string = deviceInfo.deviceType;
+      return type === '2in1' || type === 'tv';
     } catch (e) {
-      // 拿不到 SDK 版本或能力位查询异常时保守放行，让 Picker 实际尝试
-      // （失败会被 tryPickFolder 的 catch 捕获降级）
-      return deviceInfo.sdkApiVersion >= 12;
+      return false;
     }
   }
 
@@ -301,13 +312,8 @@ export class ScanService {
    *  - 父目录不可访问（如文档卷未授权父目录）→ 回退逐文件扫描 selectedFileUris。
    */
   private static async pickFiles(context: common.Context, defaultUri?: string): Promise<DirectoryPickResult> {
-    // 首次使用时给出明确指引
-    await promptAction.showDialog({
-      title: '选择文件以定位文件夹',
-      message: '当前设备不支持直接选择文件夹。\n\n请在文件选择器中进入目标文件夹，选中其中的一个或多个文件：\n· 若文件所在文件夹可访问，将扫描整个文件夹；\n· 否则仅扫描您选中的文件。',
-      buttons: [{ text: '我知道了', color: '#2D6A4F' }]
-    });
-
+    // 说明：引导弹窗已在 selectDirectory 中统一弹出（notifyFolderFallback），此处不再重复弹窗，
+    // 避免「提示一 → 提示二 → 才打开选择器」的连弹体验。
     const documentPicker = new picker.DocumentViewPicker(context);
     const options = new picker.DocumentSelectOptions();
     options.maxSelectNumber = ScanService.MAX_FILE_PICK;
