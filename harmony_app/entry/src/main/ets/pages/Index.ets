@@ -17,6 +17,8 @@ export struct HomePage {
   @State recentRuns: ScanRun[] = [];
   @State refreshing: boolean = false;
   @StorageProp('fontScale') fontScaleNum: number = 1.0;
+  // 挖孔区避让：页面 expandSafeArea 到状态栏下方，顶部标题需预留状态栏高度
+  @StorageProp('statusBarHeightPx') statusBarHeightPx: number = 0;
   // 全局刷新信号：扫描/导入完成或切回首页时触发最近文库重载
   @StorageLink('libraryRefreshTick') @Watch('onRefreshTick') refreshTick: number = 0;
 
@@ -62,7 +64,7 @@ export struct HomePage {
         .fontSize(this.fs(22))
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_primary'))
-        .margin({ top: 20, bottom: 10 })
+        .margin({ top: 20 + px2vp(this.statusBarHeightPx), bottom: 10 })
 
       Refresh({ refreshing: $$this.refreshing }) {
         Scroll() {
@@ -130,7 +132,7 @@ export struct HomePage {
               }
               .layoutWeight(1)
               .height(72)
-              .backgroundColor($r('app.color.primary'))
+              .backgroundColor($r('app.color.btn_primary_bg'))
               .borderRadius(12)
               .onClick(() => this.go('pages/ScanConfigList'))
 
@@ -226,6 +228,7 @@ export struct HomePage {
                 }
                 .constraintSize({ maxHeight: 320 })
                 .width('100%')
+                .edgeEffect(EdgeEffect.Spring)
               }
               .margin({ bottom: 8 })
             }

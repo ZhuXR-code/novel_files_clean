@@ -207,6 +207,7 @@ export struct MinePage {
       }
       .layoutWeight(1)
       .align(Alignment.Top)
+      .edgeEffect(EdgeEffect.Spring)
     }
     .width('100%')
     .height('100%')

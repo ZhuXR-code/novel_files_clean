@@ -32,6 +32,8 @@ type GroupSortMode =
 struct LibraryScreen {
   @State runId: number = 0;
   @State run: ScanRun | null = null;
+  // 挖孔区避让：页面 expandSafeArea 到状态栏下方，顶部栏需预留状态栏高度
+  @StorageProp('statusBarHeightPx') statusBarHeightPx: number = 0;
   // 列表模式当前页数据（数据库分页，仅查一页，支持 10w+ 级数据）
   @State viewItems: ScannedFile[] = [];
   // 合集模式当前页数据（数据库分页聚合）
@@ -989,8 +991,8 @@ struct LibraryScreen {
           .bindMenu(this.buildMoreMenu())
       }
       .width('100%')
-      .height(48)
-      .padding({ left: 8, right: 4 })
+      .height(48 + px2vp(this.statusBarHeightPx))
+      .padding({ left: 8, right: 4, top: px2vp(this.statusBarHeightPx) })
       .alignItems(VerticalAlign.Center)
       .backgroundColor($r('app.color.bg_card'))
       .border({ width: { bottom: 0.5 }, color: $r('app.color.divider') })
@@ -1004,12 +1006,12 @@ struct LibraryScreen {
           Blank()
           Button('全选').fontSize(this.fs(12)).height(30).backgroundColor($r('app.color.primary_dark')).fontColor($r('app.color.text_on_primary')).onClick(() => this.selectAllVisible())
           Button('反选').fontSize(this.fs(12)).height(30).backgroundColor($r('app.color.primary_dark')).fontColor($r('app.color.text_on_primary')).onClick(() => this.invertVisible())
-          Button('勾选').fontSize(this.fs(12)).height(30).backgroundColor($r('app.color.danger')).fontColor($r('app.color.text_on_primary')).onClick(() => this.multiSelectCheck())
+          Button('勾选').fontSize(this.fs(12)).height(30).backgroundColor($r('app.color.btn_danger_bg')).fontColor($r('app.color.text_on_primary')).onClick(() => this.multiSelectCheck())
           Button('退出').fontSize(this.fs(12)).height(30).backgroundColor($r('app.color.bg_card')).fontColor($r('app.color.text_primary')).onClick(() => this.exitMultiSelect())
         }
         .width('100%')
         .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-        .backgroundColor($r('app.color.primary'))
+        .backgroundColor($r('app.color.btn_primary_bg'))
       }
 
       // 步骤条（对齐安卓：扫描→合集→勾选重复→确认→删除）
@@ -1050,7 +1052,7 @@ struct LibraryScreen {
               .layoutWeight(1)
               .height(30)
               .fontSize(this.fs(13))
-              .backgroundColor(this.mode === 'list' ? $r('app.color.primary') : $r('app.color.bg_card'))
+              .backgroundColor(this.mode === 'list' ? $r('app.color.btn_primary_bg') : $r('app.color.bg_card'))
               .fontColor(this.mode === 'list' ? $r('app.color.text_on_primary') : $r('app.color.text_secondary'))
               .borderRadius({ topLeft: 8, bottomLeft: 8 })
               .onClick(() => this.toggleMode('list'))
@@ -1058,7 +1060,7 @@ struct LibraryScreen {
               .layoutWeight(1)
               .height(30)
               .fontSize(this.fs(13))
-              .backgroundColor(this.mode === 'collection' ? $r('app.color.primary') : $r('app.color.bg_card'))
+              .backgroundColor(this.mode === 'collection' ? $r('app.color.btn_primary_bg') : $r('app.color.bg_card'))
               .fontColor(this.mode === 'collection' ? $r('app.color.text_on_primary') : $r('app.color.text_secondary'))
               .borderRadius({ topRight: 8, bottomRight: 8 })
               .onClick(() => this.toggleMode('collection'))
@@ -1093,6 +1095,7 @@ struct LibraryScreen {
           .scrollable(ScrollDirection.Horizontal)
           .scrollBar(BarState.Off)
           .width('100%')
+          .edgeEffect(EdgeEffect.Spring)
         }
         .padding({ left: 12, right: 12, top: 4, bottom: 4 })
       }
@@ -1142,7 +1145,7 @@ struct LibraryScreen {
               .onClick(() => this.clearCollectionFilter())
             Button('应用')
               .layoutWeight(1)
-              .backgroundColor($r('app.color.primary'))
+              .backgroundColor($r('app.color.btn_primary_bg'))
               .onClick(() => this.applyCollectionFilter())
           }
           .width('100%')
@@ -1244,7 +1247,7 @@ struct LibraryScreen {
                 .height(30)
                 .width(40)
                 .borderRadius(4)
-                .backgroundColor($r('app.color.primary'))
+                .backgroundColor($r('app.color.btn_primary_bg'))
                 .fontColor($r('app.color.text_on_primary'))
                 .onClick(() => this.applyPageSize())
               Text('跳转')
@@ -1386,7 +1389,7 @@ struct LibraryScreen {
       .height(28)
       .padding({ left: 12, right: 12 })
       .borderRadius(14)
-      .backgroundColor(active ? $r('app.color.primary') : $r('app.color.bg_card'))
+      .backgroundColor(active ? $r('app.color.btn_primary_bg') : $r('app.color.bg_card'))
       .fontColor(active ? $r('app.color.text_on_primary') : $r('app.color.text_secondary'))
       .textAlign(TextAlign.Center)
       .onClick(onClick)
@@ -1409,6 +1412,7 @@ struct LibraryScreen {
     .layoutWeight(1)
     .width('100%')
     .backgroundColor($r('app.color.bg_page'))
+    .edgeEffect(EdgeEffect.Spring)
     .onScrollIndex((first: number, end: number) => {
       this.listFirstVisible = first;
       this.listLastVisible = end;
@@ -1483,7 +1487,7 @@ struct LibraryScreen {
           width: (group.fileCount === 0 || group.checkedCount === 0) ? 2 : 0,
           color: $r('app.color.text_secondary')
         })
-        .backgroundColor((group.fileCount === 0 || group.checkedCount === 0) ? Color.Transparent : $r('app.color.primary'))
+        .backgroundColor((group.fileCount === 0 || group.checkedCount === 0) ? Color.Transparent : $r('app.color.btn_primary_bg'))
       if (group.fileCount > 0 && group.checkedCount >= group.fileCount) {
         Text('✓')
           .fontSize(16)
@@ -1605,6 +1609,7 @@ struct LibraryScreen {
     .layoutWeight(1)
     .width('100%')
     .backgroundColor($r('app.color.bg_page'))
+    .edgeEffect(EdgeEffect.Spring)
     .onScrollIndex((first: number, end: number) => {
       this.colFirstVisible = first;
       this.colLastVisible = end;
@@ -1870,7 +1875,7 @@ struct DeleteChoiceDialog {
           })
         Button('确认删除')
           .layoutWeight(1)
-          .backgroundColor($r('app.color.danger'))
+          .backgroundColor($r('app.color.btn_danger_bg'))
           .fontColor($r('app.color.text_on_primary'))
           .onClick(() => {
             this.controller.close();

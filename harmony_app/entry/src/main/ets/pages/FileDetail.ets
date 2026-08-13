@@ -264,7 +264,7 @@ struct FileDetail {
             Button('删除此文件')
               .width('100%')
               .height(44)
-              .backgroundColor($r('app.color.danger'))
+              .backgroundColor($r('app.color.btn_danger_bg'))
               .fontColor($r('app.color.text_on_primary'))
               .margin({ top: 12 })
               .onClick(() => this.deleteThis())
@@ -307,7 +307,7 @@ struct FileDetail {
                     Button('删除')
                       .height(32)
                       .fontSize(13)
-                      .backgroundColor($r('app.color.danger'))
+                      .backgroundColor($r('app.color.btn_danger_bg'))
                       .fontColor($r('app.color.text_on_primary'))
                       .onClick(() => this.deleteNote(note))
                   }
@@ -322,7 +322,7 @@ struct FileDetail {
                 .width('100%')
                 .height(44)
                 .margin({ top: 4 })
-                .backgroundColor($r('app.color.primary'))
+                .backgroundColor($r('app.color.btn_primary_bg'))
                 .fontColor($r('app.color.text_on_primary'))
                 .onClick(() => this.openAddNote())
             }
@@ -335,6 +335,7 @@ struct FileDetail {
         }
         .layoutWeight(1)
         .width('100%')
+        .edgeEffect(EdgeEffect.Spring)
       }
 
       // 预览范围选择弹窗（对齐安卓端：前50行/全部内容）
@@ -384,7 +385,7 @@ struct FileDetail {
         Button('全部内容（完整加载）')
           .width('100%')
           .height(44)
-          .backgroundColor($r('app.color.primary'))
+          .backgroundColor($r('app.color.btn_primary_bg'))
           .fontColor($r('app.color.text_on_primary'))
           .onClick(() => this.startPreview('full'))
 
@@ -474,7 +475,7 @@ struct FileDetail {
             .onClick(() => { this.showDeleteChoice = false; })
           Button('确认删除')
             .layoutWeight(1)
-            .backgroundColor($r('app.color.danger'))
+            .backgroundColor($r('app.color.btn_danger_bg'))
             .fontColor($r('app.color.text_on_primary'))
             .onClick(() => this.confirmDelete())
         }
@@ -512,6 +513,8 @@ struct FileDetail {
         TextInput({ placeholder: '请输入备注内容（1~50 字）', text: this.noteDraft })
           .width('100%')
           .height(60)
+          .fontColor($r('app.color.text_primary'))
+          .placeholderColor($r('app.color.text_secondary'))
           .backgroundColor($r('app.color.bg_page'))
           .onChange((v: string) => {
             if (v.length <= 50) {
@@ -540,7 +543,7 @@ struct FileDetail {
             .onClick(() => { this.showNoteDialog = false; })
           Button('保存')
             .layoutWeight(1)
-            .backgroundColor($r('app.color.primary'))
+            .backgroundColor($r('app.color.btn_primary_bg'))
             .fontColor($r('app.color.text_on_primary'))
             .onClick(() => this.saveNote())
         }

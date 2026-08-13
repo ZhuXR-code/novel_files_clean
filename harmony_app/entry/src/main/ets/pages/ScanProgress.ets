@@ -258,7 +258,7 @@ struct ScanProgress {
             .width('100%')
           Button('停止扫描')
             .width('60%')
-            .backgroundColor($r('app.color.danger'))
+            .backgroundColor($r('app.color.btn_danger_bg'))
             .onClick(() => ScanService.stop())
         } else if (this.done) {
           Text(this.stopped ? '扫描已停止' : '扫描完成')
@@ -271,7 +271,7 @@ struct ScanProgress {
           Row({ space: 12 }) {
             Button('查看文库')
               .layoutWeight(1)
-              .backgroundColor($r('app.color.primary'))
+              .backgroundColor($r('app.color.btn_primary_bg'))
               .onClick(() => this.openResult())
             Button('重新扫描')
               .layoutWeight(1)
@@ -286,7 +286,7 @@ struct ScanProgress {
             .fontColor(this.folderName ? $r('app.color.text_primary') : $r('app.color.text_hint'))
           Button('选择目录')
             .width('60%')
-            .backgroundColor($r('app.color.primary'))
+            .backgroundColor($r('app.color.btn_primary_bg'))
             .onClick(() => this.selectDir())
           Button('开始扫描')
             .width('60%')

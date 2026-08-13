@@ -211,7 +211,7 @@ struct DeleteConfirm {
           .padding(12)
       }
       .width('100%')
-      .backgroundColor($r('app.color.danger'))
+      .backgroundColor($r('app.color.btn_danger_bg'))
 
       // 删除源文件开关
       Row() {
@@ -329,6 +329,7 @@ struct DeleteConfirm {
         }
         .layoutWeight(1)
         .width('100%')
+        .edgeEffect(EdgeEffect.Spring)
         .onReachEnd(() => this.loadMore())
       }
 
@@ -341,7 +342,7 @@ struct DeleteConfirm {
           .onClick(() => router.back())
         Button(`将删 ${this.selectedCount} 个`)
           .layoutWeight(1)
-          .backgroundColor($r('app.color.danger'))
+          .backgroundColor($r('app.color.btn_danger_bg'))
           .fontColor($r('app.color.text_on_primary'))
           .enabled(this.selectedCount > 0)
           .onClick(() => this.confirm())

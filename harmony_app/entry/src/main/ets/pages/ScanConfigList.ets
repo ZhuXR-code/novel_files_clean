@@ -71,7 +71,7 @@ struct ScanConfigList {
   swipeDeleteConfig(cfg: ScanConfig) {
     Button('删除')
       .height('100%')
-      .backgroundColor($r('app.color.danger'))
+      .backgroundColor($r('app.color.btn_danger_bg'))
       .fontColor($r('app.color.text_on_primary'))
       .onClick(() => this.deleteConfig(cfg))
   }
@@ -110,7 +110,7 @@ struct ScanConfigList {
                       .height(32)
                       .onClick(() => this.editConfig(cfg.id))
                     Button('扫描')
-                      .backgroundColor($r('app.color.primary'))
+                      .backgroundColor($r('app.color.btn_primary_bg'))
                       .height(32)
                       .margin({ left: 8 })
                       .onClick(() => this.scanWith(cfg))
@@ -123,7 +123,7 @@ struct ScanConfigList {
                     .fontSize(12)
                     .fontColor($r('app.color.text_secondary'))
                   Button('删除')
-                    .backgroundColor($r('app.color.danger'))
+                    .backgroundColor($r('app.color.btn_danger_bg'))
                     .height(32)
                     .alignSelf(ItemAlign.End)
                     .margin({ top: 6 })
@@ -143,6 +143,7 @@ struct ScanConfigList {
       .layoutWeight(1)
       .width('100%')
       .backgroundColor($r('app.color.bg_page'))
+      .edgeEffect(EdgeEffect.Spring)
         }
         .onRefreshing(() => { this.load().finally(() => { this.refreshing = false; }); })
         .layoutWeight(1)
@@ -154,7 +155,7 @@ struct ScanConfigList {
       Button('+')
         .width(56).height(56)
         .fontSize(28)
-        .backgroundColor($r('app.color.primary'))
+        .backgroundColor($r('app.color.btn_primary_bg'))
         .fontColor($r('app.color.text_on_primary'))
         .borderRadius(28)
         .shadow({ radius: 8, color: '#66000000', offsetX: 0, offsetY: 4 })

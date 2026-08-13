@@ -524,6 +524,7 @@ struct OneClickCleanup {
       }
       .layoutWeight(1)
       .width('100%')
+      .edgeEffect(EdgeEffect.Spring)
     }
     .width('100%')
     .height('100%')
@@ -615,7 +616,7 @@ struct OneClickCleanup {
             .fontColor(this.folderName ? $r('app.color.text_primary') : $r('app.color.text_hint'))
             .layoutWeight(1)
           Button('选择目录')
-            .backgroundColor($r('app.color.primary'))
+            .backgroundColor($r('app.color.btn_primary_bg'))
             .fontColor($r('app.color.text_on_primary'))
             .height(36)
             .onClick(() => this.selectDir())
@@ -650,7 +651,7 @@ struct OneClickCleanup {
             .fontSize(12)
             .height(40)
             .margin({ left: 8 })
-            .backgroundColor($r('app.color.primary'))
+            .backgroundColor($r('app.color.btn_primary_bg'))
             .fontColor($r('app.color.text_on_primary'))
             .onClick(() => this.selectExcludeFolder())
         }
@@ -692,7 +693,7 @@ struct OneClickCleanup {
       Button('开始一键清理')
         .width('100%')
         .height(46)
-        .backgroundColor($r('app.color.primary'))
+        .backgroundColor($r('app.color.btn_primary_bg'))
         .fontColor($r('app.color.text_on_primary'))
         .enabled(this.folderUri.length > 0 || ScanService.useFileFallback())
         .onClick(() => this.startCleanup())
@@ -775,7 +776,7 @@ struct OneClickCleanup {
       Button('确认删除')
         .width('100%')
         .height(42)
-        .backgroundColor($r('app.color.danger'))
+        .backgroundColor($r('app.color.btn_danger_bg'))
         .fontColor($r('app.color.text_on_primary'))
         .enabled((this.dupCount ?? 0) > 0)
         .onClick(() => this.confirmDelete())
@@ -864,6 +865,7 @@ struct OneClickCleanup {
       .height(280)
       .backgroundColor($r('app.color.bg_page'))
       .borderRadius(8)
+      .edgeEffect(EdgeEffect.Spring)
       .onReachEnd(() => this.loadReviewMore())
 
       Row({ space: 10 }) {
@@ -878,7 +880,7 @@ struct OneClickCleanup {
         Button(`确认 ${this.reviewSelectedCount} 个`)
           .layoutWeight(1)
           .height(42)
-          .backgroundColor($r('app.color.primary'))
+          .backgroundColor($r('app.color.btn_primary_bg'))
           .fontColor($r('app.color.text_on_primary'))
           .onClick(() => this.saveReview())
       }
@@ -949,7 +951,7 @@ struct OneClickCleanup {
       Button('返回首页')
         .width('100%')
         .height(42)
-        .backgroundColor($r('app.color.primary'))
+        .backgroundColor($r('app.color.btn_primary_bg'))
         .fontColor($r('app.color.text_on_primary'))
         .onClick(() => router.back())
     }
@@ -975,7 +977,7 @@ struct OneClickCleanup {
       Button('返回首页')
         .width('100%')
         .height(42)
-        .backgroundColor($r('app.color.primary'))
+        .backgroundColor($r('app.color.btn_primary_bg'))
         .fontColor($r('app.color.text_on_primary'))
         .onClick(() => router.back())
     }

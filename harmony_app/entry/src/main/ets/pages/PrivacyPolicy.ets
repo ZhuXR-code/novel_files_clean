@@ -70,17 +70,18 @@ struct PrivacyPolicy {
       }
       .layoutWeight(1)
       .align(Alignment.Top)
+      .edgeEffect(EdgeEffect.Spring)
 
       if (this.mode === 'agree') {
         Row() {
           Button('不同意并退出', { type: ButtonType.Normal })
             .layoutWeight(1)
             .backgroundColor($r('app.color.bg_card'))
-            .fontColor($r('app.color.text_hint'))
+            .fontColor($r('app.color.text_secondary'))
             .onClick(() => this.disagree())
           Button('同意并继续', { type: ButtonType.Normal })
             .layoutWeight(1)
-            .backgroundColor($r('app.color.primary'))
+            .backgroundColor($r('app.color.btn_primary_bg'))
             .fontColor($r('app.color.text_on_primary'))
             .onClick(() => this.agree())
         }

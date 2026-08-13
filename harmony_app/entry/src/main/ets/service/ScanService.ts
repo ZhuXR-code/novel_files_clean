@@ -218,7 +218,8 @@ export class ScanService {
       await promptAction.showDialog({
         title: '请选择文件以定位文件夹',
         message: `${prefix}请在接下来的文件选择器中，进入目标文件夹并选中其中的任意一个（或多个）文件：\n· 应用会自动定位并扫描整个文件夹（含子文件夹）；\n· 若文件夹不可访问，则仅扫描您选中的文件。`,
-        buttons: [{ text: '我知道了', color: '#2D6A4F' }]
+        // 纯 .ts 文件无 $r 全局，用字面量：#40916C 在浅色对话框背景对比度≈3.8、深色背景≈4.1，双主题均达标
+        buttons: [{ text: '我知道了', color: '#40916C' }]
       });
     } catch (e) {
       // 弹窗失败不阻断主流程

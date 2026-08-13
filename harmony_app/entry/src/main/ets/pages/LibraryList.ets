@@ -54,7 +54,7 @@ struct MergeNameDialog {
           })
         Button('合并')
           .layoutWeight(1)
-          .backgroundColor($r('app.color.primary'))
+          .backgroundColor($r('app.color.btn_primary_bg'))
           .fontColor($r('app.color.text_on_primary'))
           .onClick(() => {
             const name: string = this.mergeInput.trim();
@@ -89,6 +89,8 @@ export struct LibraryTab {
   @State refreshing: boolean = false;
   @State selectMode: boolean = false;
   @State selectedIds: number[] = [];
+  // 挖孔区避让：页面 expandSafeArea 到状态栏下方，多选顶栏需预留状态栏高度
+  @StorageProp('statusBarHeightPx') statusBarHeightPx: number = 0;
   @State renamingRun: ScanRun | null = null;
   @State showRename: boolean = false;
   @State renameInput: string = '';
@@ -333,7 +335,7 @@ export struct LibraryTab {
   @Builder
   swipeDeleteAction(run: ScanRun) {
     Button('删除')
-      .backgroundColor($r('app.color.danger'))
+      .backgroundColor($r('app.color.btn_danger_bg'))
       .fontColor($r('app.color.text_on_primary'))
       .height('100%')
       .borderRadius(0)
@@ -397,6 +399,7 @@ export struct LibraryTab {
               .onClick(() => this.toggleSelectAll())
           }
           .width('100%')
+          .padding({ top: px2vp(this.statusBarHeightPx) })
           .backgroundColor($r('app.color.bg_card'))
           .border({ width: { bottom: 1 }, color: $r('app.color.divider') })
         } else {
@@ -499,6 +502,7 @@ export struct LibraryTab {
           .width('100%')
           .layoutWeight(1)
           .padding({ top: 4 })
+          .edgeEffect(EdgeEffect.Spring)
         }
         .onRefreshing(() => {
           this.load().then(() => {
@@ -513,7 +517,7 @@ export struct LibraryTab {
           Button('删除选中 (' + this.selectedIds.length + ')')
             .width('100%')
             .height(44)
-            .backgroundColor($r('app.color.danger'))
+            .backgroundColor($r('app.color.btn_danger_bg'))
             .fontColor($r('app.color.text_on_primary'))
             .enabled(this.selectedIds.length > 0)
             .onClick(() => this.deleteSelected())
@@ -545,7 +549,7 @@ export struct LibraryTab {
                 })
               Button('保存')
                 .layoutWeight(1)
-                .backgroundColor($r('app.color.primary'))
+                .backgroundColor($r('app.color.btn_primary_bg'))
                 .fontColor($r('app.color.text_on_primary'))
                 .onClick(() => this.doRename())
             }

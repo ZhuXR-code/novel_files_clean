@@ -1,12 +1,15 @@
 @Entry
 @Component
 struct Help {
+  // 挖孔区避让：页面 expandSafeArea 到状态栏下方，顶部标题需预留状态栏高度
+  @StorageProp('statusBarHeightPx') statusBarHeightPx: number = 0;
+
   build() {
     Column() {
       Text('使用帮助')
         .fontSize(20)
         .fontWeight(FontWeight.Bold)
-        .margin({ top: 24, bottom: 16 })
+        .margin({ top: 24 + px2vp(this.statusBarHeightPx), bottom: 16 })
         .fontColor($r('app.color.text_primary'))
 
       Scroll() {
@@ -49,6 +52,7 @@ struct Help {
       }
       .layoutWeight(1)
       .width('100%')
+      .edgeEffect(EdgeEffect.Spring)
     }
     .width('100%')
     .height('100%')

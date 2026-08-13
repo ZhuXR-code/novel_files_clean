@@ -115,6 +115,7 @@ export struct CollectionTab {
           }
           .width('100%')
           .layoutWeight(1)
+          .edgeEffect(EdgeEffect.Spring)
         }
         .layoutWeight(1)
         .onRefreshing(() => {

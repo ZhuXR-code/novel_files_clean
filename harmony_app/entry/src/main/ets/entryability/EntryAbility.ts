@@ -85,6 +85,14 @@ export default class EntryAbility extends UIAbility {
       try {
         const mainWindow: window.Window = windowStage.getMainWindowSync();
         AppContext.setMainWindow(mainWindow);
+        // 挖孔区/状态栏适配：页面普遍 expandSafeArea 到状态栏下方，
+        // 顶部内容（顶栏/标题）需按状态栏高度避让，避免被摄像头挖孔遮挡。
+        this.applyStatusBarHeight(mainWindow);
+        mainWindow.on('avoidAreaChange', (options: window.AvoidAreaOptions) => {
+          if (options.type === window.AvoidAreaType.TYPE_SYSTEM) {
+            AppStorage.setOrCreate('statusBarHeightPx', options.area.topRect.height);
+          }
+        });
       } catch (e) {
         LogUtil.e('EntryAbility', `获取主窗口失败: ${(e as Error).message}`);
       }
@@ -108,6 +116,19 @@ export default class EntryAbility extends UIAbility {
         LogUtil.w('EntryAbility', `动态申请权限异常: ${e.message}`);
       });
     });
+  }
+
+  /**
+   * 读取系统避让区（状态栏/挖孔区）高度并写入 AppStorage，
+   * 各页面通过 @StorageProp('statusBarHeightPx') + px2vp 避让顶部内容。
+   */
+  private applyStatusBarHeight(mainWindow: window.Window): void {
+    try {
+      const avoidArea: window.AvoidArea = mainWindow.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+      AppStorage.setOrCreate('statusBarHeightPx', avoidArea.topRect.height);
+    } catch (e) {
+      LogUtil.e('EntryAbility', `读取状态栏高度失败: ${(e as Error).message}`);
+    }
   }
 
   /**

@@ -510,6 +510,7 @@ struct FilePreview {
         this.loadMoreItem()
       }
       .width('100%').layoutWeight(1)
+      .edgeEffect(EdgeEffect.Spring)
       .onScrollIndex((first: number) => {
         this.firstVisibleIndex = first;
         // 接近末尾即自动预加载：末可见项 + 一屏缓冲接近已加载末尾时触发，
@@ -527,7 +528,7 @@ struct FilePreview {
           Column()
             .width(this.scrollbarActive ? 12 : 4)
             .height(this.getThumbHeight)
-            .backgroundColor($r('app.color.primary'))
+            .backgroundColor($r('app.color.btn_primary_bg'))
             .opacity(0.55)
             .borderRadius(this.scrollbarActive ? 6 : 2)
             .offset({ y: this.getThumbOffset })
@@ -578,7 +579,7 @@ struct FilePreview {
           Row()
             .width(this.getThumbWidth)
             .height(this.scrollbarActive ? 12 : 4)
-            .backgroundColor($r('app.color.primary'))
+            .backgroundColor($r('app.color.btn_primary_bg'))
             .opacity(0.55)
             .borderRadius(this.scrollbarActive ? 6 : 2)
             .offset({ x: this.getThumbOffsetHorizontal })
@@ -623,6 +624,7 @@ struct FilePreview {
         this.loadMoreItem()
       }
       .width('100%').layoutWeight(1)
+      .edgeEffect(EdgeEffect.Spring)
       .onScrollIndex((first: number) => {
         this.firstVisibleIndex = first;
         // 接近末尾即自动预加载：末可见项 + 一屏缓冲接近已加载末尾时触发，

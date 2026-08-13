@@ -108,13 +108,13 @@ struct LogViewer {
         Button('清空')
           .fontSize(12)
           .height(32)
-          .backgroundColor($r('app.color.danger'))
+          .backgroundColor($r('app.color.btn_danger_bg'))
           .fontColor($r('app.color.text_on_primary'))
           .onClick(() => (this.showClearConfirm = true))
         Button('导出')
           .fontSize(12)
           .height(32)
-          .backgroundColor($r('app.color.primary'))
+          .backgroundColor($r('app.color.btn_primary_bg'))
           .fontColor($r('app.color.text_on_primary'))
           .onClick(() => this.exportLog())
       }
@@ -143,6 +143,7 @@ struct LogViewer {
         .layoutWeight(1)
         .width('100%')
         .backgroundColor($r('app.color.bg_card'))
+        .edgeEffect(EdgeEffect.Spring)
       }
 
       // G组 #23 清空确认弹窗
@@ -183,7 +184,7 @@ struct LogViewer {
           Button('确认清空')
             .layoutWeight(1)
             .height(40)
-            .backgroundColor($r('app.color.danger'))
+            .backgroundColor($r('app.color.btn_danger_bg'))
             .fontColor($r('app.color.text_on_primary'))
             .onClick(() => this.clearLog())
         }

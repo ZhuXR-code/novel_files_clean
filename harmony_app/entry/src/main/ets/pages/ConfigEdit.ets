@@ -228,7 +228,7 @@ struct ConfigEdit {
                 .fontColor(this.folderName ? $r('app.color.text_primary') : $r('app.color.text_hint'))
                 .layoutWeight(1)
               Button('选择目录')
-                .backgroundColor($r('app.color.primary'))
+                .backgroundColor($r('app.color.btn_primary_bg'))
                 .height(36)
                 .onClick(() => this.selectDir())
             }
@@ -252,7 +252,7 @@ struct ConfigEdit {
                     .fontSize(11)
                     .height(28)
                     .margin({ right: 6, bottom: 6 })
-                    .backgroundColor(this.isTypeChecked(t) ? $r('app.color.primary') : $r('app.color.bg_page'))
+                    .backgroundColor(this.isTypeChecked(t) ? $r('app.color.btn_primary_bg') : $r('app.color.bg_page'))
                     .fontColor(this.isTypeChecked(t) ? $r('app.color.text_on_primary') : $r('app.color.text_secondary'))
                     .onClick(() => this.toggleFileType(t))
                 },
@@ -273,14 +273,14 @@ struct ConfigEdit {
                 .fontSize(12)
                 .height(34)
                 .layoutWeight(1)
-                .backgroundColor(this.scanMode === 'quick' ? $r('app.color.primary') : $r('app.color.bg_page'))
+                .backgroundColor(this.scanMode === 'quick' ? $r('app.color.btn_primary_bg') : $r('app.color.bg_page'))
                 .fontColor(this.scanMode === 'quick' ? $r('app.color.text_on_primary') : $r('app.color.text_secondary'))
                 .onClick(() => this.setScanMode('quick'))
               Button('精确扫描')
                 .fontSize(12)
                 .height(34)
                 .layoutWeight(1)
-                .backgroundColor(this.scanMode === 'deep' ? $r('app.color.primary') : $r('app.color.bg_page'))
+                .backgroundColor(this.scanMode === 'deep' ? $r('app.color.btn_primary_bg') : $r('app.color.bg_page'))
                 .fontColor(this.scanMode === 'deep' ? $r('app.color.text_on_primary') : $r('app.color.text_secondary'))
                 .onClick(() => this.setScanMode('deep'))
             }
@@ -321,7 +321,7 @@ struct ConfigEdit {
                 .fontSize(12)
                 .height(40)
                 .margin({ left: 8 })
-                .backgroundColor($r('app.color.primary'))
+                .backgroundColor($r('app.color.btn_primary_bg'))
                 .fontColor($r('app.color.text_on_primary'))
                 .onClick(() => this.selectExcludeFolder())
             }
@@ -380,6 +380,7 @@ struct ConfigEdit {
       }
       .layoutWeight(1)
       .width('100%')
+      .edgeEffect(EdgeEffect.Spring)
     }
     .width('100%')
     .height('100%')

@@ -230,7 +230,7 @@ struct DeleteProgress {
             .onClick(() => router.pushUrl({ url: 'pages/LogViewer' }).catch(() => {}))
           Button('返回文库')
             .layoutWeight(1)
-            .backgroundColor($r('app.color.primary'))
+            .backgroundColor($r('app.color.btn_primary_bg'))
             .fontColor($r('app.color.text_on_primary'))
             .onClick(() => this.finish())
         } else {
@@ -241,7 +241,7 @@ struct DeleteProgress {
             .onClick(() => router.back())
           Button('开始删除')
             .layoutWeight(1)
-            .backgroundColor($r('app.color.danger'))
+            .backgroundColor($r('app.color.btn_danger_bg'))
             .fontColor($r('app.color.text_on_primary'))
             .enabled(this.ids.length > 0 && !this.deleting)
             .onClick(() => this.startDelete())

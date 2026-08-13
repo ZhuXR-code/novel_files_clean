@@ -131,7 +131,7 @@ struct DupRuleSettings {
             Row() {
               Text('自定义规则').fontSize(14).fontWeight(FontWeight.Bold)
               Blank()
-              Button('+ 新增').fontSize(12).height(30).backgroundColor($r('app.color.primary')).fontColor($r('app.color.text_on_primary'))
+              Button('+ 新增').fontSize(12).height(30).backgroundColor($r('app.color.btn_primary_bg')).fontColor($r('app.color.text_on_primary'))
                 .onClick(() => this.openAdd())
             }
             .width('100%').padding({ left: 4, top: 12, right: 4 })
@@ -150,6 +150,7 @@ struct DupRuleSettings {
           .padding(16)
         }
         .layoutWeight(1)
+        .edgeEffect(EdgeEffect.Spring)
       }
       .width('100%')
       .height('100%')
@@ -211,7 +212,7 @@ struct DupRuleSettings {
       Row({ space: 6 }) {
         Blank()
         Button('编辑').fontSize(12).height(30).onClick(() => this.openEdit(r))
-        Button('删除').fontSize(12).height(30).backgroundColor($r('app.color.danger')).fontColor($r('app.color.text_on_primary'))
+        Button('删除').fontSize(12).height(30).backgroundColor($r('app.color.btn_danger_bg')).fontColor($r('app.color.text_on_primary'))
           .onClick(() => this.deleteRule(r))
       }
       .width('100%')
@@ -366,7 +367,7 @@ struct DupRuleSettings {
         Text(this.editingId === 0 ? '新增自定义规则' : '编辑自定义规则')
           .fontSize(16).fontWeight(FontWeight.Bold).margin({ left: 8 })
         Blank()
-        Button('保存').backgroundColor($r('app.color.primary')).fontColor($r('app.color.text_on_primary'))
+        Button('保存').backgroundColor($r('app.color.btn_primary_bg')).fontColor($r('app.color.text_on_primary'))
           .onClick(() => this.saveRule())
       }
       .width('100%').padding(12)
@@ -389,7 +390,7 @@ struct DupRuleSettings {
           Row() {
             Text('条件（全部满足）').fontSize(13).fontColor($r('app.color.text_secondary'))
             Blank()
-            Button('+ 条件').fontSize(12).height(30).backgroundColor($r('app.color.success')).fontColor($r('app.color.text_on_primary'))
+            Button('+ 条件').fontSize(12).height(30).backgroundColor($r('app.color.btn_success_bg')).fontColor($r('app.color.text_on_primary'))
               .onClick(() => {
                 this.editConds.push({ field: 'file_name', op: 'contains', value: '' })
                 this.editConds = [...this.editConds]
@@ -415,7 +416,7 @@ struct DupRuleSettings {
             }
             Button('测试匹配')
               .fontSize(12).height(34).width('100%')
-              .backgroundColor($r('app.color.primary')).fontColor($r('app.color.text_on_primary'))
+              .backgroundColor($r('app.color.btn_primary_bg')).fontColor($r('app.color.text_on_primary'))
               .onClick(() => this.testRegex())
           }
           .width('100%')
@@ -427,6 +428,7 @@ struct DupRuleSettings {
         .padding(16)
       }
       .layoutWeight(1)
+      .edgeEffect(EdgeEffect.Spring)
     }
     .width('100%')
     .height('92%')
@@ -440,7 +442,7 @@ struct DupRuleSettings {
       .fontSize(13)
       .height(34)
       .layoutWeight(1)
-      .backgroundColor(this.editAction === value ? $r('app.color.primary') : $r('app.color.divider'))
+      .backgroundColor(this.editAction === value ? $r('app.color.btn_primary_bg') : $r('app.color.divider'))
       .fontColor(this.editAction === value ? $r('app.color.text_on_primary') : $r('app.color.text_primary'))
       .onClick(() => { this.editAction = value })
   }
@@ -459,7 +461,7 @@ struct DupRuleSettings {
           })
         Button('删')
           .fontSize(12).height(28).width(40)
-          .backgroundColor($r('app.color.danger')).fontColor($r('app.color.text_on_primary'))
+          .backgroundColor($r('app.color.btn_danger_bg')).fontColor($r('app.color.text_on_primary'))
           .enabled(this.editConds.length > 1)
           .onClick(() => {
             this.editConds.splice(idx, 1)

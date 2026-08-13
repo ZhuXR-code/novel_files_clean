@@ -369,7 +369,7 @@ struct KeywordReplace {
         Button('删除')
           .fontSize(12)
           .height(30)
-          .backgroundColor($r('app.color.danger'))
+          .backgroundColor($r('app.color.btn_danger_bg'))
           .fontColor($r('app.color.text_on_primary'))
           .onClick(() => this.deleteRule(r))
       }
@@ -399,14 +399,14 @@ struct KeywordReplace {
             .fontSize(13)
             .height(34)
             .layoutWeight(1)
-            .backgroundColor(this.scope === 'scan' ? $r('app.color.primary') : $r('app.color.bg_card'))
+            .backgroundColor(this.scope === 'scan' ? $r('app.color.btn_primary_bg') : $r('app.color.bg_card'))
             .fontColor(this.scope === 'scan' ? $r('app.color.text_on_primary') : $r('app.color.text_primary'))
             .onClick(() => this.changeScope('scan'))
           Button('解析阶段')
             .fontSize(13)
             .height(34)
             .layoutWeight(1)
-            .backgroundColor(this.scope === 'parse' ? $r('app.color.primary') : $r('app.color.bg_card'))
+            .backgroundColor(this.scope === 'parse' ? $r('app.color.btn_primary_bg') : $r('app.color.bg_card'))
             .fontColor(this.scope === 'parse' ? $r('app.color.text_on_primary') : $r('app.color.text_primary'))
             .onClick(() => this.changeScope('parse'))
         }
@@ -473,7 +473,7 @@ struct KeywordReplace {
                   Button('取消').layoutWeight(1).onClick(() => (this.editing = null))
                   Button('保存')
                     .layoutWeight(1)
-                    .backgroundColor($r('app.color.primary'))
+                    .backgroundColor($r('app.color.btn_primary_bg'))
                     .fontColor($r('app.color.text_on_primary'))
                     .onClick(() => this.saveRule())
                 }
@@ -529,14 +529,14 @@ struct KeywordReplace {
                     .fontSize(13)
                     .height(34)
                     .layoutWeight(1)
-                    .backgroundColor(this.batchMode === 'remove' ? $r('app.color.primary') : $r('app.color.bg_card'))
+                    .backgroundColor(this.batchMode === 'remove' ? $r('app.color.btn_primary_bg') : $r('app.color.bg_card'))
                     .fontColor(this.batchMode === 'remove' ? $r('app.color.text_on_primary') : $r('app.color.text_primary'))
                     .onClick(() => (this.batchMode = 'remove'))
                   Button('替换关键词')
                     .fontSize(13)
                     .height(34)
                     .layoutWeight(1)
-                    .backgroundColor(this.batchMode === 'replace' ? $r('app.color.primary') : $r('app.color.bg_card'))
+                    .backgroundColor(this.batchMode === 'replace' ? $r('app.color.btn_primary_bg') : $r('app.color.bg_card'))
                     .fontColor(this.batchMode === 'replace' ? $r('app.color.text_on_primary') : $r('app.color.text_primary'))
                     .onClick(() => (this.batchMode = 'replace'))
                 }
@@ -551,6 +551,8 @@ struct KeywordReplace {
 
                 TextArea({ text: this.batchText, placeholder: this.batchMode === 'remove' ? '每行一条关键词' : '每行一条，如 AAA||B' })
                   .onChange((v: string) => (this.batchText = v))
+                  .fontColor($r('app.color.text_primary'))
+                  .placeholderColor($r('app.color.text_secondary'))
                   .height(180)
                   .width('100%')
 
@@ -569,7 +571,7 @@ struct KeywordReplace {
                   Button('保存')
                     .layoutWeight(1)
                     .height(36)
-                    .backgroundColor($r('app.color.primary'))
+                    .backgroundColor($r('app.color.btn_primary_bg'))
                     .fontColor($r('app.color.text_on_primary'))
                     .onClick(() => this.saveBatch())
                 }
@@ -602,6 +604,7 @@ struct KeywordReplace {
         }
         .layoutWeight(1)
         .width('100%')
+        .edgeEffect(EdgeEffect.Spring)
       }
       .width('100%')
       .height('100%')
