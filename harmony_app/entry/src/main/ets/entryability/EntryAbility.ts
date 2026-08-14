@@ -9,7 +9,6 @@ import { DupRuleConfigDao } from '../database/DupRuleConfigDao';
 import { DupRuleConfig } from '../model/DupRuleConfig';
 import { PreferencesUtil } from '../utils/PreferencesUtil';
 import { FilePermissionUtil } from '../utils/FilePermissionUtil';
-import { PermissionRequester } from '../utils/PermissionRequester';
 import { FontUtil } from '../utils/FontUtil';
 
 /**
@@ -110,11 +109,9 @@ export default class EntryAbility extends UIAbility {
       } catch (e) {
         LogUtil.e('EntryAbility', `应用主题失败: ${(e as Error).message}`);
       }
-      // 动态申请 user_grant 权限（READ_WRITE_DOCUMENTS_DIRECTORY 等）。
-      // 窗口就绪后再申请，保证授权弹窗正常展示；失败仅记日志，不阻断主流程。
-      PermissionRequester.requestIfNeeded(this.context).catch((e: Error) => {
-        LogUtil.w('EntryAbility', `动态申请权限异常: ${e.message}`);
-      });
+      // 注意：严禁在用户同意隐私政策前申请 user_grant 权限（READ_WRITE_DOCUMENTS_DIRECTORY 等），
+      // 否则违反《审核指南》第 7.5 项。权限申请已延迟到用户同意隐私政策、进入 MainTabs 首页后
+      // 由 MainTabs.aboutToAppear 调用 PermissionRequester.requestAfterPrivacyAgreed 执行。
     });
   }
 

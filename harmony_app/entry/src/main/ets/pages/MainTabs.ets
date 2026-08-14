@@ -1,5 +1,7 @@
 import { router } from '@kit.ArkUI';
 import { PreferencesUtil } from '../utils/PreferencesUtil';
+import { PermissionRequester } from '../utils/PermissionRequester';
+import { LogUtil } from '../utils/LogUtil';
 import { HomePage } from './Index';
 import { LibraryTab } from './LibraryList';
 import { MinePage } from './Settings';
@@ -22,6 +24,11 @@ struct MainTabs {
       router.replaceUrl({ url: 'pages/PrivacyPolicy', params: { mode: 'agree' } });
       return;
     }
+    // 已同意隐私政策：此时再申请 user_grant 文件目录权限（合规要求：同意前不得申请）。
+    // 入口内部已做去重与防重入，不会每次进首页都弹窗。
+    PermissionRequester.requestAfterPrivacyAgreed().catch((e: Error) => {
+      LogUtil.w('MainTabs', `隐私同意后申请权限异常: ${e.message}`);
+    });
   }
 
   @Builder
